@@ -132,6 +132,7 @@ void register_shader_nodes()
   register_node_type_sh_basis_transform();
   register_node_type_sh_screen_derivative();
   register_node_type_sh_curvature();
+  register_node_type_sh_render_info();
 
   /* UPBGE */
   register_node_type_sh_sprites_animation();

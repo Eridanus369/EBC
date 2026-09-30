@@ -131,6 +131,7 @@ void register_node_type_sh_world_to_tangent();
 void register_node_type_sh_basis_transform();
 void register_node_type_sh_screen_derivative();
 void register_node_type_sh_curvature();
+void register_node_type_sh_render_info();
 
 /* UPBGE */
 void register_node_type_sh_sprites_animation();

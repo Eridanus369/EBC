@@ -11354,6 +11354,7 @@ static void rna_def_nodes(BlenderRNA *brna)
   define("ShaderNode", "ShaderNodeBasisTransform", def_sh_basis_transform);
   define("ShaderNode", "ShaderNodeScreenDerivative", def_sh_screen_derivative);
   define("ShaderNode", "ShaderNodeCurvature", def_sh_curvature);
+  define("ShaderNode", "ShaderNodeRenderInfo");
   define("ShaderNode", "ShaderNodeTexGradient", def_sh_tex_gradient);
   define("ShaderNode", "ShaderNodeTexIES", def_sh_tex_ies);
   define("ShaderNode", "ShaderNodeTexImage", def_sh_tex_image);
