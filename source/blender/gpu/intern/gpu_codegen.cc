@@ -638,6 +638,26 @@ void GPUCodegen::generate_graphs()
     }
   }
 
+  /* Mix runtime-generated sources (GLSL Function wrappers etc.) into the shader
+   * hash so different node code produces different shader variants. */
+  for (int i = 0; i < GPU_material_generated_source_count(&mat); i++) {
+    const GPUMaterialGeneratedSource *generated_source =
+        GPU_material_generated_source_get(&mat, i);
+    if (generated_source == nullptr) {
+      continue;
+    }
+    BLI_hash_mm2a_add(&hm2a_,
+                      reinterpret_cast<const uchar *>(generated_source->filename.c_str()),
+                      generated_source->filename.size());
+    for (const std::string &dependency : generated_source->dependencies) {
+      BLI_hash_mm2a_add(
+          &hm2a_, reinterpret_cast<const uchar *>(dependency.c_str()), dependency.size());
+    }
+    BLI_hash_mm2a_add(&hm2a_,
+                      reinterpret_cast<const uchar *>(generated_source->content.c_str()),
+                      generated_source->content.size());
+  }
+
   for (GPUMaterialAttribute &attr : graph.attributes) {
     BLI_hash_mm2a_add(&hm2a_, reinterpret_cast<uchar *>(attr.name), strlen(attr.name));
   }
