@@ -1039,12 +1039,16 @@ static std::string glslfn_pick_function(const bNode *node,
       std::optional<std::string> subtype;
       std::optional<std::string> description;
       std::optional<std::string> label;
+      std::optional<std::string> items;
+      std::optional<std::string> show_label;
+      std::optional<std::string> panel_name;
 
       bool has_any() const
       {
         return default_value.has_value() || min_value.has_value() || max_value.has_value() ||
           hide_value.has_value() || subtype.has_value() || description.has_value() ||
-          label.has_value();
+          label.has_value() || items.has_value() || show_label.has_value() ||
+          panel_name.has_value();
       }
     };
 
@@ -1190,6 +1194,73 @@ static std::string glslfn_pick_function(const bNode *node,
         return false;
       }
       r_value = int(value);
+      return true;
+    }
+
+    [[maybe_unused]] static bool glsl_int_choice_contains_value(
+        const Span<GLSLFunctionParam::IntChoiceItem> choices, const int value)
+    {
+      for (const GLSLFunctionParam::IntChoiceItem &item : choices) {
+        if (item.value == value) {
+          return true;
+        }
+      }
+      return false;
+    }
+
+    [[maybe_unused]] static bool parse_glsl_int_choice_items(
+        const StringRef text,
+        Vector<GLSLFunctionParam::IntChoiceItem> &r_items,
+        std::string &r_error)
+    {
+      const std::string trimmed = trim_copy(text);
+      if (trimmed.empty()) {
+        r_error = "GLSL int items list cannot be empty";
+        return false;
+      }
+      r_items.clear();
+      Set<int> values;
+      int64_t item_start = 0;
+      while (item_start <= trimmed.size()) {
+        const int64_t separator = StringRef(trimmed).find(';', item_start);
+        const int64_t item_end = separator == StringRef::not_found ? trimmed.size() : separator;
+        const std::string item_text = trim_copy(
+            StringRef(trimmed).substr(item_start, item_end - item_start));
+        if (item_text.empty()) {
+          r_error = "GLSL int items list contains an empty item";
+          return false;
+        }
+        const int64_t label_sep = StringRef(item_text).find(':');
+        if (label_sep == StringRef::not_found) {
+          r_error = "GLSL int items must use 'value:Label' entries";
+          return false;
+        }
+        int value = 0;
+        if (!parse_glsl_meta_int_literal(
+                StringRef(item_text).substr(0, label_sep), value, r_error))
+        {
+          return false;
+        }
+        std::string label = trim_copy(StringRef(item_text).substr(label_sep + 1));
+        if (label.empty()) {
+          r_error = "GLSL int item label cannot be empty";
+          return false;
+        }
+        if (!values.add(value)) {
+          r_error = "GLSL int items list contains duplicate value '" +
+                    std::to_string(value) + "'";
+          return false;
+        }
+        r_items.append({value, std::move(label)});
+        if (separator == StringRef::not_found) {
+          break;
+        }
+        item_start = separator + 1;
+      }
+      if (r_items.is_empty()) {
+        r_error = "GLSL int items list cannot be empty";
+        return false;
+      }
       return true;
     }
 
@@ -1527,6 +1598,21 @@ static std::string glslfn_pick_function(const bNode *node,
         }
         else if (key == "label") {
           if (!assign_once(r_meta.label, key, value)) {
+            return false;
+          }
+        }
+        else if (key == "items") {
+          if (!assign_once(r_meta.items, key, value)) {
+            return false;
+          }
+        }
+        else if (key == "show_label") {
+          if (!assign_once(r_meta.show_label, key, value)) {
+            return false;
+          }
+        }
+        else if (key == "panel") {
+          if (!assign_once(r_meta.panel_name, key, value)) {
             return false;
           }
         }
@@ -1871,6 +1957,42 @@ static std::string glslfn_pick_function(const bNode *node,
         }
       }
 
+      if (raw_meta.items.has_value()) {
+        if (r_param.type != GLSLBoundaryType::Int) {
+          r_error = "GLSL meta items is only supported for int inputs";
+          return false;
+        }
+        if (raw_meta.min_value.has_value() || raw_meta.max_value.has_value()) {
+          r_error = "GLSL meta int items cannot be combined with min or max";
+          return false;
+        }
+        if (!parse_glsl_int_choice_items(*raw_meta.items, r_param.meta.int_choices, r_error)) {
+          return false;
+        }
+        if (!r_param.meta.has_default_value || !r_param.meta.int_default_value.has_value()) {
+          r_error = "GLSL meta int items require default=...";
+          return false;
+        }
+        if (!glsl_int_choice_contains_value(r_param.meta.int_choices,
+                                            *r_param.meta.int_default_value))
+        {
+          r_error = "GLSL meta int default must be one of its items";
+          return false;
+        }
+      }
+
+      if (raw_meta.show_label.has_value()) {
+        if (!raw_meta.items.has_value()) {
+          r_error = "GLSL meta show_label requires int items";
+          return false;
+        }
+        if (!parse_glsl_meta_bool_literal(*raw_meta.show_label,
+                                          r_param.meta.int_choices_show_label, r_error))
+        {
+          return false;
+        }
+      }
+
       if (raw_meta.subtype.has_value()) {
         PropertySubType subtype = PROP_NONE;
         if (!parse_glsl_meta_subtype(*raw_meta.subtype, r_param.type, subtype, r_error)) {
@@ -1884,6 +2006,9 @@ static std::string glslfn_pick_function(const bNode *node,
       }
       if (raw_meta.label.has_value()) {
         r_param.meta.label = *raw_meta.label;
+      }
+      if (raw_meta.panel_name.has_value()) {
+        r_param.meta.panel_name = *raw_meta.panel_name;
       }
       return true;
     }
