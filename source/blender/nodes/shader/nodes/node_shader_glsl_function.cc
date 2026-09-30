@@ -2420,6 +2420,10 @@ static void node_declare(NodeDeclarationBuilder &b)
     const UString socket_name(param.name.c_str());
     const UString socket_id(make_socket_identifier("In", param.name));
     const GLSLFunctionParam::Meta &meta = param.meta;
+    if (glsl_boundary_type_is_sampler(param.type)) {
+      b.add_input<decl::Closure>(socket_name, socket_id);
+      continue;
+    }
     switch (param.type) {
       case GLSLBoundaryType::Float: {
         auto &decl = b.add_input<decl::Float>(socket_name, socket_id)
@@ -2569,6 +2573,39 @@ static int node_shader_gpu_glsl_function(GPUMaterial *mat,
     parsed = find_glsl_function_definition(tokens, chosen, func, error);
   }
 
+  /* Bind sampler inputs: if the socket is linked to an ImageToClosure node,
+   * replace the float fallback with a real GPU texture link. */
+  if (parsed && in != nullptr) {
+    int socket_index = 0;
+    for (const bNodeSocket &sock : node->inputs) {
+      const GLSLFunctionParam *param = nullptr;
+      const std::string ident = make_socket_identifier("In", sock.name);
+      for (const GLSLFunctionParam &p : func.params) {
+        if (glsl_param_has_input_socket(p) && p.identifier == ident) {
+          param = &p;
+          break;
+        }
+      }
+      if (param != nullptr && glsl_boundary_type_is_sampler(param->type))
+      {
+        const bNodeLink *link = sock.link;
+        if (link != nullptr && link->fromnode != nullptr &&
+            link->fromnode->is_type("ShaderNodeImageToClosure"_ustr))
+        {
+          Image *img = id_cast<Image *>(link->fromnode->id);
+          if (img != nullptr && img->source != IMA_SRC_TILED) {
+            if (param->type == GLSLBoundaryType::Sample2D) {
+              in[socket_index].type = GPU_TEX2D;
+              in[socket_index].link = GPU_image(
+                  mat, img, nullptr, GPUSamplerState::default_sampler());
+            }
+          }
+        }
+      }
+      socket_index++;
+    }
+  }
+
   const std::string wrapper_filename = "__glslfn_wrap.glsl";
   const std::string wrapper_name = "glslfn_wrap_node";
   std::string wrapper;
@@ -2614,7 +2651,6 @@ static int node_shader_gpu_glsl_function(GPUMaterial *mat,
   extract_glsl_defines(source, defines, define_error);
 
   std::string combined = build_glsl_define_block(defines) + source + "\n" + wrapper;
-  fprintf(stderr, "[GLSLFN combined]\n%s\n", combined.c_str());
   GPU_material_generated_source_add(mat, wrapper_filename.c_str(), {}, combined.c_str());
 
   return GPU_stack_link_custom(mat,
