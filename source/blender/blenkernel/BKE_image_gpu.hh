@@ -45,6 +45,15 @@ gpu::Texture *BKE_image_acquire_gpu_viewer_texture(Image *image,
  * Like #BKE_image_acquire_gpu_texture, but can also return a GPU array texture and tile mapping
  * texture for UDIM tiles as used in material shaders. The caller must release the textures.
  */
+struct ImageRuntimeGPUTexture3DLutStrip {
+  ImageRuntimeGPUTexture3DLutStrip *next = nullptr;
+  ImageRuntimeGPUTexture3DLutStrip *prev = nullptr;
+  int width = 0;
+  int height = 0;
+  int depth = 0;
+  gpu::Texture *texture = nullptr;
+};
+
 struct ImageGPUTextures {
   gpu::Texture *texture = nullptr;
   gpu::Texture *tile_mapping = nullptr;
@@ -63,6 +72,23 @@ ImageGPUTextures BKE_image_acquire_gpu_material_texture(Image *image,
 bool BKE_image_has_gpu_material_texture(Image *image,
                                         ImageUser *iuser,
                                         const bool use_tile_mapping);
+
+/* 3D LUT strip variant for sampler3D inputs. */
+ImageGPUTextures BKE_image_acquire_gpu_material_3d_lut_texture(Image *image,
+                                                               ImageUser *iuser,
+                                                               int width,
+                                                               int height,
+                                                               int depth);
+
+/* Same, but will not load the texture if not already loaded. */
+ImageGPUTextures BKE_image_acquire_gpu_material_3d_lut_texture_try(Image *image,
+                                                                   ImageUser *iuser,
+                                                                   int width,
+                                                                   int height,
+                                                                   int depth);
+
+/* Free all 3D LUT strip textures owned by an image. */
+void BKE_image_free_gpu_3d_lut_textures(Image *ima);
 
 /* Ensure the material GPU texture of an image is created, without returning it. */
 void BKE_image_ensure_gpu_material_texture(Image *image,

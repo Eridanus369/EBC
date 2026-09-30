@@ -23,6 +23,7 @@
 #include "DNA_image_types.h"
 
 #include "IMB_cache.hh"
+#include "IMB_colormanagement.hh"
 #include "IMB_imbuf.hh"
 #include "IMB_imbuf_types.hh"
 
@@ -640,6 +641,150 @@ static bool image_gpu_texture_fits_full_resolution(const ImBuf *ibuf)
                            GPU_texture_size_with_limit(ibuf->y) == ibuf->y);
 }
 
+static bool image_gpu_3d_lut_strip_dimensions_valid(const ImBuf *ibuf,
+                                                    const int width,
+                                                    const int height,
+                                                    const int depth)
+{
+  if (ibuf == nullptr || width <= 0 || height <= 0 || depth <= 0) {
+    return false;
+  }
+  if (int64_t(ibuf->x) != int64_t(width) * int64_t(depth) || ibuf->y != height) {
+    return false;
+  }
+  const int max_size = GPU_max_texture_3d_size();
+  if (max_size > 0 && (width > max_size || height > max_size || depth > max_size)) {
+    return false;
+  }
+  return true;
+}
+
+static gpu::Texture **image_gpu_3d_lut_strip_texture_ptr(Image *ima,
+                                                         const int width,
+                                                         const int height,
+                                                         const int depth)
+{
+  for (ImageRuntimeGPUTexture3DLutStrip &lut : ima->runtime->gputextures_3d_lut_strip) {
+    if (lut.width == width && lut.height == height && lut.depth == depth) {
+      return &lut.texture;
+    }
+  }
+  ImageRuntimeGPUTexture3DLutStrip *lut = MEM_new<ImageRuntimeGPUTexture3DLutStrip>(
+      __func__);
+  lut->width = width;
+  lut->height = height;
+  lut->depth = depth;
+  BLI_addtail(&ima->runtime->gputextures_3d_lut_strip, lut);
+  return &lut->texture;
+}
+
+void BKE_image_free_gpu_3d_lut_textures(Image *ima)
+{
+  for (ImageRuntimeGPUTexture3DLutStrip &lut : ima->runtime->gputextures_3d_lut_strip) {
+    if (lut.texture == nullptr) {
+      continue;
+    }
+    GPU_texture_free(lut.texture);
+    lut.texture = nullptr;
+  }
+}
+
+static gpu::Texture *image_gpu_texture_3d_lut_strip_create(Image *ima,
+                                                           ImBuf *ibuf,
+                                                           const int width,
+                                                           const int height,
+                                                           const int depth)
+{
+  if (!image_gpu_3d_lut_strip_dimensions_valid(ibuf, width, height, depth)) {
+    CLOG_ERROR(&LOG,
+               "Image '%s' is not a valid 3D LUT strip for %dx%dx%d.",
+               ima->id.name + 2,
+               width,
+               height,
+               depth);
+    return nullptr;
+  }
+  const int64_t voxel_count = int64_t(width) * int64_t(height) * int64_t(depth);
+  if (voxel_count <= 0 || voxel_count > int64_t(SIZE_MAX / sizeof(float[4]))) {
+    return nullptr;
+  }
+
+  float *strip_buffer = MEM_new_array_uninitialized<float>(
+      4 * size_t(ibuf->x) * size_t(ibuf->y), __func__);
+  if (strip_buffer == nullptr) {
+    return nullptr;
+  }
+
+  const bool store_premultiplied = BKE_image_has_gpu_texture_premultiplied_alpha(ima, ibuf);
+  IMB_colormanagement_imbuf_to_float_texture(
+      strip_buffer, 0, 0, ibuf->x, ibuf->y, ibuf, store_premultiplied);
+
+  float *lut_buffer = MEM_new_array_uninitialized<float>(4 * size_t(voxel_count), __func__);
+  if (lut_buffer == nullptr) {
+    MEM_delete(strip_buffer);
+    return nullptr;
+  }
+
+  for (int z = 0; z < depth; z++) {
+    for (int y = 0; y < height; y++) {
+      const size_t src_offset = 4 * size_t(y * ibuf->x + z * width);
+      const size_t dst_offset = 4 * size_t((z * height + y) * width);
+      memcpy(lut_buffer + dst_offset, strip_buffer + src_offset, sizeof(float[4]) * width);
+    }
+  }
+
+  gpu::Texture *tex = GPU_texture_create_3d(ima->id.name + 2,
+                                            width,
+                                            height,
+                                            depth,
+                                            1,
+                                            gpu::TextureFormat::SFLOAT_32_32_32_32,
+                                            GPU_TEXTURE_USAGE_SHADER_READ,
+                                            lut_buffer);
+  if (tex != nullptr) {
+    GPU_texture_original_size_set(tex, ibuf->x, ibuf->y);
+    GPU_texture_mipmap_mode(tex, false, true);
+  }
+
+  MEM_delete(lut_buffer);
+  MEM_delete(strip_buffer);
+  return tex;
+}
+
+static ImageGPUTextures image_get_gpu_material_3d_lut_texture(Image *ima,
+                                                              ImageUser *iuser,
+                                                              const int width,
+                                                              const int height,
+                                                              const int depth,
+                                                              const bool try_only)
+{
+  ImageGPUTextures result = {};
+  if (ima == nullptr) {
+    return result;
+  }
+
+  gpu::Texture **slot = image_gpu_3d_lut_strip_texture_ptr(ima, width, height, depth);
+  if (*slot != nullptr) {
+    result.texture = *slot;
+    return result;
+  }
+  if (try_only) {
+    return result;
+  }
+
+  void *lock = nullptr;
+  ImBuf *ibuf = BKE_image_acquire_ibuf(ima, iuser, &lock);
+  if (ibuf == nullptr) {
+    return result;
+  }
+
+  *slot = image_gpu_texture_3d_lut_strip_create(ima, ibuf, width, height, depth);
+  BKE_image_release_ibuf(ima, ibuf, lock);
+
+  result.texture = *slot;
+  return result;
+}
+
 static ImageGPUTextures image_get_gpu_texture_single(Image *ima,
                                                      ImageUser *iuser,
                                                      const bool use_viewers,
@@ -793,6 +938,24 @@ bool BKE_image_has_gpu_material_texture(Image *image,
   return has_texture;
 }
 
+ImageGPUTextures BKE_image_acquire_gpu_material_3d_lut_texture(Image *image,
+                                                               ImageUser *iuser,
+                                                               const int width,
+                                                               const int height,
+                                                               const int depth)
+{
+  return image_get_gpu_material_3d_lut_texture(image, iuser, width, height, depth, false);
+}
+
+ImageGPUTextures BKE_image_acquire_gpu_material_3d_lut_texture_try(Image *image,
+                                                                   ImageUser *iuser,
+                                                                   const int width,
+                                                                   const int height,
+                                                                   const int depth)
+{
+  return image_get_gpu_material_3d_lut_texture(image, iuser, width, height, depth, true);
+}
+
 void BKE_image_ensure_gpu_material_texture(Image *image,
                                            ImageUser *iuser,
                                            const bool use_tile_mapping)
@@ -823,6 +986,8 @@ void BKE_image_free_gpu_udim_textures(Image *ima)
 
 void BKE_image_free_gpu_texture_caches(Image *ima)
 {
+  BKE_image_free_gpu_3d_lut_textures(ima);
+
   /* For Viewer images, the GPU texture can be generated directly by the compositor
    * without a CPU buffer, so it's not a cache and must be preserved. This is a
    * crude check, for future more general GPU image buffer support ImBuf will need

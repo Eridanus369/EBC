@@ -54,6 +54,8 @@ enum eImbFileType : int8_t;
 #define IMA_MAX_SPACE 64
 #define IMA_UDIM_MAX 2000
 
+struct ImageRuntimeGPUTexture3DLutStrip;
+
 namespace bke {
 
 struct ImageRuntime {
@@ -76,6 +78,9 @@ struct ImageRuntime {
 
   /* Log GPU load errors once per image. */
   bool gpu_load_error_logged = false;
+
+  /* 3D LUT strip textures (for sampler3D inputs). */
+  ListBaseT<ImageRuntimeGPUTexture3DLutStrip> gputextures_3d_lut_strip = {nullptr, nullptr};
 
   float view_offset[2] = {};
   float view_zoom = 1.0f;

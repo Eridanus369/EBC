@@ -706,13 +706,26 @@ static GPUMaterialTexture *gpu_node_graph_add_texture(GPUNodeGraph *graph,
                                                       gpu::Texture **colorband,
                                                       gpu::Texture **sky,
                                                       bool is_tiled,
+                                                      bool use_3d_lut_strip,
+                                                      int lut_3d_width,
+                                                      int lut_3d_height,
+                                                      int lut_3d_depth,
                                                       GPUSamplerState sampler_state)
 {
+  if (!use_3d_lut_strip) {
+    lut_3d_width = 0;
+    lut_3d_height = 0;
+    lut_3d_depth = 0;
+  }
+
   /* Find existing texture. */
   int num_textures = 0;
   GPUMaterialTexture *tex = graph->textures.first();
   for (; tex; tex = tex->next) {
     if (tex->ima == ima && tex->colorband == colorband && tex->sky == sky &&
+        tex->use_3d_lut_strip == use_3d_lut_strip &&
+        tex->lut_3d_width == lut_3d_width && tex->lut_3d_height == lut_3d_height &&
+        tex->lut_3d_depth == lut_3d_depth &&
         tex->sampler_state == sampler_state && gpu_image_user_match(tex, iuser))
     {
       break;
@@ -730,6 +743,10 @@ static GPUMaterialTexture *gpu_node_graph_add_texture(GPUNodeGraph *graph,
     }
     tex->colorband = colorband;
     tex->sky = sky;
+    tex->use_3d_lut_strip = use_3d_lut_strip;
+    tex->lut_3d_width = lut_3d_width;
+    tex->lut_3d_height = lut_3d_height;
+    tex->lut_3d_depth = lut_3d_depth;
     tex->sampler_state = sampler_state;
     SNPRINTF(tex->sampler_name, "samp%d", num_textures);
     if (is_tiled) {
@@ -877,7 +894,23 @@ GPUNodeLink *GPU_image(GPUMaterial *mat,
   GPUNodeLink *link = gpu_node_link_create();
   link->link_type = GPU_NODE_LINK_IMAGE;
   link->texture = gpu_node_graph_add_texture(
-      graph, ima, iuser, nullptr, nullptr, false, sampler_state);
+      graph, ima, iuser, nullptr, nullptr, false, false, 0, 0, 0, sampler_state);
+  return link;
+}
+
+GPUNodeLink *GPU_image_3d_lut_strip(GPUMaterial *mat,
+                                    Image *ima,
+                                    ImageUser *iuser,
+                                    const int width,
+                                    const int height,
+                                    const int depth,
+                                    GPUSamplerState sampler_state)
+{
+  GPUNodeGraph *graph = gpu_material_node_graph(mat);
+  GPUNodeLink *link = gpu_node_link_create();
+  link->link_type = GPU_NODE_LINK_IMAGE;
+  link->texture = gpu_node_graph_add_texture(
+      graph, ima, iuser, nullptr, nullptr, false, true, width, height, depth, sampler_state);
   return link;
 }
 
@@ -894,7 +927,7 @@ GPUNodeLink *GPU_image_sky(GPUMaterial *mat,
   GPUNodeLink *link = gpu_node_link_create();
   link->link_type = GPU_NODE_LINK_IMAGE_SKY;
   link->texture = gpu_node_graph_add_texture(
-      graph, nullptr, nullptr, nullptr, sky, false, sampler_state);
+      graph, nullptr, nullptr, nullptr, sky, false, false, 0, 0, 0, sampler_state);
   return link;
 }
 
@@ -907,7 +940,7 @@ void GPU_image_tiled(GPUMaterial *mat,
 {
   GPUNodeGraph *graph = gpu_material_node_graph(mat);
   GPUMaterialTexture *texture = gpu_node_graph_add_texture(
-      graph, ima, iuser, nullptr, nullptr, true, sampler_state);
+      graph, ima, iuser, nullptr, nullptr, true, false, 0, 0, 0, sampler_state);
 
   (*r_image_tiled_link) = gpu_node_link_create();
   (*r_image_tiled_link)->link_type = GPU_NODE_LINK_IMAGE_TILED;
@@ -927,7 +960,17 @@ GPUNodeLink *GPU_color_band(GPUMaterial *mat, int size, float *pixels, float *r_
   GPUNodeLink *link = gpu_node_link_create();
   link->link_type = GPU_NODE_LINK_COLORBAND;
   link->texture = gpu_node_graph_add_texture(
-      graph, nullptr, nullptr, colorband, nullptr, false, GPUSamplerState::internal_sampler());
+      graph,
+      nullptr,
+      nullptr,
+      colorband,
+      nullptr,
+      false,
+      false,
+      0,
+      0,
+      0,
+      GPUSamplerState::internal_sampler());
   return link;
 }
 

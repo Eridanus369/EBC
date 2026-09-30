@@ -392,6 +392,10 @@ struct GPUMaterialTexture {
   Image *ima;
   ImageUser iuser;
   bool iuser_available;
+  bool use_3d_lut_strip;
+  int lut_3d_width;
+  int lut_3d_height;
+  int lut_3d_depth;
   gpu::Texture **colorband;
   gpu::Texture **sky;
   char sampler_name[32];       /* Name of sampler in GLSL. */
@@ -672,6 +676,13 @@ GPUNodeLink *GPU_image(GPUMaterial *mat,
                        Image *ima,
                        ImageUser *iuser,
                        GPUSamplerState sampler_state);
+GPUNodeLink *GPU_image_3d_lut_strip(GPUMaterial *mat,
+                                    Image *ima,
+                                    ImageUser *iuser,
+                                    int width,
+                                    int height,
+                                    int depth,
+                                    GPUSamplerState sampler_state);
 void GPU_image_tiled(GPUMaterial *mat,
                      Image *ima,
                      ImageUser *iuser,
