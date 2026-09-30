@@ -183,6 +183,459 @@ namespace nodes::node_shader_glsl_function_cc {
       return std::isalnum(uchar(c)) || c == '_';
     }
 
+/* ============ stage 2b (part 2): function definition parsing ============ */
+        [[maybe_unused]] static GLSLBoundaryType glsl_boundary_type_from_name(const StringRef type_name)
+    {
+      if (type_name == "float")
+      {
+        return GLSLBoundaryType::Float;
+      }
+      if (type_name == "int")
+      {
+        return GLSLBoundaryType::Int;
+      }
+      if (type_name == "bool")
+      {
+        return GLSLBoundaryType::Bool;
+      }
+      if (type_name == "vec2")
+      {
+        return GLSLBoundaryType::Vec2;
+      }
+      if (type_name == "vec3")
+      {
+        return GLSLBoundaryType::Vec3;
+      }
+      if (type_name == "vec4")
+      {
+        return GLSLBoundaryType::Vec4;
+      }
+      if (type_name == "mat2")
+      {
+        return GLSLBoundaryType::Mat2;
+      }
+      if (type_name == "mat3")
+      {
+        return GLSLBoundaryType::Mat3;
+      }
+      if (type_name == "mat4")
+      {
+        return GLSLBoundaryType::Mat4;
+      }
+      if (type_name == "sampler2D")
+      {
+        return GLSLBoundaryType::Sample2D;
+      }
+      if (type_name == "sampler3D")
+      {
+        return GLSLBoundaryType::Sample3D;
+      }
+      if (type_name == "void")
+      {
+        return GLSLBoundaryType::Void;
+      }
+      return GLSLBoundaryType::Unsupported;
+    }
+
+    [[maybe_unused]] static int glsl_boundary_dimensions(const GLSLBoundaryType type)
+    {
+      switch (type)
+      {
+      case GLSLBoundaryType::Vec2:
+        return 2;
+      case GLSLBoundaryType::Vec3:
+        return 3;
+      case GLSLBoundaryType::Vec4:
+        return 4;
+      default:
+        return 0;
+      }
+    }
+
+    [[maybe_unused]] static bool glsl_boundary_type_is_sampler(const GLSLBoundaryType type)
+    {
+      return ELEM(type, GLSLBoundaryType::Sample2D, GLSLBoundaryType::Sample3D);
+    }
+
+    [[maybe_unused]] static std::string make_socket_identifier(const StringRef prefix, const StringRef name)
+    {
+      std::string identifier;
+      identifier.reserve(prefix.size() + name.size() + 8);
+      identifier.append(prefix);
+      identifier.push_back('_');
+
+      if (name.is_empty())
+      {
+        identifier.append("value");
+      }
+      else
+      {
+        for (const char c : name)
+        {
+          identifier.push_back(is_identifier_continue(c) ? c : '_');
+        }
+      }
+
+      if (!identifier.empty() && std::isdigit(uchar(identifier.back())))
+      {
+        identifier.push_back('_');
+      }
+      return identifier;
+    }
+
+    [[maybe_unused]] static bool glsl_param_has_output_socket(const GLSLFunctionParam& param)
+    {
+      return ELEM(param.qualifier,
+        GLSLFunctionParam::Qualifier::Out,
+        GLSLFunctionParam::Qualifier::InOut);
+    }
+
+    [[maybe_unused]] static int glsl_function_output_count(const GLSLFunctionDefinition& function)
+    {
+      int count = function.return_type == GLSLBoundaryType::Void ? 0 : 1;
+      for (const GLSLFunctionParam& param : function.params)
+      {
+        if (glsl_param_has_output_socket(param))
+        {
+          count++;
+        }
+      }
+      return count;
+    }
+
+    [[maybe_unused]] static bool parse_glsl_parameter_tokens(const Span<GLSLToken> tokens,
+      GLSLFunctionParam& r_param,
+      std::string& r_error)
+    {
+      if (tokens.is_empty())
+      {
+        r_error = "Empty parameter declaration";
+        return false;
+      }
+
+      Vector<const GLSLToken*> identifiers;
+      bool has_out_qualifier = false;
+      bool has_inout_qualifier = false;
+      bool has_array_declarator = false;
+      bool has_unsupported_punctuation = false;
+      int array_bracket_depth = 0;
+
+      for (const GLSLToken& token : tokens)
+      {
+        if (token.kind == GLSLToken::Kind::Punctuation && token.punctuation == '[')
+        {
+          has_array_declarator = true;
+          array_bracket_depth++;
+        }
+        else if (token.kind == GLSLToken::Kind::Punctuation && token.punctuation == ']')
+        {
+          has_array_declarator = true;
+          array_bracket_depth = std::max(array_bracket_depth - 1, 0);
+        }
+        else if (token.kind == GLSLToken::Kind::Identifier && array_bracket_depth == 0)
+        {
+          identifiers.append(&token);
+          has_out_qualifier |= token.text == "out";
+          has_inout_qualifier |= token.text == "inout";
+        }
+        else if (token.kind == GLSLToken::Kind::Punctuation)
+        {
+          has_unsupported_punctuation = true;
+        }
+      }
+
+      if (has_out_qualifier && has_inout_qualifier)
+      {
+        r_error = "A parameter cannot be both 'out' and 'inout'";
+        return false;
+      }
+      if (has_unsupported_punctuation)
+      {
+        r_error = "Unsupported GLSL parameter syntax";
+        return false;
+      }
+      if (identifiers.size() == 1 && identifiers[0]->text == "void")
+      {
+        r_param = {};
+        return true;
+      }
+      if (identifiers.size() < 2)
+      {
+        r_error = "Each parameter needs a type and a name";
+        return false;
+      }
+
+      const GLSLToken& type_token = *identifiers[identifiers.size() - 2];
+      const StringRef type_name = type_token.text;
+      const StringRef param_name = identifiers.last()->text;
+      const GLSLBoundaryType boundary_type = glsl_boundary_type_from_name(type_name);
+      if (!ELEM(boundary_type,
+        GLSLBoundaryType::Float,
+        GLSLBoundaryType::Int,
+        GLSLBoundaryType::Bool,
+        GLSLBoundaryType::Vec2,
+        GLSLBoundaryType::Vec3,
+        GLSLBoundaryType::Vec4,
+        GLSLBoundaryType::Mat2,
+        GLSLBoundaryType::Mat3,
+        GLSLBoundaryType::Mat4,
+        GLSLBoundaryType::Sample2D,
+        GLSLBoundaryType::Sample3D))
+      {
+        r_error =
+          "Supported parameter types are float, int, bool, vec2, vec3, vec4, mat2, mat3, mat4, "
+          "sampler2D, and sampler3D";
+        return false;
+      }
+
+      r_param.type = boundary_type;
+      if (has_inout_qualifier)
+      {
+        r_error = "The 'inout' qualifier is not supported yet";
+        return false;
+      }
+      if (has_out_qualifier && glsl_boundary_type_is_sampler(boundary_type))
+      {
+        r_error = "sampler parameters only support input qualifiers";
+        return false;
+      }
+      r_param.qualifier = has_out_qualifier ? GLSLFunctionParam::Qualifier::Out :
+        GLSLFunctionParam::Qualifier::In;
+      r_param.type_name = type_name;
+      r_param.name = std::string(param_name);
+      r_param.identifier = make_socket_identifier(has_out_qualifier ? "Out" : "In", param_name);
+      r_param.dimensions = glsl_boundary_dimensions(boundary_type);
+      r_param.is_array = has_array_declarator;
+      r_param.type_source_start = type_token.source_start;
+      r_param.type_source_end = type_token.source_end;
+      return true;
+    }
+
+    [[maybe_unused]] static bool parse_glsl_function_definition(const Vector<GLSLToken>& tokens,
+      const int paren_index,
+      const int closing_paren_index,
+      GLSLFunctionDefinition& r_function,
+      std::string& r_error)
+    {
+      if (paren_index < 2 || tokens[paren_index].punctuation != '(' ||
+        tokens[closing_paren_index].punctuation != ')')
+      {
+        r_error = "Malformed GLSL function declaration";
+        return false;
+      }
+
+      const GLSLToken& name_token = tokens[paren_index - 1];
+      const GLSLToken& type_token = tokens[paren_index - 2];
+      if (name_token.kind != GLSLToken::Kind::Identifier ||
+        type_token.kind != GLSLToken::Kind::Identifier)
+      {
+        r_error = "Could not resolve function name and return type";
+        return false;
+      }
+
+      r_function.name = name_token.text;
+      r_function.return_type_name = type_token.text;
+      r_function.return_type = glsl_boundary_type_from_name(type_token.text);
+      if (!ELEM(r_function.return_type,
+        GLSLBoundaryType::Void,
+        GLSLBoundaryType::Float,
+        GLSLBoundaryType::Int,
+        GLSLBoundaryType::Bool,
+        GLSLBoundaryType::Vec2,
+        GLSLBoundaryType::Vec3,
+        GLSLBoundaryType::Vec4,
+        GLSLBoundaryType::Mat2,
+        GLSLBoundaryType::Mat3,
+        GLSLBoundaryType::Mat4))
+      {
+        r_error =
+          "Supported return types are void, float, int, bool, vec2, vec3, vec4, mat2, mat3, and "
+          "mat4";
+        return false;
+      }
+
+      Vector<GLSLToken> parameter_tokens;
+      int parameter_depth = 0;
+      for (int i = paren_index + 1; i < closing_paren_index; i++)
+      {
+        const GLSLToken& token = tokens[i];
+        if (token.kind == GLSLToken::Kind::Punctuation && token.punctuation == ',' &&
+          parameter_depth == 0)
+        {
+          GLSLFunctionParam parameter;
+          if (!parse_glsl_parameter_tokens(parameter_tokens, parameter, r_error))
+          {
+            return false;
+          }
+          if (parameter.type != GLSLBoundaryType::Unsupported)
+          {
+            r_function.params.append(parameter);
+          }
+          parameter_tokens.clear();
+          continue;
+        }
+        if (token.kind == GLSLToken::Kind::Punctuation)
+        {
+          if (token.punctuation == '(')
+          {
+            parameter_depth++;
+          }
+          else if (token.punctuation == ')')
+          {
+            parameter_depth--;
+          }
+        }
+        parameter_tokens.append(token);
+      }
+
+      if (!parameter_tokens.is_empty())
+      {
+        GLSLFunctionParam parameter;
+        if (!parse_glsl_parameter_tokens(parameter_tokens, parameter, r_error))
+        {
+          return false;
+        }
+        if (parameter.type != GLSLBoundaryType::Unsupported)
+        {
+          r_function.params.append(parameter);
+        }
+      }
+
+      if (r_function.return_type == GLSLBoundaryType::Void && glsl_function_output_count(r_function) == 0)
+      {
+        r_error = "The selected function does not expose any node outputs";
+        return false;
+      }
+
+      const int opening_brace_index = closing_paren_index + 1;
+      if (opening_brace_index >= tokens.size() || tokens[opening_brace_index].kind != GLSLToken::Kind::Punctuation ||
+        tokens[opening_brace_index].punctuation != '{')
+      {
+        r_error = "Could not resolve the GLSL function body";
+        return false;
+      }
+
+      int brace_depth = 1;
+      int closing_brace_index = -1;
+      for (int i = opening_brace_index + 1; i < tokens.size(); i++)
+      {
+        const GLSLToken& token = tokens[i];
+        if (token.kind != GLSLToken::Kind::Punctuation)
+        {
+          continue;
+        }
+        if (token.punctuation == '{')
+        {
+          brace_depth++;
+        }
+        else if (token.punctuation == '}')
+        {
+          brace_depth--;
+          if (brace_depth == 0)
+          {
+            closing_brace_index = i;
+            break;
+          }
+        }
+      }
+      if (closing_brace_index == -1)
+      {
+        r_error = "Could not resolve the GLSL function body";
+        return false;
+      }
+      r_function.body_token_start = opening_brace_index + 1;
+      r_function.body_token_end = closing_brace_index - 1;
+      r_function.body_source_start = tokens[opening_brace_index].source_end;
+      r_function.body_source_end = tokens[closing_brace_index].source_start;
+
+      return true;
+    }
+
+    [[maybe_unused]] static bool find_glsl_function_definition(const Vector<GLSLToken>& tokens,
+      const StringRef function_name,
+      GLSLFunctionDefinition& r_function,
+      std::string& r_error)
+    {
+      int brace_depth = 0;
+      bool found_first_function = false;
+
+      for (int i = 0; i < tokens.size(); i++)
+      {
+        const GLSLToken& token = tokens[i];
+
+        if (token.kind == GLSLToken::Kind::Punctuation && token.punctuation == '{')
+        {
+          brace_depth++;
+          continue;
+        }
+        if (token.kind == GLSLToken::Kind::Punctuation && token.punctuation == '}')
+        {
+          brace_depth = max_ii(0, brace_depth - 1);
+          continue;
+        }
+
+        if (brace_depth != 0 || token.kind != GLSLToken::Kind::Punctuation || token.punctuation != '(' ||
+          i < 2 || tokens[i - 1].kind != GLSLToken::Kind::Identifier ||
+          tokens[i - 2].kind != GLSLToken::Kind::Identifier)
+        {
+          continue;
+        }
+
+        int paren_depth = 1;
+        int closing_paren_index = -1;
+        for (int j = i + 1; j < tokens.size(); j++)
+        {
+          if (tokens[j].kind == GLSLToken::Kind::Punctuation)
+          {
+            if (tokens[j].punctuation == '(')
+            {
+              paren_depth++;
+            }
+            else if (tokens[j].punctuation == ')')
+            {
+              paren_depth--;
+              if (paren_depth == 0)
+              {
+                closing_paren_index = j;
+                break;
+              }
+            }
+          }
+        }
+
+        if (closing_paren_index == -1 || (closing_paren_index + 1) >= tokens.size() ||
+          tokens[closing_paren_index + 1].kind != GLSLToken::Kind::Punctuation ||
+          tokens[closing_paren_index + 1].punctuation != '{')
+        {
+          continue;
+        }
+
+        const StringRef candidate_name = tokens[i - 1].text;
+        if (!function_name.is_empty() && candidate_name != function_name)
+        {
+          found_first_function = true;
+          continue;
+        }
+
+        if (!parse_glsl_function_definition(tokens, i, closing_paren_index, r_function, r_error))
+        {
+          return false;
+        }
+        return true;
+      }
+
+      if (function_name.is_empty())
+      {
+        r_error = found_first_function ? "Could not parse the first GLSL function definition" :
+          "No GLSL function definition was found";
+      }
+      else
+      {
+        r_error = "The selected function was not found in the source";
+      }
+      return false;
+    }
+
 /* ============ stage 2b: top-level extraction ============ */
     [[maybe_unused]] static Vector<std::string> find_top_level_glsl_function_names(const Vector<GLSLToken>& tokens)
     {
