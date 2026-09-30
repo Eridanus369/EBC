@@ -55,7 +55,6 @@
 #include "gpu_shader_material_axes_to_rotation.bsl.hh"         /* IWYU pragma: export */
 #include "gpu_shader_material_axis_angle_to_rotation.bsl.hh"   /* IWYU pragma: export */
 #include "gpu_shader_material_background.bsl.hh"               /* IWYU pragma: export */
-#include "gpu_shader_material_bevel.bsl.hh"                    /* IWYU pragma: export */
 #include "gpu_shader_material_bit_math.bsl.hh"                 /* IWYU pragma: export */
 #include "gpu_shader_material_blackbody.bsl.hh"                /* IWYU pragma: export */
 #include "gpu_shader_material_boolean_math.bsl.hh"             /* IWYU pragma: export */

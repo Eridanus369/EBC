@@ -633,7 +633,7 @@ set(GLSL_SRC
   shaders/material/gpu_shader_material_axes_to_rotation.bsl.hh
   shaders/material/gpu_shader_material_axis_angle_to_rotation.bsl.hh
   shaders/material/gpu_shader_material_background.bsl.hh
-  shaders/material/gpu_shader_material_bevel.bsl.hh
+  shaders/material/gpu_shader_material_bevel.glsl
   shaders/material/gpu_shader_material_bit_math.bsl.hh
   shaders/material/gpu_shader_material_blackbody.bsl.hh
   shaders/material/gpu_shader_material_boolean_math.bsl.hh
