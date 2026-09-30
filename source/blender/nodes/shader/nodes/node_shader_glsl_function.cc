@@ -965,11 +965,12 @@ namespace nodes::node_shader_glsl_function_cc {
 
 static void node_declare(NodeDeclarationBuilder &b)
 {
-  /* Stage-1 skeleton: static socket layout. Real sockets will be derived
-   * from the parsed GLSL function signature in a later porting stage. */
+  /* Minimal prototype: fixed socket layout matching the hardcoded GLSL
+   * function signature (vec3 -> vec3). Real dynamic sockets land in a
+   * later stage when parse_glsl_source_for_node is ported. */
   b.is_function_node();
-  b.add_input<decl::Float>("Value"_ustr).default_value(0.0f);
-  b.add_output<decl::Float>("Value"_ustr);
+  b.add_input<decl::Vector>("Color"_ustr).default_value({1.0f, 1.0f, 1.0f});
+  b.add_output<decl::Vector>("Color"_ustr);
 }
 
 static void node_init(bNodeTree * /*ntree*/, bNode *node)
@@ -982,15 +983,53 @@ static void node_layout(ui::Layout &layout, bContext * /*C*/, PointerRNA * /*ptr
   layout.label("GLSL Function (stage-1 skeleton, not yet functional)", ICON_INFO);
 }
 
-static int node_shader_gpu_glsl_function(GPUMaterial * /*mat*/,
-                                         bNode * /*node*/,
+/* Minimal prototype: hardcoded GLSL source, no dynamic parsing.
+ * Verifies the pipeline: generated_source_add -> GPU_stack_link_custom
+ * -> EEVEE compile -> render. */
+static constexpr const char *K_GLSLFN_PROTO_LIBRARY_FILENAME =
+    "__glslfn_proto_library.glsl";
+static constexpr const char *K_GLSLFN_PROTO_WRAPPER_FILENAME =
+    "__glslfn_proto_wrapper.glsl";
+static constexpr const char *K_GLSLFN_PROTO_WRAPPER_NAME = "glslfn_proto_wrapper";
+
+static constexpr const char *K_GLSLFN_PROTO_LIBRARY_SRC =
+    "vec3 glslfn_proto_impl(vec3 color)\n"
+    "{\n"
+    "  return color * 0.5;\n"
+    "}\n";
+
+static constexpr const char *K_GLSLFN_PROTO_WRAPPER_SRC =
+    "vec3 glslfn_proto_wrapper(vec3 in0)\n"
+    "{\n"
+    "  return glslfn_proto_impl(in0);\n"
+    "}\n";
+
+static int node_shader_gpu_glsl_function(GPUMaterial *mat,
+                                         bNode *node,
                                          bNodeExecData * /*execdata*/,
-                                         GPUNodeStack * /*in*/,
-                                         GPUNodeStack * /*out*/)
+                                         GPUNodeStack *in,
+                                         GPUNodeStack *out)
 {
-  /* Stage-1 skeleton: no GPU implementation yet. Returning 0 makes the
-   * link fail cleanly instead of feeding wrong data downstream. */
-  return 0;
+  /* Inject the library source as a separate generated source file. */
+  GPU_material_generated_source_add(
+      mat, K_GLSLFN_PROTO_LIBRARY_FILENAME, {}, K_GLSLFN_PROTO_LIBRARY_SRC);
+
+  /* Inject the wrapper, declaring the library as its dependency. */
+  Vector<StringRefNull> deps;
+  deps.append(K_GLSLFN_PROTO_LIBRARY_FILENAME);
+  GPU_material_generated_source_add(
+      mat, K_GLSLFN_PROTO_WRAPPER_FILENAME, deps, K_GLSLFN_PROTO_WRAPPER_SRC);
+
+  /* Link the node into the material graph against the wrapper function. */
+  return GPU_stack_link_custom(mat,
+                               node,
+                               K_GLSLFN_PROTO_WRAPPER_NAME,
+                               K_GLSLFN_PROTO_WRAPPER_FILENAME,
+                               GPU_CUSTOM_NODE_DEPENDENCY_NONE,
+                               in,
+                               out)
+             ? 1
+             : 0;
 }
 
 }  // namespace nodes::node_shader_glsl_function_cc
