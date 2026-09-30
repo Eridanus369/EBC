@@ -1156,9 +1156,15 @@ inline void PassBase<T>::material_set(Manager &manager,
       const bool use_tile_mapping = tex->tiled_mapping_name[0];
       ImageUser *iuser = tex->iuser_available ? &tex->iuser : nullptr;
 
-      /* TODO: 3D LUT strip binding crashes Vulkan backend (image view). */
-      ImageGPUTextures gputex = BKE_image_acquire_gpu_material_texture(
-          tex->ima, iuser, use_tile_mapping, deferred_texture_loading);
+      ImageGPUTextures gputex =
+          tex->use_3d_lut_strip ?
+              BKE_image_acquire_gpu_material_3d_lut_texture(tex->ima,
+                                                            iuser,
+                                                            tex->lut_3d_width,
+                                                            tex->lut_3d_height,
+                                                            tex->lut_3d_depth) :
+              BKE_image_acquire_gpu_material_texture(
+                  tex->ima, iuser, use_tile_mapping, deferred_texture_loading);
 
       GPUSamplerState sampler_state = tex->sampler_state;
       /* If any anisotropic filtering is requested, reset it to the scene setting. */
