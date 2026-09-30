@@ -1808,6 +1808,337 @@ static std::string glslfn_pick_function(const bNode *node,
       return true;
     }
 
+
+/* ============ Stage 4: @glsl_defines parsing ============ */
+
+    [[maybe_unused]] static bool parse_glsl_define_directive(const StringRef text,
+                                                             GLSLDefineMeta &r_define,
+                                                             std::string &r_error)
+    {
+      int64_t i = 0;
+      while (i < text.size() && std::isspace(uchar(text[i]))) {
+        i++;
+      }
+      if (i >= text.size() || !is_identifier_start(text[i])) {
+        r_error = "GLSL define name must be a valid identifier";
+        return false;
+      }
+      const int64_t name_start = i;
+      i++;
+      while (i < text.size() && is_identifier_continue(text[i])) {
+        i++;
+      }
+      r_define.name = std::string(text.substr(name_start, i - name_start));
+      if (r_define.name.size() >= 64) {
+        r_error = "GLSL define name too long";
+        return false;
+      }
+      if (StringRef(r_define.name).startswith("gl_")) {
+        r_error = "GLSL define name '" + r_define.name + "' uses reserved 'gl_' prefix";
+        return false;
+      }
+      while (i < text.size() && std::isspace(uchar(text[i]))) {
+        i++;
+      }
+      if (i >= text.size() || !is_identifier_start(text[i])) {
+        r_error = "GLSL define '" + r_define.name + "' is missing its type";
+        return false;
+      }
+      const int64_t type_start = i;
+      i++;
+      while (i < text.size() && is_identifier_continue(text[i])) {
+        i++;
+      }
+      const std::string type_name = std::string(text.substr(type_start, i - type_start));
+      if (type_name == "bool") {
+        r_define.type = SHD_GLSL_FUNCTION_DEFINE_BOOL;
+      }
+      else if (type_name == "int") {
+        r_define.type = SHD_GLSL_FUNCTION_DEFINE_INT;
+      }
+      else {
+        r_error = "Unsupported GLSL define type '" + type_name + "'";
+        return false;
+      }
+      const std::string attributes_text = trim_copy(text.substr(i));
+      if (attributes_text.empty()) {
+        r_error = "GLSL define '" + r_define.name + "' must specify default=...";
+        return false;
+      }
+      Map<std::string, std::string> assignments;
+      if (!parse_glsl_meta_assignment_list(attributes_text, assignments, r_error)) {
+        return false;
+      }
+      bool has_default = false;
+      bool has_show_label = false;
+      for (const auto &item : assignments.items()) {
+        const StringRef key = item.key;
+        const StringRef value = item.value;
+        if (key == "default") {
+          has_default = true;
+          if (r_define.type == SHD_GLSL_FUNCTION_DEFINE_BOOL) {
+            bool bv = false;
+            if (!parse_glsl_meta_bool_literal(value, bv, r_error)) {
+              return false;
+            }
+            r_define.default_value = bv ? 1 : 0;
+          }
+          else if (!parse_glsl_meta_int_literal(value, r_define.default_value, r_error)) {
+            return false;
+          }
+        }
+        else if (key == "min") {
+          if (r_define.type != SHD_GLSL_FUNCTION_DEFINE_INT) {
+            r_error = "GLSL bool define does not support min";
+            return false;
+          }
+          int vi = 0;
+          if (!parse_glsl_meta_int_literal(value, vi, r_error)) {
+            return false;
+          }
+          r_define.min_value = vi;
+        }
+        else if (key == "max") {
+          if (r_define.type != SHD_GLSL_FUNCTION_DEFINE_INT) {
+            r_error = "GLSL bool define does not support max";
+            return false;
+          }
+          int vi = 0;
+          if (!parse_glsl_meta_int_literal(value, vi, r_error)) {
+            return false;
+          }
+          r_define.max_value = vi;
+        }
+        else if (key == "items") {
+          if (r_define.type != SHD_GLSL_FUNCTION_DEFINE_INT) {
+            r_error = "GLSL bool define does not support items";
+            return false;
+          }
+          if (!parse_glsl_int_choice_items(value, r_define.int_choices, r_error)) {
+            return false;
+          }
+        }
+        else if (key == "show_label") {
+          has_show_label = true;
+          if (r_define.type != SHD_GLSL_FUNCTION_DEFINE_INT) {
+            r_error = "GLSL bool define does not support show_label";
+            return false;
+          }
+          if (!parse_glsl_meta_bool_literal(value, r_define.int_choices_show_label, r_error)) {
+            return false;
+          }
+        }
+        else if (key == "label") {
+          r_define.label = std::string(value);
+        }
+        else if (key == "description") {
+          r_define.description = std::string(value);
+        }
+        else {
+          r_error = "Unsupported GLSL define attribute '" + std::string(key) + "'";
+          return false;
+        }
+      }
+      if (!has_default) {
+        r_error = "GLSL define '" + r_define.name + "' must specify default=...";
+        return false;
+      }
+      if (r_define.type == SHD_GLSL_FUNCTION_DEFINE_BOOL) {
+        r_define.default_value = r_define.default_value != 0 ? 1 : 0;
+      }
+      else {
+        if (has_show_label && r_define.int_choices.is_empty()) {
+          r_error = "GLSL int define show_label requires items";
+          return false;
+        }
+        if (!r_define.int_choices.is_empty()) {
+          if (r_define.min_value.has_value() || r_define.max_value.has_value()) {
+            r_error = "GLSL int define cannot combine items with min or max";
+            return false;
+          }
+          if (!glsl_int_choice_contains_value(r_define.int_choices, r_define.default_value)) {
+            r_error = "GLSL int define default must be one of its items";
+            return false;
+          }
+        }
+        else if (r_define.min_value.has_value() && r_define.max_value.has_value() &&
+                 *r_define.min_value > *r_define.max_value)
+        {
+          r_error = "GLSL define has min greater than max";
+          return false;
+        }
+      }
+      return true;
+    }
+
+    [[maybe_unused]] static bool parse_glsl_defines_header_options(
+        const StringRef text, bool &r_panel_default_closed, std::string &r_error)
+    {
+      const std::string header_text = trim_copy(text);
+      if (header_text.empty()) {
+        return true;
+      }
+      std::string options_text = header_text;
+      int64_t first_token_end = 0;
+      while (first_token_end < options_text.size() &&
+             !std::isspace(uchar(options_text[first_token_end])))
+      {
+        first_token_end++;
+      }
+      const StringRef first_token = StringRef(options_text).substr(0, first_token_end);
+      if (first_token.startswith("v")) {
+        if (std::string(first_token) != "v1") {
+          r_error = "Unsupported GLSL defines metadata version";
+          return false;
+        }
+        options_text = trim_copy(StringRef(options_text).substr(first_token_end));
+      }
+      if (options_text.empty()) {
+        return true;
+      }
+      Map<std::string, std::string> assignments;
+      if (!parse_glsl_meta_assignment_list(options_text, assignments, r_error)) {
+        return false;
+      }
+      for (const auto &item : assignments.items()) {
+        if (StringRef(item.key) != "closed") {
+          r_error = "Unsupported GLSL defines attribute";
+          return false;
+        }
+        if (!parse_glsl_meta_bool_literal(item.value, r_panel_default_closed, r_error)) {
+          return false;
+        }
+      }
+      return true;
+    }
+
+    [[maybe_unused]] static bool parse_glsl_defines_block(
+        const StringRef comment,
+        Vector<GLSLDefineMeta> &r_defines,
+        bool &r_is_defines_block,
+        std::string &r_error)
+    {
+      r_is_defines_block = false;
+      std::stringstream stream{std::string(comment)};
+      std::string line;
+      bool header_seen = false;
+      while (std::getline(stream, line)) {
+        std::string normalized = trim_copy(line);
+        if (!normalized.empty() && normalized[0] == '*') {
+          normalized = trim_copy(StringRef(normalized).drop_prefix(1));
+        }
+        if (normalized.empty()) {
+          continue;
+        }
+        if (!header_seen) {
+          if (!StringRef(normalized).startswith("@glsl_defines") ||
+              (normalized.size() > 13 && !std::isspace(uchar(normalized[13]))))
+          {
+            return true;
+          }
+          bool dummy_closed = false;
+          if (!parse_glsl_defines_header_options(StringRef(normalized).drop_prefix(13),
+                                                 dummy_closed, r_error))
+          {
+            return false;
+          }
+          header_seen = true;
+          r_is_defines_block = true;
+          continue;
+        }
+        if (StringRef(normalized).startswith("@define") &&
+            (normalized.size() == 7 || std::isspace(uchar(normalized[7]))))
+        {
+          GLSLDefineMeta define;
+          if (!parse_glsl_define_directive(StringRef(normalized).drop_prefix(7), define, r_error)) {
+            return false;
+          }
+          r_defines.append(define);
+          continue;
+        }
+        if (StringRef(normalized).startswith("@")) {
+          r_error = "Unsupported GLSL defines directive '" + normalized + "'";
+          return false;
+        }
+        r_error = "GLSL defines lines must use '@define NAME bool|int key=value' syntax";
+        return false;
+      }
+      return true;
+    }
+
+    [[maybe_unused]] static bool extract_glsl_defines(const StringRef source,
+                                                      Vector<GLSLDefineMeta> &r_defines,
+                                                      std::string &r_error)
+    {
+      Set<std::string> define_names;
+      for (int64_t i = 0; (i + 1) < source.size();) {
+        if (source[i] == '/' && source[i + 1] == '*') {
+          const int64_t body_start = i + 2;
+          int64_t body_end = source.size();
+          bool found_end = false;
+          for (int64_t j = body_start; (j + 1) < source.size(); j++) {
+            if (source[j] == '*' && source[j + 1] == '/') {
+              body_end = j;
+              i = j + 2;
+              found_end = true;
+              break;
+            }
+          }
+          if (!found_end) {
+            r_error = "Unterminated GLSL block comment";
+            return false;
+          }
+          Vector<GLSLDefineMeta> block_defines;
+          bool is_defines_block = false;
+          if (!parse_glsl_defines_block(source.substr(body_start, body_end - body_start),
+                                        block_defines, is_defines_block, r_error))
+          {
+            return false;
+          }
+          if (!is_defines_block) {
+            continue;
+          }
+          for (const GLSLDefineMeta &define : block_defines) {
+            if (!define_names.add(define.name)) {
+              r_error = "Duplicate GLSL define '" + define.name + "'";
+              return false;
+            }
+            r_defines.append(define);
+          }
+          continue;
+        }
+        i++;
+      }
+      return true;
+    }
+
+    [[maybe_unused]] static std::string build_glsl_define_block(const Span<GLSLDefineMeta> defines)
+    {
+      std::stringstream ss;
+      for (const GLSLDefineMeta &define : defines) {
+        const int value = define.default_value;
+        if (define.type == SHD_GLSL_FUNCTION_DEFINE_BOOL) {
+          if (value != 0) {
+            ss << "#define " << define.name << " 1\n";
+          }
+        }
+        else {
+          ss << "#define " << define.name << ' ' << value << "\n";
+        }
+      }
+      return ss.str();
+    }
+
+    [[maybe_unused]] static std::string build_glsl_define_signature_key(
+        const Span<GLSLDefineMeta> defines)
+    {
+      std::stringstream ss;
+      for (const GLSLDefineMeta &define : defines) {
+        ss << define.name << ':' << define.type << '=' << define.default_value << ';';
+      }
+      return ss.str();
+    }
+
     [[maybe_unused]] static bool apply_glsl_meta_to_param(const GLSLRawParamMeta &raw_meta,
                                                           GLSLFunctionParam &r_param,
                                                           std::string &r_error)
@@ -2278,7 +2609,11 @@ static int node_shader_gpu_glsl_function(GPUMaterial *mat,
     wrapper = "vec3 " + wrapper_name + "(vec3 In_Color)\n{\n  return vec3(0.5);\n}\n";
   }
 
-  std::string combined = source + "\n" + wrapper;
+  Vector<GLSLDefineMeta> defines;
+  std::string define_error;
+  extract_glsl_defines(source, defines, define_error);
+
+  std::string combined = build_glsl_define_block(defines) + source + "\n" + wrapper;
   fprintf(stderr, "[GLSLFN combined]\n%s\n", combined.c_str());
   GPU_material_generated_source_add(mat, wrapper_filename.c_str(), {}, combined.c_str());
 
