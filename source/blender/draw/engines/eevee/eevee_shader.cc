@@ -1342,6 +1342,23 @@ void ShaderModule::material_create_info_amend(GPUMaterial *gpumat, GPUCodegenOut
   info.generated_sources.append({"eevee_nodetree_type_lib.glsl", {}, generated_resource_header});
   info.generated_sources.append({"gpu_shader_material_interface.bsl.hh", {}, ""});
 
+  /* NPR: append runtime-generated shader sources (GLSL Function, etc).
+   * These are injected by material nodes via GPU_material_generated_source_add. */
+  for (int i = 0; i < GPU_material_generated_source_count(gpumat); i++) {
+    const GPUMaterialGeneratedSource *generated_source =
+        GPU_material_generated_source_get(gpumat, i);
+    if (generated_source == nullptr) {
+      continue;
+    }
+    Vector<StringRefNull> deps;
+    deps.reserve(generated_source->dependencies.size());
+    for (const std::string &dep : generated_source->dependencies) {
+      deps.append(dep);
+    }
+    info.generated_sources.append(
+        {generated_source->filename, deps, generated_source->content});
+  }
+
   {
     const bool use_vertex_displacement = !codegen.displacement.empty() &&
                                          (displacement_type != MAT_DISPLACEMENT_BUMP) &&

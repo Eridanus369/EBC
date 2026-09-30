@@ -204,6 +204,20 @@ bool GPU_material_has_surface_output(GPUMaterial *mat);
 bool GPU_material_has_volume_output(GPUMaterial *mat);
 bool GPU_material_has_displacement_output(GPUMaterial *mat);
 
+struct GPUMaterialGeneratedSource {
+  std::string filename;
+  blender::Vector<std::string> dependencies;
+  std::string content;
+};
+
+void GPU_material_generated_source_add(GPUMaterial *material,
+                                       blender::StringRefNull filename,
+                                       blender::Span<blender::StringRefNull> dependencies,
+                                       blender::StringRefNull content);
+int GPU_material_generated_source_count(const GPUMaterial *material);
+const GPUMaterialGeneratedSource *GPU_material_generated_source_get(const GPUMaterial *material,
+                                                                    int index);
+
 bool GPU_material_flag_get(const GPUMaterial *mat, eGPUMaterialFlag flag);
 
 uint64_t GPU_material_uuid_get(GPUMaterial *mat);

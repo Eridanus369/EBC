@@ -96,6 +96,9 @@ struct GPUMaterial {
   /* Low level node graph(s). Also contains resources needed by the material. */
   GPUNodeGraph graph = {};
 
+  /* NPR: runtime-generated shader sources (GLSL Function, etc). */
+  Vector<GPUMaterialGeneratedSource> generated_sources;
+
   bool has_surface_output = false;
   bool has_volume_output = false;
   bool has_displacement_output = false;
@@ -383,6 +386,49 @@ bool GPU_material_has_volume_output(GPUMaterial *mat)
 bool GPU_material_has_displacement_output(GPUMaterial *mat)
 {
   return mat->has_displacement_output;
+}
+
+void GPU_material_generated_source_add(GPUMaterial *material,
+                                       StringRefNull filename,
+                                       Span<StringRefNull> dependencies,
+                                       StringRefNull content)
+{
+  if (material == nullptr || filename.is_empty() || content.is_empty()) {
+    return;
+  }
+
+  GPUMaterialGeneratedSource generated_source;
+  generated_source.filename = filename;
+  generated_source.content = content;
+  generated_source.dependencies.reserve(dependencies.size());
+  for (const StringRefNull dependency : dependencies) {
+    if (!dependency.is_empty()) {
+      generated_source.dependencies.append(dependency);
+    }
+  }
+
+  for (GPUMaterialGeneratedSource &existing_source : material->generated_sources) {
+    if (existing_source.filename == generated_source.filename) {
+      existing_source.dependencies = std::move(generated_source.dependencies);
+      existing_source.content = std::move(generated_source.content);
+      return;
+    }
+  }
+  material->generated_sources.append(std::move(generated_source));
+}
+
+int GPU_material_generated_source_count(const GPUMaterial *material)
+{
+  return (material != nullptr) ? int(material->generated_sources.size()) : 0;
+}
+
+const GPUMaterialGeneratedSource *GPU_material_generated_source_get(const GPUMaterial *material,
+                                                                    int index)
+{
+  if (material == nullptr || index < 0 || index >= int(material->generated_sources.size())) {
+    return nullptr;
+  }
+  return &material->generated_sources[index];
 }
 
 bool GPU_material_flag_get(const GPUMaterial *mat, eGPUMaterialFlag flag)
