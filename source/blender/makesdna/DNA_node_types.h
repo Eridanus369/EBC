@@ -2944,6 +2944,8 @@ struct NodeShaderGLSLFunction {
   unsigned int edit_source_session_uid = 0;
   int _pad = 0;
   uint64_t edit_source_hash = 0;
+  NodeShaderGLSLDefineValue *define_values = nullptr;
+  void *_pad2 = nullptr;
 };
 
 struct NodeSdfVectorOp {
