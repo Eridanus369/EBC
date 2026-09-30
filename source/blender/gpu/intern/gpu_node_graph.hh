@@ -73,7 +73,11 @@ ENUM_OPERATORS(GPUNodeTag)
 struct GPUNode {
   GPUNode *next, *prev;
 
-  const char *name;
+  char name[128];
+  /* Material-local generated source key used by custom GPU nodes. */
+  char dependency_name[128];
+  eGPUCustomNodeDependencyFlag dependency_flags;
+  bool use_static_function;
 
   /* Internal flag to mark nodes during pruning */
   GPUNodeTag tag;
@@ -84,6 +88,7 @@ struct GPUNode {
   /* Zones. */
   int zone_index;
   bool is_zone_end;
+  bool skip_call;
 };
 
 using GPUNodeLinkData = std::variant<const float *, const int *, const bool *>;

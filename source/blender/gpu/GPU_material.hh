@@ -701,6 +701,14 @@ bool GPU_stack_link(GPUMaterial *mat,
                     GPUNodeStack *out,
                     ...);
 
+bool GPU_stack_link_custom(GPUMaterial *material,
+                           const bNode *bnode,
+                           blender::StringRefNull name,
+                           blender::StringRefNull dependency_name,
+                           eGPUCustomNodeDependencyFlag dependency_flags,
+                           GPUNodeStack *in,
+                           GPUNodeStack *out);
+
 bool GPU_stack_link_zone(GPUMaterial *material,
                          const bNode *bnode,
                          const char *name,
