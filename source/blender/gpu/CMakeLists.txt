@@ -738,6 +738,8 @@ set(GLSL_SRC
   shaders/material/gpu_shader_material_twirl.glsl
   shaders/material/gpu_shader_material_water_ripples.glsl
   shaders/material/gpu_shader_material_tex_hexagon.glsl
+  shaders/material/gpu_shader_material_sdf_util.glsl
+  shaders/material/gpu_shader_material_sdf_primitive.glsl
   shaders/material/gpu_shader_material_uv_map.bsl.hh
   shaders/material/gpu_shader_material_vector_displacement.bsl.hh
   shaders/material/gpu_shader_material_vector_math.bsl.hh

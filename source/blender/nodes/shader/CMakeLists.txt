@@ -122,6 +122,7 @@ set(SRC
   nodes/node_shader_twirl.cc
   nodes/node_shader_water_ripples.cc
   nodes/node_shader_tex_hexagon.cc
+  nodes/node_shader_sdf_primitive.cc
 
   node_shader_register.cc
   node_shader_tree.cc
