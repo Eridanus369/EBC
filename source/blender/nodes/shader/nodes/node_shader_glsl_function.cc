@@ -15,7 +15,10 @@
 #include "UI_interface_layout.hh"
 #include "UI_resources.hh"
 
+#include "BKE_image.hh"
 #include "BKE_text.h"
+
+#include "IMB_imbuf.hh"
 
 #include "BLI_math_vector_types.hh"
 #include "BLI_utildefines.hh"
@@ -2598,6 +2601,38 @@ static int node_shader_gpu_glsl_function(GPUMaterial *mat,
               in[socket_index].type = GPU_TEX2D;
               in[socket_index].link = GPU_image(
                   mat, img, nullptr, GPUSamplerState::default_sampler());
+            }
+            else if (param->type == GLSLBoundaryType::Sample3D) {
+              const NodeShaderImageToClosure *i2c_storage =
+                  static_cast<const NodeShaderImageToClosure *>(link->fromnode->storage);
+              if (i2c_storage != nullptr &&
+                  i2c_storage->texture_type == IMA_IMAGE_TO_CLOSURE_TEXTURE_3D_LUT_STRIP)
+              {
+                int w = 0, h = 0, d = 0;
+                if (i2c_storage->texture_size_mode ==
+                    IMA_IMAGE_TO_CLOSURE_3D_LUT_SIZE_MANUAL)
+                {
+                  w = i2c_storage->texture_width;
+                  h = i2c_storage->texture_height;
+                  d = i2c_storage->texture_depth;
+                }
+                else {
+                  /* Auto: image must be h*h wide, h tall; lut = h x h x h. */
+                  void *lock = nullptr;
+                  ImBuf *ibuf = BKE_image_acquire_ibuf(img, nullptr, &lock);
+                  if (ibuf != nullptr && ibuf->y > 0 &&
+                      int64_t(ibuf->x) == int64_t(ibuf->y) * int64_t(ibuf->y))
+                  {
+                    w = h = d = ibuf->y;
+                  }
+                  BKE_image_release_ibuf(img, ibuf, lock);
+                }
+                /* TODO: sampler3D binding crashes Vulkan backend on 3D
+                 * image view creation. Keep the texture unbound for now. */
+                (void)w;
+                (void)h;
+                (void)d;
+              }
             }
           }
         }

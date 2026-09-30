@@ -1156,7 +1156,7 @@ inline void PassBase<T>::material_set(Manager &manager,
       const bool use_tile_mapping = tex->tiled_mapping_name[0];
       ImageUser *iuser = tex->iuser_available ? &tex->iuser : nullptr;
 
-      /* Try to get image textures, will return null if not loaded yet. */
+      /* TODO: 3D LUT strip binding crashes Vulkan backend (image view). */
       ImageGPUTextures gputex = BKE_image_acquire_gpu_material_texture(
           tex->ima, iuser, use_tile_mapping, deferred_texture_loading);
 
