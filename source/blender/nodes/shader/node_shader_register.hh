@@ -132,6 +132,7 @@ void register_node_type_sh_basis_transform();
 void register_node_type_sh_screen_derivative();
 void register_node_type_sh_curvature();
 void register_node_type_sh_render_info();
+void register_node_type_sh_oklab_color_ramp();
 
 /* UPBGE */
 void register_node_type_sh_sprites_animation();

@@ -21,6 +21,7 @@ enum eColorBand_ColorMode : char {
   COLBAND_BLEND_RGB = 0,
   COLBAND_BLEND_HSV = 1,
   COLBAND_BLEND_HSL = 2,
+  COLBAND_BLEND_OKLAB = 3,
 };
 
 /** #ColorBand::ipotype (interpolation). */
