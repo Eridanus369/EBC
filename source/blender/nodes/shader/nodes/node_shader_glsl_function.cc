@@ -15,6 +15,8 @@
 #include "UI_interface_layout.hh"
 #include "UI_resources.hh"
 
+#include "BKE_text.h"
+
 #include "BLI_math_vector_types.hh"
 #include "BLI_utildefines.hh"
 #include "BLI_set.hh"
@@ -281,6 +283,13 @@ namespace nodes::node_shader_glsl_function_cc {
         identifier.push_back('_');
       }
       return identifier;
+    }
+
+    [[maybe_unused]] static bool glsl_param_has_input_socket(const GLSLFunctionParam& param)
+    {
+      return ELEM(param.qualifier,
+        GLSLFunctionParam::Qualifier::In,
+        GLSLFunctionParam::Qualifier::InOut);
     }
 
     [[maybe_unused]] static bool glsl_param_has_output_socket(const GLSLFunctionParam& param)
@@ -963,14 +972,111 @@ namespace nodes::node_shader_glsl_function_cc {
     }
 
 
+static constexpr const char *K_GLSLFN_DEFAULT_SOURCE =
+    "vec3 glslfn(vec3 color)\n"
+    "{\n"
+    "  return color * 0.5;\n"
+    "}\n";
+
+static std::string glslfn_read_source(const bNode *node)
+{
+  if (node == nullptr || node->id == nullptr) {
+    return K_GLSLFN_DEFAULT_SOURCE;
+  }
+  Text *text = reinterpret_cast<Text *>(node->id);
+  if (text == nullptr) {
+    return K_GLSLFN_DEFAULT_SOURCE;
+  }
+  size_t len = 0;
+  char *buf = txt_to_buf(text, &len);
+  std::string source;
+  if (buf != nullptr && len > 0) {
+    source.assign(buf, len);
+  }
+  MEM_delete(buf);
+  if (source.empty()) {
+    source = K_GLSLFN_DEFAULT_SOURCE;
+  }
+  return source;
+}
+
 static void node_declare(NodeDeclarationBuilder &b)
 {
-  /* Minimal prototype: fixed socket layout matching the hardcoded GLSL
-   * function signature (vec3 -> vec3). Real dynamic sockets land in a
-   * later stage when parse_glsl_source_for_node is ported. */
-  b.is_function_node();
-  b.add_input<decl::Vector>("Color"_ustr).default_value({1.0f, 1.0f, 1.0f});
-  b.add_output<decl::Vector>("Color"_ustr);
+  const bNode *node = b.node_or_null();
+  if (node == nullptr) {
+    return;
+  }
+
+  const std::string source = glslfn_read_source(node);
+  Vector<GLSLToken> tokens = tokenize_glsl_source(source, true);
+  Vector<std::string> names = find_top_level_glsl_function_names(tokens);
+  GLSLFunctionDefinition func;
+  std::string error;
+  bool parsed = false;
+  if (!names.is_empty()) {
+    parsed = find_glsl_function_definition(tokens, names[0], func, error);
+  }
+
+  if (!parsed) {
+    b.add_input<decl::Vector>("Color"_ustr, "In_Color"_ustr);
+    b.add_output<decl::Vector>("Color"_ustr, "Result"_ustr);
+    return;
+  }
+
+  for (const GLSLFunctionParam &param : func.params) {
+    if (!glsl_param_has_input_socket(param)) {
+      continue;
+    }
+    const UString socket_name(param.name.c_str());
+    const UString socket_id(make_socket_identifier("In", param.name));
+    switch (param.type) {
+      case GLSLBoundaryType::Float:
+        b.add_input<decl::Float>(socket_name, socket_id);
+        break;
+      case GLSLBoundaryType::Int:
+        b.add_input<decl::Int>(socket_name, socket_id);
+        break;
+      case GLSLBoundaryType::Bool:
+        b.add_input<decl::Bool>(socket_name, socket_id);
+        break;
+      case GLSLBoundaryType::Vec2:
+      case GLSLBoundaryType::Vec3:
+      case GLSLBoundaryType::Vec4: {
+        auto &decl = b.add_input<decl::Vector>(socket_name, socket_id);
+        decl.dimensions(glsl_boundary_dimensions(param.type));
+        break;
+      }
+      default:
+        break;
+    }
+  }
+
+  if (func.return_type != GLSLBoundaryType::Void &&
+      func.return_type != GLSLBoundaryType::Unsupported)
+  {
+    const UString out_name("Result");
+    const UString out_id("Result");
+    switch (func.return_type) {
+      case GLSLBoundaryType::Float:
+        b.add_output<decl::Float>(out_name, out_id);
+        break;
+      case GLSLBoundaryType::Int:
+        b.add_output<decl::Int>(out_name, out_id);
+        break;
+      case GLSLBoundaryType::Bool:
+        b.add_output<decl::Bool>(out_name, out_id);
+        break;
+      case GLSLBoundaryType::Vec2:
+      case GLSLBoundaryType::Vec3:
+      case GLSLBoundaryType::Vec4: {
+        auto &decl = b.add_output<decl::Vector>(out_name, out_id);
+        decl.dimensions(glsl_boundary_dimensions(func.return_type));
+        break;
+      }
+      default:
+        break;
+    }
+  }
 }
 
 static void node_init(bNodeTree * /*ntree*/, bNode *node)
@@ -986,23 +1092,10 @@ static void node_layout(ui::Layout &layout, bContext * /*C*/, PointerRNA * /*ptr
 /* Minimal prototype: hardcoded GLSL source, no dynamic parsing.
  * Verifies the pipeline: generated_source_add -> GPU_stack_link_custom
  * -> EEVEE compile -> render. */
-static constexpr const char *K_GLSLFN_PROTO_LIBRARY_FILENAME =
-    "__glslfn_proto_library.glsl";
-static constexpr const char *K_GLSLFN_PROTO_WRAPPER_FILENAME =
-    "__glslfn_proto_wrapper.glsl";
-static constexpr const char *K_GLSLFN_PROTO_WRAPPER_NAME = "glslfn_proto_wrapper";
-
-static constexpr const char *K_GLSLFN_PROTO_LIBRARY_SRC =
-    "vec3 glslfn_proto_impl(vec3 color)\n"
-    "{\n"
-    "  return color * 0.5;\n"
-    "}\n";
-
-static constexpr const char *K_GLSLFN_PROTO_WRAPPER_SRC =
-    "vec3 glslfn_proto_wrapper(vec3 in0)\n"
-    "{\n"
-    "  return glslfn_proto_impl(in0);\n"
-    "}\n";
+/* Minimal GLSL Function: fixed vec3->vec3 signature.
+ * Source comes from the node's Text data block (fallback to a built-in
+ * default). Body is passed through verbatim. No @glsl_meta parsing,
+ * no sampler, no closure, no light access. */
 
 static int node_shader_gpu_glsl_function(GPUMaterial *mat,
                                          bNode *node,
@@ -1010,21 +1103,60 @@ static int node_shader_gpu_glsl_function(GPUMaterial *mat,
                                          GPUNodeStack *in,
                                          GPUNodeStack *out)
 {
-  /* Inject the library source as a separate generated source file. */
-  GPU_material_generated_source_add(
-      mat, K_GLSLFN_PROTO_LIBRARY_FILENAME, {}, K_GLSLFN_PROTO_LIBRARY_SRC);
+  const std::string source = glslfn_read_source(node);
 
-  /* Inject the wrapper, declaring the library as its dependency. */
+  Vector<GLSLToken> tokens = tokenize_glsl_source(source, true);
+  Vector<std::string> names = find_top_level_glsl_function_names(tokens);
+  GLSLFunctionDefinition func;
+  std::string error;
+  bool parsed = false;
+  if (!names.is_empty()) {
+    parsed = find_glsl_function_definition(tokens, names[0], func, error);
+  }
+
+  const std::string lib_filename = "__glslfn_lib.glsl";
+  GPU_material_generated_source_add(mat, lib_filename.c_str(), {}, source.c_str());
+
+  const std::string wrapper_filename = "__glslfn_wrap.glsl";
+  const std::string wrapper_name = "glslfn_wrap_node";
+  std::string wrapper;
+
+  if (parsed) {
+    std::string params;
+    std::string args;
+    for (const GLSLFunctionParam &param : func.params) {
+      if (!glsl_param_has_input_socket(param)) {
+        continue;
+      }
+      const std::string id = make_socket_identifier("In", param.name);
+      if (!params.empty()) {
+        params += ", ";
+        args += ", ";
+      }
+      params += param.type_name + " " + id;
+      args += id;
+    }
+    const std::string ret_type = (func.return_type == GLSLBoundaryType::Void) ?
+                                     std::string("void") :
+                                     func.return_type_name;
+    wrapper = ret_type + " " + wrapper_name + "(" + params + ")\n{\n";
+    if (func.return_type == GLSLBoundaryType::Void) {
+      wrapper += "  " + func.name + "(" + args + ");\n}\n";
+    } else {
+      wrapper += "  return " + func.name + "(" + args + ");\n}\n";
+    }
+  } else {
+    wrapper = "vec3 " + wrapper_name + "(vec3 In_Color)\n{\n  return vec3(0.5);\n}\n";
+  }
+
   Vector<StringRefNull> deps;
-  deps.append(K_GLSLFN_PROTO_LIBRARY_FILENAME);
-  GPU_material_generated_source_add(
-      mat, K_GLSLFN_PROTO_WRAPPER_FILENAME, deps, K_GLSLFN_PROTO_WRAPPER_SRC);
+  deps.append(lib_filename.c_str());
+  GPU_material_generated_source_add(mat, wrapper_filename.c_str(), deps, wrapper.c_str());
 
-  /* Link the node into the material graph against the wrapper function. */
   return GPU_stack_link_custom(mat,
                                node,
-                               K_GLSLFN_PROTO_WRAPPER_NAME,
-                               K_GLSLFN_PROTO_WRAPPER_FILENAME,
+                               wrapper_name.c_str(),
+                               wrapper_filename.c_str(),
                                GPU_CUSTOM_NODE_DEPENDENCY_NONE,
                                in,
                                out)
