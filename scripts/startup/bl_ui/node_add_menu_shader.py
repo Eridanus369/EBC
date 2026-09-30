@@ -72,6 +72,8 @@ class NODE_MT_shader_node_input_base(node_add_menu.NodeMenu):
         self.node_operator(layout, "ShaderNodeAmbientOcclusion", poll=object_material_shader_nodes_poll(context))
         self.node_operator(layout, "ShaderNodeAttribute")
         self.node_operator(layout, "ShaderNodeBevel", poll=object_material_shader_nodes_poll(context))
+        self.node_operator(layout, "ShaderNodeCurvature", poll=object_material_shader_nodes_poll(context))
+        self.node_operator(layout, "ShaderNodeRenderInfo", poll=object_material_shader_nodes_poll(context))
         self.node_operator_with_outputs(
             context, layout, "ShaderNodeCameraData",
             ["View Vector", "View Z Depth", "View Distance"],
@@ -402,6 +404,8 @@ class NODE_MT_shader_node_texture_base(node_add_menu.NodeMenu):
         self.node_operator(layout, "ShaderNodeTexVoronoi")
         self.node_operator(layout, "ShaderNodeTexWave")
         self.node_operator(layout, "ShaderNodeTexWhiteNoise")
+        self.node_operator(layout, "ShaderNodeWaterRipples")
+        self.node_operator(layout, "ShaderNodeTexHexagon")
 
         self.draw_assets_for_catalog(layout, self.bl_label)
 
@@ -437,6 +441,14 @@ class NODE_MT_shader_node_vector_base(node_add_menu.NodeMenu):
             defaults_callback=node_add_menu.set_vector_math_node_defaults)
         self.node_operator(layout, "ShaderNodeVectorRotate")
         self.node_operator(layout, "ShaderNodeVectorTransform")
+        layout.separator()
+        self.node_operator(layout, "ShaderNodeTwirl")
+        self.node_operator(layout, "ShaderNodeBasisTransform")
+        self.node_operator(layout, "ShaderNodeWorldToTangent")
+        layout.separator()
+        self.node_operator(layout, "ShaderNodeSdfPrimitive")
+        self.node_operator(layout, "ShaderNodeSdfOp")
+        self.node_operator(layout, "ShaderNodeSdfVectorOp")
 
         self.draw_assets_for_catalog(layout, self.menu_path)
 
