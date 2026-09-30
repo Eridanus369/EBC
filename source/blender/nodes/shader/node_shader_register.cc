@@ -128,6 +128,9 @@ void register_shader_nodes()
   register_node_type_sh_sdf_primitive();
   register_node_type_sh_sdf_op();
   register_node_type_sh_sdf_vector_op();
+  register_node_type_sh_world_to_tangent();
+  register_node_type_sh_basis_transform();
+  register_node_type_sh_screen_derivative();
 
   /* UPBGE */
   register_node_type_sh_sprites_animation();

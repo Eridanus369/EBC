@@ -742,6 +742,9 @@ set(GLSL_SRC
   shaders/material/gpu_shader_material_sdf_primitive.glsl
   shaders/material/gpu_shader_material_sdf_op.glsl
   shaders/material/gpu_shader_material_sdf_vector_op.glsl
+  shaders/material/gpu_shader_material_basis_transform.glsl
+  shaders/material/gpu_shader_material_world_to_tangent.glsl
+  shaders/material/gpu_shader_material_derivative.glsl
   shaders/material/gpu_shader_material_uv_map.bsl.hh
   shaders/material/gpu_shader_material_vector_displacement.bsl.hh
   shaders/material/gpu_shader_material_vector_math.bsl.hh

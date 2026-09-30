@@ -127,6 +127,9 @@ void register_node_type_sh_tex_hexagon();
 void register_node_type_sh_sdf_primitive();
 void register_node_type_sh_sdf_op();
 void register_node_type_sh_sdf_vector_op();
+void register_node_type_sh_world_to_tangent();
+void register_node_type_sh_basis_transform();
+void register_node_type_sh_screen_derivative();
 
 /* UPBGE */
 void register_node_type_sh_sprites_animation();

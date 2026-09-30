@@ -5937,6 +5937,31 @@ static void def_sh_tex_hexagon(BlenderRNA *brna, StructRNA *srna)
   RNA_def_property_update(prop, 0, "rna_Node_update");
 }
 
+static const EnumPropertyItem shader_derivative_data_type_items[] = {
+    {SOCK_FLOAT, "FLOAT", ICON_NODE_SOCKET_FLOAT, "Float", "Differentiate a floating-point value"},
+    {SOCK_VECTOR, "VECTOR", ICON_NODE_SOCKET_VECTOR, "Vector", "Differentiate a vector value"},
+    {SOCK_RGBA, "RGBA", ICON_NODE_SOCKET_RGBA, "Color", "Differentiate a color value"},
+    {0, nullptr, 0, nullptr, nullptr},
+};
+static const EnumPropertyItem shader_derivative_operation_items[] = {
+    {NODE_SHADER_DERIVATIVE_DDX,
+     "DDX",
+     0,
+     "DDX",
+     "Differentiate the input with respect to screen-space X"},
+    {NODE_SHADER_DERIVATIVE_DDY,
+     "DDY",
+     0,
+     "DDY",
+     "Differentiate the input with respect to screen-space Y"},
+    {NODE_SHADER_DERIVATIVE_DDXY,
+     "DDXY",
+     0,
+     "DDXY",
+     "Sum the screen-space X and Y derivatives of the input"},
+    {0, nullptr, 0, nullptr, nullptr},
+};
+
 static void def_sh_sdf_vector_op(BlenderRNA * /*brna*/, StructRNA *srna)
 {
   static const EnumPropertyItem sdf_op_axis_items[] = {
@@ -5982,6 +6007,152 @@ static void def_sh_sdf_op(BlenderRNA * /*brna*/, StructRNA *srna)
   RNA_def_property_boolean_sdna(prop, nullptr, "invert", 1);
   RNA_def_property_ui_text(prop, "Invert", "Invert operation output value");
   RNA_def_property_update(prop, NC_NODE | NA_EDITED, "rna_Node_update");
+}
+
+static void def_sh_basis_transform(BlenderRNA * /*brna*/, StructRNA *srna)
+{
+  static const EnumPropertyItem direction_items[] = {
+      {SHD_BASIS_TRANSFORM_DIRECTION_TO,
+       "TO_BASIS",
+       0,
+       "To Basis",
+       "Convert the input into the coordinates of the custom basis"},
+      {SHD_BASIS_TRANSFORM_DIRECTION_FROM,
+       "FROM_BASIS",
+       0,
+       "From Basis",
+       "Convert the input from the custom basis back into the surrounding space"},
+      {0, nullptr, 0, nullptr, nullptr},
+  };
+
+  static const EnumPropertyItem basis_input_items[] = {
+      {SHD_BASIS_TRANSFORM_INPUT_XYZ,
+       "XYZ",
+       0,
+       "XYZ",
+       "Use all three input axes directly"},
+      {SHD_BASIS_TRANSFORM_INPUT_XY,
+       "XY",
+       0,
+       "XY",
+       "Build the basis from X and Y axes, deriving Z from their cross product"},
+      {SHD_BASIS_TRANSFORM_INPUT_XZ,
+       "XZ",
+       0,
+       "XZ",
+       "Build the basis from X and Z axes, deriving Y from their cross product"},
+      {SHD_BASIS_TRANSFORM_INPUT_YZ,
+       "YZ",
+       0,
+       "YZ",
+       "Build the basis from Y and Z axes, deriving X from their cross product"},
+      {0, nullptr, 0, nullptr, nullptr},
+  };
+
+  static const EnumPropertyItem fallback_items[] = {
+      {SHD_BASIS_TRANSFORM_FALLBACK_PASS_THROUGH,
+       "PASS_THROUGH",
+       0,
+       "Pass Through",
+       "Return the input vector unchanged when the basis is invalid"},
+      {SHD_BASIS_TRANSFORM_FALLBACK_ZERO,
+       "ZERO",
+       0,
+       "Zero",
+       "Return a zero vector when the basis is invalid"},
+      {0, nullptr, 0, nullptr, nullptr},
+  };
+
+  static const EnumPropertyItem vector_type_items[] = {
+      {SHD_VECT_TRANSFORM_TYPE_POINT,
+       "POINT",
+       0,
+       "Point",
+       "Transform a point and include the Origin input"},
+      {SHD_VECT_TRANSFORM_TYPE_VECTOR,
+       "VECTOR",
+       0,
+       "Vector",
+       "Transform a direction vector without applying the Origin input"},
+      {SHD_VECT_TRANSFORM_TYPE_NORMAL,
+       "NORMAL",
+       0,
+       "Normal",
+       "Transform a normal vector using the normal-specific basis conversion"},
+      {0, nullptr, 0, nullptr, nullptr},
+  };
+
+  PropertyRNA *prop;
+
+  RNA_def_struct_sdna_from(srna, "NodeShaderBasisTransform", "storage");
+
+  prop = RNA_def_property(srna, "direction", PROP_ENUM, PROP_NONE);
+  RNA_def_property_enum_sdna(prop, nullptr, "direction");
+  RNA_def_property_enum_items(prop, direction_items);
+  RNA_def_property_ui_text(prop, "Direction", "Which way to transform relative to the custom basis");
+  RNA_def_property_update(prop, NC_NODE | NA_EDITED, "rna_Node_update");
+
+  prop = RNA_def_property(srna, "vector_type", PROP_ENUM, PROP_NONE);
+  RNA_def_property_enum_sdna(prop, nullptr, "vector_type");
+  RNA_def_property_enum_items(prop, vector_type_items);
+  RNA_def_property_ui_text(prop, "Type", "How the input should be interpreted during the transform");
+  RNA_def_property_update(prop, NC_NODE | NA_EDITED, "rna_Node_update");
+
+  prop = RNA_def_property(srna, "basis_input", PROP_ENUM, PROP_NONE);
+  RNA_def_property_enum_sdna(prop, nullptr, "basis_input");
+  RNA_def_property_enum_items(prop, basis_input_items);
+  RNA_def_property_ui_text(prop, "Basis Input", "Which axis inputs are used to construct the basis");
+  RNA_def_property_update(prop, NC_NODE | NA_EDITED, "rna_Node_update");
+
+  prop = RNA_def_property(srna, "orthonormalize", PROP_BOOLEAN, PROP_NONE);
+  RNA_def_property_boolean_sdna(prop, nullptr, "orthonormalize", 1);
+  RNA_def_property_ui_text(
+      prop,
+      "Orthonormalize",
+      "Normalize and orthogonalize the basis before transforming, ignoring axis scale");
+  RNA_def_property_update(prop, NC_NODE | NA_EDITED, "rna_Node_update");
+
+  prop = RNA_def_property(srna, "fallback", PROP_ENUM, PROP_NONE);
+  RNA_def_property_enum_sdna(prop, nullptr, "fallback");
+  RNA_def_property_enum_items(prop, fallback_items);
+  RNA_def_property_ui_text(prop, "Fallback", "Output to use when the basis axes do not form a valid transform");
+  RNA_def_property_update(prop, NC_NODE | NA_EDITED, "rna_Node_update");
+
+  RNA_def_struct_sdna_from(srna, "bNode", nullptr);
+}
+
+static void def_sh_world_to_tangent(BlenderRNA * /*brna*/, StructRNA *srna)
+{
+  PropertyRNA *prop;
+
+  RNA_def_struct_sdna_from(srna, "NodeShaderWorldToTangent", "storage");
+
+  prop = RNA_def_property(srna, "uv_map", PROP_STRING, PROP_NONE);
+  RNA_def_property_ui_text(prop, "UV Map", "UV map used to define the tangent basis");
+  RNA_def_property_update(prop, NC_NODE | NA_EDITED, "rna_Node_update");
+
+  RNA_def_struct_sdna_from(srna, "bNode", nullptr);
+}
+
+static void def_sh_screen_derivative(BlenderRNA * /*brna*/, StructRNA *srna)
+{
+  PropertyRNA *prop;
+
+  RNA_def_struct_sdna_from(srna, "NodeShaderDerivative", "storage");
+
+  prop = RNA_def_property(srna, "operation", PROP_ENUM, PROP_NONE);
+  RNA_def_property_enum_sdna(prop, nullptr, "operation");
+  RNA_def_property_enum_items(prop, shader_derivative_operation_items);
+  RNA_def_property_ui_text(prop, "Operation", "Screen-space derivative direction");
+  RNA_def_property_update(prop, NC_NODE | NA_EDITED, "rna_Node_update");
+
+  prop = RNA_def_property(srna, "data_type", PROP_ENUM, PROP_NONE);
+  RNA_def_property_enum_sdna(prop, nullptr, "data_type");
+  RNA_def_property_enum_items(prop, shader_derivative_data_type_items);
+  RNA_def_property_ui_text(prop, "Type", "Input and output data type");
+  RNA_def_property_update(prop, NC_NODE | NA_EDITED, "rna_Node_socket_update");
+
+  RNA_def_struct_sdna_from(srna, "bNode", nullptr);
 }
 
 static void def_sh_sdf_primitive(BlenderRNA *brna, StructRNA *srna)
@@ -11149,6 +11320,9 @@ static void rna_def_nodes(BlenderRNA *brna)
   define("ShaderNode", "ShaderNodeSdfPrimitive", def_sh_sdf_primitive);
   define("ShaderNode", "ShaderNodeSdfOp", def_sh_sdf_op);
   define("ShaderNode", "ShaderNodeSdfVectorOp", def_sh_sdf_vector_op);
+  define("ShaderNode", "ShaderNodeWorldToTangent", def_sh_world_to_tangent);
+  define("ShaderNode", "ShaderNodeBasisTransform", def_sh_basis_transform);
+  define("ShaderNode", "ShaderNodeScreenDerivative", def_sh_screen_derivative);
   define("ShaderNode", "ShaderNodeTexGradient", def_sh_tex_gradient);
   define("ShaderNode", "ShaderNodeTexIES", def_sh_tex_ies);
   define("ShaderNode", "ShaderNodeTexImage", def_sh_tex_image);

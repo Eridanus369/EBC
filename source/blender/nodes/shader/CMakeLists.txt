@@ -125,6 +125,9 @@ set(SRC
   nodes/node_shader_sdf_primitive.cc
   nodes/node_shader_sdf_op.cc
   nodes/node_shader_sdf_vector_op.cc
+  nodes/node_shader_world_to_tangent.cc
+  nodes/node_shader_basis_transform.cc
+  nodes/node_shader_screen_derivative.cc
 
   node_shader_register.cc
   node_shader_tree.cc

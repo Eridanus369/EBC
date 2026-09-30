@@ -2897,6 +2897,53 @@ struct NodeSdfVectorOp {
   int operation = SHD_SDF_VEC_OP_GRID;
   int axis = SHD_SDF_AXIS_XYZ;
 };
+/* Basis transform node enums. */
+enum {
+  SHD_BASIS_TRANSFORM_DIRECTION_TO = 0,
+  SHD_BASIS_TRANSFORM_DIRECTION_FROM = 1,
+};
+
+enum {
+  SHD_BASIS_TRANSFORM_INPUT_XYZ = 0,
+  SHD_BASIS_TRANSFORM_INPUT_XY = 1,
+  SHD_BASIS_TRANSFORM_INPUT_XZ = 2,
+  SHD_BASIS_TRANSFORM_INPUT_YZ = 3,
+};
+
+enum {
+  SHD_BASIS_TRANSFORM_FALLBACK_PASS_THROUGH = 0,
+  SHD_BASIS_TRANSFORM_FALLBACK_ZERO = 1,
+};
+
+/* Screen derivative node operation. */
+enum NodeShaderDerivativeOperation {
+  NODE_SHADER_DERIVATIVE_DDX = 0,
+  NODE_SHADER_DERIVATIVE_DDY = 1,
+  NODE_SHADER_DERIVATIVE_DDXY = 2,
+};
+struct NodeShaderWorldToTangent {
+  DNA_DEFINE_CXX_METHODS(NodeShaderWorldToTangent)
+
+  char uv_map[/*MAX_CUSTOMDATA_LAYER_NAME_NO_PREFIX*/ 64] = "";
+};
+
+struct NodeShaderBasisTransform {
+  DNA_DEFINE_CXX_METHODS(NodeShaderBasisTransform)
+
+  int vector_type = SHD_VECT_TRANSFORM_TYPE_VECTOR;
+  int direction = SHD_BASIS_TRANSFORM_DIRECTION_TO;
+  int basis_input = SHD_BASIS_TRANSFORM_INPUT_XYZ;
+  int fallback = SHD_BASIS_TRANSFORM_FALLBACK_PASS_THROUGH;
+  int orthonormalize = 1;
+};
+
+struct NodeShaderDerivative {
+  DNA_DEFINE_CXX_METHODS(NodeShaderDerivative)
+
+  int operation = NODE_SHADER_DERIVATIVE_DDX;
+  int data_type = SOCK_FLOAT;
+};
+
 struct NodeTexMagic {
   DNA_DEFINE_CXX_METHODS(NodeTexMagic)
 
