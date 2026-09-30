@@ -135,6 +135,7 @@ void register_shader_nodes()
   register_node_type_sh_render_info();
   register_node_type_sh_oklab_color_ramp();
   register_node_type_sh_glsl_function();
+  register_node_type_sh_image_to_closure();
 
   /* UPBGE */
   register_node_type_sh_sprites_animation();

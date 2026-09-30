@@ -2914,6 +2914,17 @@ enum NodeGLSLFunctionDefineType {
   SHD_GLSL_FUNCTION_DEFINE_INT = 1,
 };
 
+/* Image-to-Closure texture modes. */
+enum {
+  IMA_IMAGE_TO_CLOSURE_TEXTURE_2D = 0,
+  IMA_IMAGE_TO_CLOSURE_TEXTURE_3D_LUT_STRIP = 1,
+};
+
+enum {
+  IMA_IMAGE_TO_CLOSURE_3D_LUT_SIZE_AUTO = 0,
+  IMA_IMAGE_TO_CLOSURE_3D_LUT_SIZE_MANUAL = 1,
+};
+
 struct NodeShaderGLSLDefineValue {
   DNA_DEFINE_CXX_METHODS(NodeShaderGLSLDefineValue)
 
@@ -2946,6 +2957,19 @@ struct NodeShaderGLSLFunction {
   uint64_t edit_source_hash = 0;
   NodeShaderGLSLDefineValue *define_values = nullptr;
   void *_pad2 = nullptr;
+};
+
+struct NodeShaderImageToClosure {
+  DNA_DEFINE_CXX_METHODS(NodeShaderImageToClosure)
+
+  int texture_type = IMA_IMAGE_TO_CLOSURE_TEXTURE_2D;
+  int texture_size_mode = IMA_IMAGE_TO_CLOSURE_3D_LUT_SIZE_AUTO;
+  int interpolation = SHD_INTERP_LINEAR;
+  int extension = SHD_IMAGE_EXTENSION_REPEAT;
+  int texture_width = 16;
+  int texture_height = 16;
+  int texture_depth = 16;
+  char _pad[4] = {};
 };
 
 struct NodeSdfVectorOp {
