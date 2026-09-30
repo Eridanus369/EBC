@@ -6060,6 +6060,68 @@ static void def_sh_glsl_function(BlenderRNA * /*brna*/, StructRNA *srna)
   RNA_def_property_update(prop, NC_NODE | NA_EDITED, "rna_Node_update");
 }
 
+static void def_sh_image_to_closure(BlenderRNA * /*brna*/, StructRNA *srna)
+{
+  static const EnumPropertyItem texture_type_items[] = {
+      {IMA_IMAGE_TO_CLOSURE_TEXTURE_2D, "TEXTURE_2D", 0, "2D Texture", ""},
+      {IMA_IMAGE_TO_CLOSURE_TEXTURE_3D_LUT_STRIP,
+       "TEXTURE_3D_LUT_STRIP",
+       0,
+       "3D LUT Strip",
+       ""},
+      {0, nullptr, 0, nullptr, nullptr},
+  };
+  static const EnumPropertyItem texture_size_mode_items[] = {
+      {IMA_IMAGE_TO_CLOSURE_3D_LUT_SIZE_AUTO, "AUTO", 0, "Auto", ""},
+      {IMA_IMAGE_TO_CLOSURE_3D_LUT_SIZE_MANUAL, "MANUAL", 0, "Manual", ""},
+      {0, nullptr, 0, nullptr, nullptr},
+  };
+
+  PropertyRNA *prop;
+
+  prop = RNA_def_property(srna, "image", PROP_POINTER, PROP_NONE);
+  RNA_def_property_pointer_sdna(prop, nullptr, "id");
+  RNA_def_property_struct_type(prop, "Image");
+  RNA_def_property_flag(prop, PROP_EDITABLE);
+  RNA_def_property_override_flag(prop, PROPOVERRIDE_OVERRIDABLE_LIBRARY);
+  RNA_def_property_ui_text(prop, "Image", "");
+  RNA_def_property_update(prop, NC_NODE | NA_EDITED, "rna_Node_update");
+
+  RNA_def_struct_sdna_from(srna, "NodeShaderImageToClosure", "storage");
+
+  prop = RNA_def_property(srna, "texture_type", PROP_ENUM, PROP_NONE);
+  RNA_def_property_enum_sdna(prop, nullptr, "texture_type");
+  RNA_def_property_enum_items(prop, texture_type_items);
+  RNA_def_property_ui_text(prop, "Texture Type", "");
+  RNA_def_property_update(prop, NC_NODE | NA_EDITED, "rna_Node_update");
+
+  prop = RNA_def_property(srna, "texture_size_mode", PROP_ENUM, PROP_NONE);
+  RNA_def_property_enum_sdna(prop, nullptr, "texture_size_mode");
+  RNA_def_property_enum_items(prop, texture_size_mode_items);
+  RNA_def_property_ui_text(prop, "Size Mode", "");
+  RNA_def_property_update(prop, NC_NODE | NA_EDITED, "rna_Node_update");
+
+  prop = RNA_def_property(srna, "texture_width", PROP_INT, PROP_NONE);
+  RNA_def_property_int_sdna(prop, nullptr, "texture_width");
+  RNA_def_property_range(prop, 1, 4096);
+  RNA_def_property_ui_text(prop, "Width", "");
+  RNA_def_property_update(prop, NC_NODE | NA_EDITED, "rna_Node_update");
+
+  prop = RNA_def_property(srna, "texture_height", PROP_INT, PROP_NONE);
+  RNA_def_property_int_sdna(prop, nullptr, "texture_height");
+  RNA_def_property_range(prop, 1, 4096);
+  RNA_def_property_ui_text(prop, "Height", "");
+  RNA_def_property_update(prop, NC_NODE | NA_EDITED, "rna_Node_update");
+
+  prop = RNA_def_property(srna, "texture_depth", PROP_INT, PROP_NONE);
+  RNA_def_property_int_sdna(prop, nullptr, "texture_depth");
+  RNA_def_property_range(prop, 1, 4096);
+  RNA_def_property_ui_text(prop, "Depth", "");
+  RNA_def_property_update(prop, NC_NODE | NA_EDITED, "rna_Node_update");
+
+  RNA_def_struct_sdna_from(srna, "bNode", nullptr);
+}
+
 static void def_sh_basis_transform(BlenderRNA * /*brna*/, StructRNA *srna)
 {
   static const EnumPropertyItem direction_items[] = {
@@ -11378,6 +11440,7 @@ static void rna_def_nodes(BlenderRNA *brna)
   define("ShaderNode", "ShaderNodeRenderInfo");
   define("ShaderNode", "ShaderNodeOKLabColorRamp", def_colorramp);
   define("ShaderNode", "ShaderNodeGLSLFunction", def_sh_glsl_function);
+  define("ShaderNode", "ShaderNodeImageToClosure", def_sh_image_to_closure);
   define("ShaderNode", "ShaderNodeTexGradient", def_sh_tex_gradient);
   define("ShaderNode", "ShaderNodeTexIES", def_sh_tex_ies);
   define("ShaderNode", "ShaderNodeTexImage", def_sh_tex_image);
