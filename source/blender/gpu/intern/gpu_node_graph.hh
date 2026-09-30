@@ -177,10 +177,28 @@ struct GPUNodeGraphOutputLink {
   GPUNodeLink *outlink;
 };
 
+enum GPUNodeGraphFunctionLinkMode {
+  GPU_NODE_GRAPH_FUNCTION_LEGACY = 0,
+  GPU_NODE_GRAPH_FUNCTION_MULTI_IO,
+};
+
+struct GPUNodeGraphFunctionOutput {
+  GPUType type;
+  GPUNodeLink *outlink;
+};
+
 struct GPUNodeGraphFunctionLink {
   GPUNodeGraphFunctionLink *next, *prev;
   char name[16];
+  char dependency_name[128];
+  GPUType return_type;
   GPUNodeLink *outlink;
+
+  GPUNodeGraphFunctionLinkMode mode;
+  GPUType *input_types;
+  int input_types_len;
+  GPUNodeGraphFunctionOutput *outputs;
+  int outputs_len;
 };
 
 struct GPUNodeGraph {
