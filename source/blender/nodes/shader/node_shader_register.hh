@@ -123,6 +123,7 @@ void register_node_type_sh_wavelength();
 void register_node_type_sh_wireframe();
 void register_node_type_sh_twirl();
 void register_node_type_sh_water_ripples();
+void register_node_type_sh_tex_hexagon();
 
 /* UPBGE */
 void register_node_type_sh_sprites_animation();

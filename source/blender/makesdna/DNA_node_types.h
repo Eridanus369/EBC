@@ -2740,6 +2740,29 @@ struct NodeTexWave {
   int wave_profile = 0;
 };
 
+/* Hexagon node coords. */
+enum {
+  SHD_HEXAGON_COORDS_XY = 0,
+  SHD_HEXAGON_COORDS_HEX = 1,
+};
+
+/* Hexagon node value mode. */
+enum {
+  SHD_HEXAGON_VALUE_HEX = 0,
+  SHD_HEXAGON_VALUE_SDF = 1,
+  SHD_HEXAGON_VALUE_DOT = 2,
+};
+
+struct NodeTexHexagon {
+  DNA_DEFINE_CXX_METHODS(NodeTexHexagon)
+
+  NodeTexBase base;
+  int coord_mode = 0;
+  int value_mode = 0;
+  int direction = 0;
+  int use_clamp = 0;
+};
+
 struct NodeTexMagic {
   DNA_DEFINE_CXX_METHODS(NodeTexMagic)
 
