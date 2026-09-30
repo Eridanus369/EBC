@@ -122,6 +122,7 @@ void register_shader_nodes()
   register_node_type_sh_volume_coefficients();
   register_node_type_sh_wavelength();
   register_node_type_sh_wireframe();
+  register_node_type_sh_twirl();
 
   /* UPBGE */
   register_node_type_sh_sprites_animation();
