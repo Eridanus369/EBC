@@ -741,6 +741,7 @@ set(GLSL_SRC
   shaders/material/gpu_shader_material_sdf_util.glsl
   shaders/material/gpu_shader_material_sdf_primitive.glsl
   shaders/material/gpu_shader_material_sdf_op.glsl
+  shaders/material/gpu_shader_material_sdf_vector_op.glsl
   shaders/material/gpu_shader_material_uv_map.bsl.hh
   shaders/material/gpu_shader_material_vector_displacement.bsl.hh
   shaders/material/gpu_shader_material_vector_math.bsl.hh

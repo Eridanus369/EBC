@@ -124,6 +124,7 @@ set(SRC
   nodes/node_shader_tex_hexagon.cc
   nodes/node_shader_sdf_primitive.cc
   nodes/node_shader_sdf_op.cc
+  nodes/node_shader_sdf_vector_op.cc
 
   node_shader_register.cc
   node_shader_tree.cc
