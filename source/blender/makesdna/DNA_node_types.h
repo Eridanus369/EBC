@@ -2891,6 +2891,61 @@ enum NodeSdfAxis {
   SHD_SDF_AXIS_ZXY = 4,
   SHD_SDF_AXIS_ZYX = 5,
 };
+/* GLSL Function node enums (NPR). */
+
+enum NodeGLSLFunctionSourceMode {
+  SHD_GLSL_FUNCTION_SOURCE_INTERNAL = 0,
+  SHD_GLSL_FUNCTION_SOURCE_EXTERNAL = 1,
+};
+
+enum NodeGLSLFunctionParseStatus {
+  SHD_GLSL_FUNCTION_PARSE_DIRTY = 0,
+  SHD_GLSL_FUNCTION_PARSE_READY = 1,
+  SHD_GLSL_FUNCTION_PARSE_ERROR = 2,
+};
+
+enum NodeGLSLFunctionFlag {
+  SHD_GLSL_FUNCTION_CODE_MODE = 1 << 0,
+  SHD_GLSL_FUNCTION_EDIT_FUNCTION = 1 << 1,
+};
+
+enum NodeGLSLFunctionDefineType {
+  SHD_GLSL_FUNCTION_DEFINE_BOOL = 0,
+  SHD_GLSL_FUNCTION_DEFINE_INT = 1,
+};
+
+struct NodeShaderGLSLDefineValue {
+  DNA_DEFINE_CXX_METHODS(NodeShaderGLSLDefineValue)
+
+  char name[64] = "";
+  /** #NodeGLSLFunctionDefineType. */
+  int type = SHD_GLSL_FUNCTION_DEFINE_BOOL;
+  int value = 0;
+};
+
+/* NOTE: pointer fields (packed_source, edit_source, define_values) are
+ * deliberately omitted in this stage-1 skeleton. They will be added in a
+ * later porting stage along with their blend_read_write callbacks. */
+struct NodeShaderGLSLFunction {
+  DNA_DEFINE_CXX_METHODS(NodeShaderGLSLFunction)
+
+  int source_mode = SHD_GLSL_FUNCTION_SOURCE_INTERNAL;
+  int parse_status = SHD_GLSL_FUNCTION_PARSE_DIRTY;
+  int flags = 0;
+  int signature_hash = 0;
+  int meta_hash = 0;
+  int sampler_interpolation = SHD_INTERP_LINEAR;
+  int sampler_extension = SHD_IMAGE_EXTENSION_REPEAT;
+
+  char function_name[64] = "";
+  char edit_function_name[64] = "";
+  char filepath[/*FILE_MAX*/ 1024] = "";
+  int define_values_num = 0;
+  unsigned int edit_source_session_uid = 0;
+  int _pad = 0;
+  uint64_t edit_source_hash = 0;
+};
+
 struct NodeSdfVectorOp {
   DNA_DEFINE_CXX_METHODS(NodeSdfVectorOp)
 

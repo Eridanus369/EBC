@@ -131,6 +131,7 @@ set(SRC
   nodes/node_shader_curvature.cc
   nodes/node_shader_render_info.cc
   nodes/node_shader_oklab_color_ramp.cc
+  nodes/node_shader_glsl_function.cc
 
   node_shader_register.cc
   node_shader_tree.cc

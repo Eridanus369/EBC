@@ -134,6 +134,7 @@ void register_shader_nodes()
   register_node_type_sh_curvature();
   register_node_type_sh_render_info();
   register_node_type_sh_oklab_color_ramp();
+  register_node_type_sh_glsl_function();
 
   /* UPBGE */
   register_node_type_sh_sprites_animation();

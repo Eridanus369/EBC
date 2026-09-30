@@ -6039,6 +6039,18 @@ static void def_sh_curvature(BlenderRNA * /*brna*/, StructRNA *srna)
   RNA_def_property_update(prop, NC_NODE | NA_EDITED, "rna_Node_update");
 }
 
+static void def_sh_glsl_function(BlenderRNA * /*brna*/, StructRNA *srna)
+{
+  PropertyRNA *prop;
+
+  RNA_def_struct_sdna_from(srna, "NodeShaderGLSLFunction", "storage");
+
+  prop = RNA_def_property(srna, "function_name", PROP_STRING, PROP_NONE);
+  RNA_def_property_string_sdna(prop, nullptr, "function_name");
+  RNA_def_property_ui_text(prop, "Function Name", "Name of the GLSL function to call");
+  RNA_def_property_update(prop, NC_NODE | NA_EDITED, "rna_Node_update");
+}
+
 static void def_sh_basis_transform(BlenderRNA * /*brna*/, StructRNA *srna)
 {
   static const EnumPropertyItem direction_items[] = {
@@ -11356,6 +11368,7 @@ static void rna_def_nodes(BlenderRNA *brna)
   define("ShaderNode", "ShaderNodeCurvature", def_sh_curvature);
   define("ShaderNode", "ShaderNodeRenderInfo");
   define("ShaderNode", "ShaderNodeOKLabColorRamp", def_colorramp);
+  define("ShaderNode", "ShaderNodeGLSLFunction", def_sh_glsl_function);
   define("ShaderNode", "ShaderNodeTexGradient", def_sh_tex_gradient);
   define("ShaderNode", "ShaderNodeTexIES", def_sh_tex_ies);
   define("ShaderNode", "ShaderNodeTexImage", def_sh_tex_image);
