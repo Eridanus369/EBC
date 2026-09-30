@@ -146,6 +146,51 @@ const EnumPropertyItem rna_enum_node_sdf_primitive_items[] = {
     {0, nullptr, 0, nullptr, nullptr},
 };
 
+const EnumPropertyItem rna_enum_node_sdf_op_items[] = {
+    {0, "", 0, N_("1 Input SDF Ops"), ""},
+    {SHD_SDF_OP_DILATE, "DILATE", 0, "Dilate", "Grow or shrink SDF boundary"},
+    {SHD_SDF_OP_ONION, "ONION", 0, "Onion", "Create N edges"},
+    {SHD_SDF_OP_ANNULAR, "ANNULAR", 0, "Annular", "Create edge on boundary of zero values"},
+    {SHD_SDF_OP_MASK, "MASK", 0, "Mask", "Create clamped 0-1 mask from negative SDF values"},
+    {SHD_SDF_OP_FLATTEN, "FLATTEN", 0, "Flatten", "Clamp range and map to [0-1] range"},
+    {SHD_SDF_OP_INVERT, "INVERT", 0, "Invert", "Invert SDF values"},
+    {SHD_SDF_OP_PULSE,
+     "PULSE",
+     0,
+     "Hermite Pulse",
+     "Hermite pulse between min and max SDF values"},
+    {0, "", 0, N_("2 Input SDF Ops"), ""},
+    {SHD_SDF_OP_BLEND, "BLEND", 0, "Blend", "Blend between SDF values"},
+    {SHD_SDF_OP_EXCLUSION, "EXCLUSION", 0, "Exclusion XOR", "Union with intersection removed"},
+    {SHD_SDF_OP_DIVIDE, "DIVIDE", 0, "Divide", "Union with gap between SDFs"},
+    {SHD_SDF_OP_PIPE, "PIPE", 0, "Pipe", "Produces a cylindrical pipe along the intersection"},
+    {SHD_SDF_OP_ENGRAVE, "ENGRAVE", 0, "Engrave", "Intersection with v-shaped cut out"},
+    {SHD_SDF_OP_GROOVE, "GROOVE", 0, "Groove", "Intersection with groove cut out"},
+    {SHD_SDF_OP_TONGUE, "TONGUE", 0, "Tongue", "Intersection with tongue cut out"},
+    {0, "", 0, N_("Union"), ""},
+    {SHD_SDF_OP_UNION, "UNION", 0, "Union", ""},
+    {SHD_SDF_OP_UNION_SMOOTH, "UNION_SMOOTH", 0, "Union Smooth", ""},
+    {SHD_SDF_OP_UNION_ROUND, "UNION_ROUND", 0, "Union Round", ""},
+    {SHD_SDF_OP_UNION_COLUMNS, "UNION_COLUMNS", 0, "Union Columns", ""},
+    {SHD_SDF_OP_UNION_STAIRS, "UNION_STAIRS", 0, "Union Stairs", ""},
+    {SHD_SDF_OP_UNION_CHAMFER, "UNION_CHAMFER", 0, "Union Chamfer", ""},
+    {0, "", 0, N_("Intersection"), ""},
+    {SHD_SDF_OP_INTERSECT, "INTERSECT", 0, "Intersect", ""},
+    {SHD_SDF_OP_INTERSECT_SMOOTH, "INTERSECT_SMOOTH", 0, "Intersect Smooth", ""},
+    {SHD_SDF_OP_INTERSECT_ROUND, "INTERSECT_ROUND", 0, "Intersect Round", ""},
+    {SHD_SDF_OP_INTERSECT_COLUMNS, "INTERSECT_COLUMNS", 0, "Intersect Columns", ""},
+    {SHD_SDF_OP_INTERSECT_STAIRS, "INTERSECT_STAIRS", 0, "Intersect Stairs", ""},
+    {SHD_SDF_OP_INTERSECT_CHAMFER, "INTERSECT_CHAMFER", 0, "Intersect Chamfer", ""},
+    {0, "", 0, N_("Difference"), ""},
+    {SHD_SDF_OP_DIFF, "DIFFERENCE", 0, "Difference", ""},
+    {SHD_SDF_OP_DIFF_SMOOTH, "DIFFERENCE_SMOOTH", 0, "Difference Smooth", ""},
+    {SHD_SDF_OP_DIFF_ROUND, "DIFFERENCE_ROUND", 0, "Difference Round", ""},
+    {SHD_SDF_OP_DIFF_COLUMNS, "DIFFERENCE_COLUMNS", 0, "Difference Columns", ""},
+    {SHD_SDF_OP_DIFF_STAIRS, "DIFFERENCE_STAIRS", 0, "Difference Stairs", ""},
+    {SHD_SDF_OP_DIFF_CHAMFER, "DIFFERENCE_CHAMFER", 0, "Difference Chamfer", ""},
+    {0, nullptr, 0, nullptr, nullptr},
+};
+
 const EnumPropertyItem rna_enum_node_color_tag_items[] = {
     {int(bke::NodeColorTag::None),
      "NONE",
@@ -5812,6 +5857,24 @@ static void def_sh_tex_hexagon(BlenderRNA *brna, StructRNA *srna)
   RNA_def_property_update(prop, 0, "rna_Node_update");
 }
 
+static void def_sh_sdf_op(BlenderRNA * /*brna*/, StructRNA *srna)
+{
+  PropertyRNA *prop;
+
+  RNA_def_struct_sdna_from(srna, "NodeSdfOp", "storage");
+
+  prop = RNA_def_property(srna, "operation", PROP_ENUM, PROP_NONE);
+  RNA_def_property_enum_sdna(prop, nullptr, "operation");
+  RNA_def_property_enum_items(prop, rna_enum_node_sdf_op_items);
+  RNA_def_property_ui_text(prop, "Operation", "SDF operation to apply");
+  RNA_def_property_update(prop, NC_NODE | NA_EDITED, "rna_ShaderNode_socket_update");
+
+  prop = RNA_def_property(srna, "invert", PROP_BOOLEAN, PROP_NONE);
+  RNA_def_property_boolean_sdna(prop, nullptr, "invert", 1);
+  RNA_def_property_ui_text(prop, "Invert", "Invert operation output value");
+  RNA_def_property_update(prop, NC_NODE | NA_EDITED, "rna_Node_update");
+}
+
 static void def_sh_sdf_primitive(BlenderRNA *brna, StructRNA *srna)
 {
   PropertyRNA *prop;
@@ -10975,6 +11038,7 @@ static void rna_def_nodes(BlenderRNA *brna)
   define("ShaderNode", "ShaderNodeTexGabor", def_sh_tex_gabor);
   define("ShaderNode", "ShaderNodeTexHexagon", def_sh_tex_hexagon);
   define("ShaderNode", "ShaderNodeSdfPrimitive", def_sh_sdf_primitive);
+  define("ShaderNode", "ShaderNodeSdfOp", def_sh_sdf_op);
   define("ShaderNode", "ShaderNodeTexGradient", def_sh_tex_gradient);
   define("ShaderNode", "ShaderNodeTexIES", def_sh_tex_ies);
   define("ShaderNode", "ShaderNodeTexImage", def_sh_tex_image);

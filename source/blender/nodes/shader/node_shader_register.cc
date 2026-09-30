@@ -126,6 +126,7 @@ void register_shader_nodes()
   register_node_type_sh_water_ripples();
   register_node_type_sh_tex_hexagon();
   register_node_type_sh_sdf_primitive();
+  register_node_type_sh_sdf_op();
 
   /* UPBGE */
   register_node_type_sh_sprites_animation();

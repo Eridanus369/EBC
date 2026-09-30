@@ -186,6 +186,7 @@ DEF_ENUM(rna_enum_node_socket_structure_type_items)
 
 DEF_ENUM(rna_enum_node_math_items)
 DEF_ENUM(rna_enum_node_sdf_primitive_items)
+DEF_ENUM(rna_enum_node_sdf_op_items)
 DEF_ENUM(rna_enum_mapping_type_items)
 DEF_ENUM(rna_enum_node_vec_math_items)
 DEF_ENUM(rna_enum_node_boolean_math_items)
