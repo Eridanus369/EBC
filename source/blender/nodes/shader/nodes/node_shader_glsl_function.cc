@@ -19,8 +19,12 @@
 
 #include "BLI_math_vector_types.hh"
 #include "BLI_utildefines.hh"
+#include <sstream>
+
+#include "BLI_map.hh"
 #include "BLI_set.hh"
 #include "BLI_span.hh"
+#include "BLI_string_ref.hh"
 
 #include "RNA_types.hh"
 
@@ -1000,6 +1004,927 @@ static std::string glslfn_read_source(const bNode *node)
   return source;
 }
 
+/* Pick which top-level function to bind: the node's explicit function_name if it
+ * matches one of the found names, otherwise the first declared function. */
+static std::string glslfn_pick_function(const bNode *node,
+                                        const Vector<std::string> &names)
+{
+  if (names.is_empty()) {
+    return {};
+  }
+  if (node != nullptr && node->storage != nullptr) {
+    const NodeShaderGLSLFunction *storage =
+        static_cast<const NodeShaderGLSLFunction *>(node->storage);
+    if (storage->function_name[0] != '\0') {
+      const std::string want = storage->function_name;
+      for (const std::string &n : names) {
+        if (n == want) {
+          return want;
+        }
+      }
+    }
+  }
+  return names[0];
+}
+
+
+/* ============ Stage 3 T4: @glsl_meta parsing (lite: no panels/items) ============ */
+
+    struct GLSLRawParamMeta
+    {
+      std::optional<std::string> default_value;
+      std::optional<std::string> min_value;
+      std::optional<std::string> max_value;
+      std::optional<std::string> hide_value;
+      std::optional<std::string> subtype;
+      std::optional<std::string> description;
+      std::optional<std::string> label;
+
+      bool has_any() const
+      {
+        return default_value.has_value() || min_value.has_value() || max_value.has_value() ||
+          hide_value.has_value() || subtype.has_value() || description.has_value() ||
+          label.has_value();
+      }
+    };
+
+    [[maybe_unused]] static std::string trim_copy(const StringRef text)
+    {
+      int64_t start = 0;
+      int64_t end = text.size();
+      while (start < end && std::isspace(uchar(text[start]))) {
+        start++;
+      }
+      while (end > start && std::isspace(uchar(text[end - 1]))) {
+        end--;
+      }
+      return text.substr(start, end - start);
+    }
+
+    [[maybe_unused]] static std::string lowercase_copy(StringRef text)
+    {
+      std::string result(text);
+      for (char &c : result) {
+        c = std::tolower(uchar(c));
+      }
+      return result;
+    }
+
+    [[maybe_unused]] static std::string strip_glsl_comments(StringRef source)
+    {
+      std::string stripped;
+      stripped.reserve(source.size());
+      for (int64_t i = 0; i < source.size();) {
+        if (ELEM(source[i], '"', '\'')) {
+          const char quote = source[i];
+          stripped.push_back(source[i++]);
+          while (i < source.size()) {
+            const char c = source[i];
+            stripped.push_back(c);
+            i++;
+            if (c == '\\' && i < source.size()) {
+              stripped.push_back(source[i++]);
+              continue;
+            }
+            if (c == quote) {
+              break;
+            }
+          }
+          continue;
+        }
+        if ((i + 1) < source.size() && source[i] == '/' && source[i + 1] == '/') {
+          stripped.append("  ");
+          i += 2;
+          while (i < source.size() && source[i] != '\n') {
+            stripped.push_back(source[i] == '\r' ? '\r' : ' ');
+            i++;
+          }
+          continue;
+        }
+        if ((i + 1) < source.size() && source[i] == '/' && source[i + 1] == '*') {
+          stripped.append("  ");
+          i += 2;
+          while ((i + 1) < source.size() && !(source[i] == '*' && source[i + 1] == '/')) {
+            stripped.push_back(ELEM(source[i], '\r', '\n') ? source[i] : ' ');
+            i++;
+          }
+          if ((i + 1) < source.size()) {
+            stripped.append("  ");
+            i += 2;
+          }
+          else if (i < source.size()) {
+            stripped.push_back(source[i++]);
+          }
+          continue;
+        }
+        stripped.push_back(source[i]);
+        i++;
+      }
+      return stripped;
+    }
+
+    [[maybe_unused]] static std::string make_glsl_meta_key(const StringRef function_name,
+                                                           const StringRef param_name)
+    {
+      std::string key;
+      key.reserve(function_name.size() + param_name.size() + 1);
+      key.append(function_name);
+      key.push_back('\x1f');
+      key.append(param_name);
+      return key;
+    }
+
+    [[maybe_unused]] static void split_glsl_meta_key(const StringRef key,
+                                                     StringRef &r_function_name,
+                                                     StringRef &r_param_name)
+    {
+      const int64_t separator = key.find('\x1f');
+      if (separator == StringRef::not_found) {
+        r_function_name = "";
+        r_param_name = key;
+        return;
+      }
+      r_function_name = key.substr(0, separator);
+      r_param_name = key.substr(separator + 1);
+    }
+
+    [[maybe_unused]] static bool parse_glsl_meta_bool_literal(const StringRef text,
+                                                              bool &r_value,
+                                                              std::string &r_error)
+    {
+      const std::string normalized = lowercase_copy(trim_copy(text));
+      if (normalized == "1" || normalized == "true" || normalized == "yes" ||
+          normalized == "on")
+      {
+        r_value = true;
+        return true;
+      }
+      if (normalized == "0" || normalized == "false" || normalized == "no" ||
+          normalized == "off")
+      {
+        r_value = false;
+        return true;
+      }
+      r_error = "Expected a GLSL meta boolean literal";
+      return false;
+    }
+
+    [[maybe_unused]] static bool parse_glsl_meta_int_literal(const StringRef text,
+                                                             int &r_value,
+                                                             std::string &r_error)
+    {
+      const std::string trimmed = trim_copy(text);
+      if (trimmed.empty()) {
+        r_error = "GLSL meta integer value cannot be empty";
+        return false;
+      }
+      char *end = nullptr;
+      errno = 0;
+      const long long value = std::strtoll(trimmed.c_str(), &end, 10);
+      if (end == trimmed.c_str() || *end != '\0') {
+        r_error = "Could not parse GLSL meta integer value '" + trimmed + "'";
+        return false;
+      }
+      if (errno == ERANGE || value < INT_MIN || value > INT_MAX) {
+        r_error = "GLSL meta integer value '" + trimmed + "' is outside the int32 range";
+        return false;
+      }
+      r_value = int(value);
+      return true;
+    }
+
+    [[maybe_unused]] static bool parse_glsl_meta_float_literal(const StringRef text,
+                                                               float &r_value,
+                                                               std::string &r_error)
+    {
+      const std::string trimmed = trim_copy(text);
+      if (trimmed.empty()) {
+        r_error = "GLSL meta float value cannot be empty";
+        return false;
+      }
+      char *end = nullptr;
+      errno = 0;
+      const float value = std::strtof(trimmed.c_str(), &end);
+      if (end == trimmed.c_str() || trim_copy(end).size() != 0) {
+        r_error = "Could not parse GLSL meta float value '" + trimmed + "'";
+        return false;
+      }
+      if (errno == ERANGE || !std::isfinite(value)) {
+        r_error = "GLSL meta float value '" + trimmed + "' is outside the finite float range";
+        return false;
+      }
+      r_value = value;
+      return true;
+    }
+
+    [[maybe_unused]] static bool parse_glsl_meta_vector_default(const StringRef text,
+                                                                const int dimensions,
+                                                                float4 &r_value,
+                                                                std::string &r_error)
+    {
+      const std::string trimmed = trim_copy(text);
+      const std::string prefix = "vec" + std::to_string(dimensions);
+      if (!StringRef(trimmed).startswith(prefix) || !StringRef(trimmed).endswith(")")) {
+        r_error = "GLSL meta vector defaults must use " + prefix + "(...)";
+        return false;
+      }
+      const StringRef args_text = StringRef(trimmed).substr(prefix.size());
+      if (args_text.size() < 2 || args_text[0] != '(' ||
+          args_text[args_text.size() - 1] != ')')
+      {
+        r_error = "Malformed GLSL meta vector constructor";
+        return false;
+      }
+      Vector<std::string> args;
+      int paren_depth = 0;
+      int64_t arg_start = 1;
+      for (int64_t i = 1; i < args_text.size() - 1; i++) {
+        const char c = args_text[i];
+        if (c == '(') {
+          paren_depth++;
+        }
+        else if (c == ')') {
+          paren_depth = std::max(paren_depth - 1, 0);
+        }
+        else if (c == ',' && paren_depth == 0) {
+          args.append(trim_copy(args_text.substr(arg_start, i - arg_start)));
+          arg_start = i + 1;
+        }
+      }
+      args.append(trim_copy(args_text.substr(arg_start, args_text.size() - 1 - arg_start)));
+      if (!(args.size() == 1 || args.size() == dimensions)) {
+        r_error = "GLSL meta vector defaults must provide either one scalar or " +
+                  std::to_string(dimensions) + " scalars";
+        return false;
+      }
+      r_value = float4(0.0f);
+      if (args.size() == 1) {
+        float scalar = 0.0f;
+        if (!parse_glsl_meta_float_literal(args[0], scalar, r_error)) {
+          return false;
+        }
+        for (const int i : IndexRange(dimensions)) {
+          r_value[i] = scalar;
+        }
+        return true;
+      }
+      for (const int i : IndexRange(dimensions)) {
+        if (!parse_glsl_meta_float_literal(args[i], r_value[i], r_error)) {
+          return false;
+        }
+      }
+      return true;
+    }
+
+    [[maybe_unused]] static bool parse_glsl_meta_subtype(const StringRef text,
+                                                         const GLSLBoundaryType type,
+                                                         PropertySubType &r_subtype,
+                                                         std::string &r_error)
+    {
+      std::string name = lowercase_copy(trim_copy(text));
+      if (StringRef(name).startswith("prop_")) {
+        name = name.substr(5);
+      }
+      if (type == GLSLBoundaryType::Float) {
+        if (name == "none") {
+          r_subtype = PROP_NONE;
+        }
+        else if (name == "unsigned") {
+          r_subtype = PROP_UNSIGNED;
+        }
+        else if (name == "percentage") {
+          r_subtype = PROP_PERCENTAGE;
+        }
+        else if (name == "factor") {
+          r_subtype = PROP_FACTOR;
+        }
+        else if (name == "mass") {
+          r_subtype = PROP_MASS;
+        }
+        else if (name == "angle") {
+          r_subtype = PROP_ANGLE;
+        }
+        else if (name == "time") {
+          r_subtype = PROP_TIME;
+        }
+        else if (name == "time_absolute") {
+          r_subtype = PROP_TIME_ABSOLUTE;
+        }
+        else if (name == "distance") {
+          r_subtype = PROP_DISTANCE;
+        }
+        else if (name == "wavelength") {
+          r_subtype = PROP_WAVELENGTH;
+        }
+        else {
+          r_error = "Unsupported GLSL meta float subtype '" + std::string(text) + "'";
+          return false;
+        }
+        return true;
+      }
+      if (!ELEM(type, GLSLBoundaryType::Vec2, GLSLBoundaryType::Vec3, GLSLBoundaryType::Vec4))
+      {
+        r_error = "GLSL meta subtype is only supported for float and vec* inputs";
+        return false;
+      }
+      if (name == "none") {
+        r_subtype = PROP_NONE;
+      }
+      else if (name == "factor") {
+        r_subtype = PROP_FACTOR;
+      }
+      else if (name == "percentage") {
+        r_subtype = PROP_PERCENTAGE;
+      }
+      else if (name == "translation") {
+        r_subtype = PROP_TRANSLATION;
+      }
+      else if (name == "direction") {
+        r_subtype = PROP_DIRECTION;
+      }
+      else if (name == "velocity") {
+        r_subtype = PROP_VELOCITY;
+      }
+      else if (name == "acceleration") {
+        r_subtype = PROP_ACCELERATION;
+      }
+      else if (name == "euler") {
+        r_subtype = PROP_EULER;
+      }
+      else if (name == "xyz") {
+        r_subtype = PROP_XYZ;
+      }
+      else if (name == "color") {
+        if (!ELEM(type, GLSLBoundaryType::Vec3, GLSLBoundaryType::Vec4)) {
+          r_error = "GLSL meta vector subtype 'color' requires vec3 or vec4";
+          return false;
+        }
+        r_subtype = PROP_COLOR;
+      }
+      else {
+        r_error = "Unsupported GLSL meta vector subtype '" + std::string(text) + "'";
+        return false;
+      }
+      return true;
+    }
+
+    [[maybe_unused]] static bool parse_glsl_meta_quoted_string(const StringRef text,
+                                                               int64_t &r_index,
+                                                               std::string &r_value,
+                                                               std::string &r_error)
+    {
+      BLI_assert(r_index < text.size() && text[r_index] == '"');
+      r_index++;
+      while (r_index < text.size()) {
+        const char c = text[r_index];
+        r_index++;
+        if (c == '"') {
+          return true;
+        }
+        if (c == '\\') {
+          if (r_index >= text.size()) {
+            r_error = "Unterminated escape sequence in GLSL meta quoted string";
+            return false;
+          }
+          const char escaped = text[r_index];
+          r_index++;
+          if (ELEM(escaped, '"', '\\')) {
+            r_value.push_back(escaped);
+            continue;
+          }
+          r_error = "Unsupported escape sequence in GLSL meta quoted string";
+          return false;
+        }
+        r_value.push_back(c);
+      }
+      r_error = "Unterminated GLSL meta quoted string";
+      return false;
+    }
+
+    [[maybe_unused]] static bool parse_glsl_meta_assignment_list(
+        const StringRef text, Map<std::string, std::string> &r_assignments, std::string &r_error)
+    {
+      for (int64_t i = 0; i < text.size();) {
+        while (i < text.size() && std::isspace(uchar(text[i]))) {
+          i++;
+        }
+        if (i >= text.size()) {
+          break;
+        }
+        if (!is_identifier_start(text[i])) {
+          r_error = "Malformed GLSL meta attribute list";
+          return false;
+        }
+        const int64_t key_start = i;
+        i++;
+        while (i < text.size() && is_identifier_continue(text[i])) {
+          i++;
+        }
+        const std::string key = std::string(text.substr(key_start, i - key_start));
+        while (i < text.size() && std::isspace(uchar(text[i]))) {
+          i++;
+        }
+        if (i >= text.size() || text[i] != '=') {
+          r_error = "GLSL meta attributes must use key=value syntax";
+          return false;
+        }
+        i++;
+        while (i < text.size() && std::isspace(uchar(text[i]))) {
+          i++;
+        }
+        if (i >= text.size()) {
+          r_error = "GLSL meta attribute is missing a value";
+          return false;
+        }
+        std::string value;
+        if (text[i] == '"') {
+          if (!parse_glsl_meta_quoted_string(text, i, value, r_error)) {
+            return false;
+          }
+          if (i < text.size() && !std::isspace(uchar(text[i]))) {
+            r_error = "GLSL meta quoted attribute values must be followed by whitespace";
+            return false;
+          }
+        }
+        else {
+          const int64_t value_start = i;
+          int paren_depth = 0;
+          while (i < text.size()) {
+            const char c = text[i];
+            if (c == '(') {
+              paren_depth++;
+            }
+            else if (c == ')') {
+              paren_depth = std::max(paren_depth - 1, 0);
+            }
+            else if (paren_depth == 0 && std::isspace(uchar(c))) {
+              break;
+            }
+            i++;
+          }
+          value = std::string(text.substr(value_start, i - value_start));
+        }
+        value = trim_copy(value);
+        if (value.empty()) {
+          r_error = "GLSL meta attribute is missing a value";
+          return false;
+        }
+        if (r_assignments.contains(key)) {
+          r_error = "Duplicate GLSL meta attribute '" + key + "'";
+          return false;
+        }
+        r_assignments.add(key, value);
+      }
+      return true;
+    }
+
+    [[maybe_unused]] static bool merge_glsl_raw_param_meta(GLSLRawParamMeta &r_meta,
+                                                           const Map<std::string, std::string> &assignments,
+                                                           std::string &r_error)
+    {
+      auto assign_once = [&](std::optional<std::string> &slot,
+                             const StringRef key,
+                             const StringRef value) -> bool {
+        if (slot.has_value()) {
+          r_error = "Duplicate GLSL meta attribute '" + std::string(key) + "'";
+          return false;
+        }
+        slot = std::string(value);
+        return true;
+      };
+      for (const auto &item : assignments.items()) {
+        const StringRef key = item.key;
+        const StringRef value = item.value;
+        if (key == "default") {
+          if (!assign_once(r_meta.default_value, key, value)) {
+            return false;
+          }
+        }
+        else if (key == "min") {
+          if (!assign_once(r_meta.min_value, key, value)) {
+            return false;
+          }
+        }
+        else if (key == "max") {
+          if (!assign_once(r_meta.max_value, key, value)) {
+            return false;
+          }
+        }
+        else if (key == "hide_value") {
+          if (!assign_once(r_meta.hide_value, key, value)) {
+            return false;
+          }
+        }
+        else if (key == "subtype") {
+          if (!assign_once(r_meta.subtype, key, value)) {
+            return false;
+          }
+        }
+        else if (key == "description") {
+          if (!assign_once(r_meta.description, key, value)) {
+            return false;
+          }
+        }
+        else if (key == "label") {
+          if (!assign_once(r_meta.label, key, value)) {
+            return false;
+          }
+        }
+        else {
+          r_error = "Unsupported GLSL meta attribute '" + std::string(key) + "'";
+          return false;
+        }
+      }
+      return true;
+    }
+
+    [[maybe_unused]] static bool parse_glsl_meta_block(
+        const StringRef comment,
+        Map<std::string, GLSLRawParamMeta> &r_param_meta_by_name,
+        bool &r_is_meta_block,
+        std::string &r_error)
+    {
+      r_is_meta_block = false;
+      std::stringstream stream{std::string(comment)};
+      std::string line;
+      bool header_seen = false;
+      while (std::getline(stream, line)) {
+        std::string normalized = trim_copy(line);
+        if (!normalized.empty() && normalized[0] == '*') {
+          normalized = trim_copy(StringRef(normalized).drop_prefix(1));
+        }
+        if (normalized.empty()) {
+          continue;
+        }
+        if (!header_seen) {
+          if (!StringRef(normalized).startswith("@glsl_meta")) {
+            return true;
+          }
+          header_seen = true;
+          r_is_meta_block = true;
+          continue;
+        }
+        if (StringRef(normalized).startswith("@")) {
+          r_error = "Unsupported GLSL meta directive '" + normalized + "'";
+          return false;
+        }
+        const int64_t separator = StringRef(normalized).find(':');
+        if (separator == StringRef::not_found) {
+          r_error = "GLSL meta lines must use 'name: key=value' syntax";
+          return false;
+        }
+        std::string target = trim_copy(StringRef(normalized).substr(0, separator));
+        const std::string attributes_text = trim_copy(StringRef(normalized).substr(separator + 1));
+        if (target.empty() || attributes_text.empty()) {
+          r_error = "GLSL meta lines must define a target and at least one attribute";
+          return false;
+        }
+        const std::string param_name = target;
+        Map<std::string, std::string> assignments;
+        if (!parse_glsl_meta_assignment_list(attributes_text, assignments, r_error)) {
+          return false;
+        }
+        GLSLRawParamMeta meta;
+        if (const GLSLRawParamMeta *existing = r_param_meta_by_name.lookup_ptr(param_name)) {
+          meta = *existing;
+        }
+        if (!merge_glsl_raw_param_meta(meta, assignments, r_error)) {
+          return false;
+        }
+        r_param_meta_by_name.add_overwrite(param_name, meta);
+      }
+      return true;
+    }
+
+    [[maybe_unused]] static bool find_glsl_meta_target_function_name(
+        const StringRef source_after_comment, std::string &r_function_name, std::string &r_error)
+    {
+      const std::string stripped_source = strip_glsl_comments(source_after_comment);
+      const Vector<GLSLToken> tokens = tokenize_glsl_source(stripped_source, false);
+      if (tokens.is_empty()) {
+        r_error = "GLSL meta block must be placed directly above a function definition";
+        return false;
+      }
+      int brace_depth = 0;
+      for (int i = 0; i < tokens.size(); i++) {
+        const GLSLToken &token = tokens[i];
+        if (token.kind != GLSLToken::Kind::Punctuation) {
+          continue;
+        }
+        if (token.punctuation == '{') {
+          if (brace_depth == 0) {
+            r_error = "GLSL meta block must be placed directly above a function definition";
+            return false;
+          }
+          brace_depth++;
+          continue;
+        }
+        if (token.punctuation == '}') {
+          brace_depth = max_ii(0, brace_depth - 1);
+          continue;
+        }
+        if (brace_depth != 0) {
+          continue;
+        }
+        if (token.punctuation == ';') {
+          r_error = "GLSL meta block must be placed directly above a function definition";
+          return false;
+        }
+        if (token.punctuation != '(' || i < 2 ||
+            tokens[i - 1].kind != GLSLToken::Kind::Identifier ||
+            tokens[i - 2].kind != GLSLToken::Kind::Identifier)
+        {
+          continue;
+        }
+        int paren_depth = 1;
+        int closing_paren_index = -1;
+        for (int j = i + 1; j < tokens.size(); j++) {
+          if (tokens[j].kind != GLSLToken::Kind::Punctuation) {
+            continue;
+          }
+          if (tokens[j].punctuation == '(') {
+            paren_depth++;
+          }
+          else if (tokens[j].punctuation == ')') {
+            paren_depth--;
+            if (paren_depth == 0) {
+              closing_paren_index = j;
+              break;
+            }
+          }
+        }
+        if (closing_paren_index != -1 && (closing_paren_index + 1) < tokens.size() &&
+            tokens[closing_paren_index + 1].kind == GLSLToken::Kind::Punctuation &&
+            tokens[closing_paren_index + 1].punctuation == '{')
+        {
+          r_function_name = tokens[i - 1].text;
+          return true;
+        }
+        r_error = "GLSL meta block must be placed directly above a function definition";
+        return false;
+      }
+      r_error = "GLSL meta block must be placed directly above a function definition";
+      return false;
+    }
+
+    [[maybe_unused]] static bool extract_glsl_meta(
+        const StringRef source,
+        Map<std::string, GLSLRawParamMeta> &r_meta_by_key,
+        std::string &r_error)
+    {
+      Set<std::string> functions_with_meta;
+      for (int64_t i = 0; (i + 1) < source.size();) {
+        if (source[i] == '/' && source[i + 1] == '*') {
+          const int64_t body_start = i + 2;
+          int64_t body_end = source.size();
+          bool found_end = false;
+          for (int64_t j = body_start; (j + 1) < source.size(); j++) {
+            if (source[j] == '*' && source[j + 1] == '/') {
+              body_end = j;
+              i = j + 2;
+              found_end = true;
+              break;
+            }
+          }
+          if (!found_end) {
+            r_error = "Unterminated GLSL block comment";
+            return false;
+          }
+          Map<std::string, GLSLRawParamMeta> param_meta_by_name;
+          bool is_meta_block = false;
+          if (!parse_glsl_meta_block(
+                  source.substr(body_start, body_end - body_start),
+                  param_meta_by_name,
+                  is_meta_block,
+                  r_error))
+          {
+            return false;
+          }
+          if (!is_meta_block) {
+            continue;
+          }
+          std::string function_name;
+          if (!find_glsl_meta_target_function_name(source.substr(i), function_name, r_error)) {
+            return false;
+          }
+          if (functions_with_meta.contains(function_name)) {
+            r_error = "Only one GLSL meta block is supported per function";
+            return false;
+          }
+          functions_with_meta.add(function_name);
+          for (const auto &item : param_meta_by_name.items()) {
+            r_meta_by_key.add(make_glsl_meta_key(function_name, item.key), item.value);
+          }
+          continue;
+        }
+        i++;
+      }
+      return true;
+    }
+
+    [[maybe_unused]] static bool apply_glsl_meta_to_param(const GLSLRawParamMeta &raw_meta,
+                                                          GLSLFunctionParam &r_param,
+                                                          std::string &r_error)
+    {
+      if (!raw_meta.has_any()) {
+        return true;
+      }
+      if (!glsl_param_has_input_socket(r_param)) {
+        if (glsl_param_has_output_socket(r_param) && raw_meta.label.has_value() &&
+            !raw_meta.default_value.has_value() && !raw_meta.min_value.has_value() &&
+            !raw_meta.max_value.has_value() && !raw_meta.hide_value.has_value() &&
+            !raw_meta.subtype.has_value() && !raw_meta.description.has_value())
+        {
+          r_param.meta.label = *raw_meta.label;
+          return true;
+        }
+        r_error = "GLSL meta only supports input parameters (label allowed on outputs)";
+        return false;
+      }
+      if (glsl_boundary_type_is_sampler(r_param.type)) {
+        if (raw_meta.default_value.has_value() || raw_meta.min_value.has_value() ||
+            raw_meta.max_value.has_value() || raw_meta.hide_value.has_value() ||
+            raw_meta.subtype.has_value())
+        {
+          r_error = "GLSL meta default/min/max/hide_value/subtype not supported for samplers";
+          return false;
+        }
+        if (raw_meta.description.has_value()) {
+          r_param.meta.description = *raw_meta.description;
+        }
+        if (raw_meta.label.has_value()) {
+          r_param.meta.label = *raw_meta.label;
+        }
+        return true;
+      }
+
+      if (raw_meta.default_value.has_value()) {
+        if (r_param.type == GLSLBoundaryType::Float) {
+          float v = 0.0f;
+          if (parse_glsl_meta_float_literal(*raw_meta.default_value, v, r_error)) {
+            r_param.meta.default_value.x = v;
+            r_param.meta.has_default_value = true;
+          }
+          else {
+            r_param.meta.default_expression = trim_copy(*raw_meta.default_value);
+            r_param.meta.hide_value = true;
+            r_error.clear();
+          }
+        }
+        else if (r_param.type == GLSLBoundaryType::Int) {
+          int v = 0;
+          if (parse_glsl_meta_int_literal(*raw_meta.default_value, v, r_error)) {
+            r_param.meta.int_default_value = v;
+            r_param.meta.has_default_value = true;
+          }
+          else {
+            r_error.clear();
+            r_error = "GLSL meta int default must be an integer literal";
+            return false;
+          }
+        }
+        else if (r_param.type == GLSLBoundaryType::Bool) {
+          bool v = false;
+          if (parse_glsl_meta_bool_literal(*raw_meta.default_value, v, r_error)) {
+            r_param.meta.default_value.x = v ? 1.0f : 0.0f;
+            r_param.meta.has_default_value = true;
+          }
+          else {
+            r_error.clear();
+            r_error = "GLSL meta bool default must be a boolean literal";
+            return false;
+          }
+        }
+        else {
+          float4 v = float4(0.0f);
+          if (parse_glsl_meta_vector_default(*raw_meta.default_value,
+                                             r_param.dimensions, v, r_error))
+          {
+            r_param.meta.default_value = v;
+            r_param.meta.has_default_value = true;
+          }
+          else {
+            r_error.clear();
+            r_error = "GLSL meta vector default must use vec" +
+                      std::to_string(r_param.dimensions) + "(...)";
+            return false;
+          }
+        }
+      }
+
+      if (raw_meta.min_value.has_value()) {
+        if (r_param.type == GLSLBoundaryType::Int) {
+          int v = 0;
+          if (!parse_glsl_meta_int_literal(*raw_meta.min_value, v, r_error)) {
+            return false;
+          }
+          r_param.meta.int_min_value = v;
+        }
+        else if (r_param.type == GLSLBoundaryType::Bool) {
+          r_error = "GLSL meta min not supported for bool";
+          return false;
+        }
+        else if (!parse_glsl_meta_float_literal(*raw_meta.min_value,
+                                                r_param.meta.min_value, r_error))
+        {
+          return false;
+        }
+        r_param.meta.has_min = true;
+      }
+
+      if (raw_meta.max_value.has_value()) {
+        if (r_param.type == GLSLBoundaryType::Int) {
+          int v = 0;
+          if (!parse_glsl_meta_int_literal(*raw_meta.max_value, v, r_error)) {
+            return false;
+          }
+          r_param.meta.int_max_value = v;
+        }
+        else if (r_param.type == GLSLBoundaryType::Bool) {
+          r_error = "GLSL meta max not supported for bool";
+          return false;
+        }
+        else if (!parse_glsl_meta_float_literal(*raw_meta.max_value,
+                                                r_param.meta.max_value, r_error))
+        {
+          return false;
+        }
+        r_param.meta.has_max = true;
+      }
+
+      if (raw_meta.hide_value.has_value()) {
+        if (!parse_glsl_meta_bool_literal(*raw_meta.hide_value,
+                                          r_param.meta.hide_value, r_error))
+        {
+          return false;
+        }
+      }
+
+      if (r_param.meta.has_min && r_param.meta.has_max) {
+        const bool invalid =
+            r_param.type == GLSLBoundaryType::Int ?
+                r_param.meta.int_min_value.value_or(0) > r_param.meta.int_max_value.value_or(0) :
+                r_param.meta.min_value > r_param.meta.max_value;
+        if (invalid) {
+          r_error = "GLSL meta min cannot be greater than max";
+          return false;
+        }
+      }
+
+      if (raw_meta.subtype.has_value()) {
+        PropertySubType subtype = PROP_NONE;
+        if (!parse_glsl_meta_subtype(*raw_meta.subtype, r_param.type, subtype, r_error)) {
+          return false;
+        }
+        r_param.meta.subtype = subtype;
+      }
+
+      if (raw_meta.description.has_value()) {
+        r_param.meta.description = *raw_meta.description;
+      }
+      if (raw_meta.label.has_value()) {
+        r_param.meta.label = *raw_meta.label;
+      }
+      return true;
+    }
+
+    [[maybe_unused]] static bool apply_glsl_meta_to_function(
+        const Map<std::string, GLSLRawParamMeta> &meta_by_key,
+        GLSLFunctionDefinition &r_function,
+        std::string &r_error)
+    {
+      Set<std::string> param_names;
+      for (const GLSLFunctionParam &param : r_function.params) {
+        param_names.add(param.name);
+      }
+      for (const auto &item : meta_by_key.items()) {
+        StringRef target_function;
+        StringRef target_param;
+        split_glsl_meta_key(item.key, target_function, target_param);
+        if (!target_function.is_empty() && target_function != r_function.name) {
+          continue;
+        }
+        if (!param_names.contains(std::string(target_param))) {
+          r_error = "GLSL meta parameter '" + std::string(target_param) +
+                    "' was not found in function '" + r_function.name + "'";
+          return false;
+        }
+      }
+      for (GLSLFunctionParam &param : r_function.params) {
+        if (const GLSLRawParamMeta *function_meta =
+                meta_by_key.lookup_ptr(make_glsl_meta_key(r_function.name, param.name)))
+        {
+          if (!apply_glsl_meta_to_param(*function_meta, param, r_error)) {
+            if (!r_error.empty()) {
+              r_error = "For parameter '" + param.name + "': " + r_error;
+            }
+            return false;
+          }
+        }
+      }
+      return true;
+    }
+
 static void node_declare(NodeDeclarationBuilder &b)
 {
   const bNode *node = b.node_or_null();
@@ -1007,15 +1932,23 @@ static void node_declare(NodeDeclarationBuilder &b)
     return;
   }
 
-  fprintf(stderr, "[GLSLFN gpu_fn] called\n");
   const std::string source = glslfn_read_source(node);
   Vector<GLSLToken> tokens = tokenize_glsl_source(source, true);
   Vector<std::string> names = find_top_level_glsl_function_names(tokens);
+  const std::string chosen = glslfn_pick_function(node, names);
   GLSLFunctionDefinition func;
   std::string error;
   bool parsed = false;
-  if (!names.is_empty()) {
-    parsed = find_glsl_function_definition(tokens, names[0], func, error);
+  if (!chosen.empty()) {
+    parsed = find_glsl_function_definition(tokens, chosen, func, error);
+  }
+
+  if (parsed) {
+    Map<std::string, GLSLRawParamMeta> meta_by_key;
+    if (!extract_glsl_meta(source, meta_by_key, error)) {
+      meta_by_key.clear();
+    }
+    apply_glsl_meta_to_function(meta_by_key, func, error);
   }
 
   if (!parsed) {
@@ -1030,21 +1963,85 @@ static void node_declare(NodeDeclarationBuilder &b)
     }
     const UString socket_name(param.name.c_str());
     const UString socket_id(make_socket_identifier("In", param.name));
+    const GLSLFunctionParam::Meta &meta = param.meta;
     switch (param.type) {
-      case GLSLBoundaryType::Float:
-        b.add_input<decl::Float>(socket_name, socket_id);
+      case GLSLBoundaryType::Float: {
+        auto &decl = b.add_input<decl::Float>(socket_name, socket_id)
+                         .min(meta.has_min ? meta.min_value : -10000.0f)
+                         .max(meta.has_max ? meta.max_value : 10000.0f);
+        if (meta.has_default_value) {
+          decl.default_value(meta.default_value.x);
+        }
+        if (meta.hide_value) {
+          decl.hide_value();
+        }
+        if (meta.subtype.has_value()) {
+          decl.subtype(*meta.subtype);
+        }
+        if (meta.description.has_value()) {
+          decl.description(*meta.description);
+        }
         break;
-      case GLSLBoundaryType::Int:
-        b.add_input<decl::Int>(socket_name, socket_id);
+      }
+      case GLSLBoundaryType::Int: {
+        auto &decl = b.add_input<decl::Int>(socket_name, socket_id)
+                         .min(meta.has_min ? meta.int_min_value.value_or(-10000) : -10000)
+                         .max(meta.has_max ? meta.int_max_value.value_or(10000) : 10000);
+        if (meta.has_default_value) {
+          decl.default_value(meta.int_default_value.value_or(0));
+        }
+        if (meta.hide_value) {
+          decl.hide_value();
+        }
+        if (meta.description.has_value()) {
+          decl.description(*meta.description);
+        }
         break;
-      case GLSLBoundaryType::Bool:
-        b.add_input<decl::Bool>(socket_name, socket_id);
+      }
+      case GLSLBoundaryType::Bool: {
+        auto &decl = b.add_input<decl::Bool>(socket_name, socket_id);
+        if (meta.has_default_value) {
+          decl.default_value(meta.default_value.x != 0.0f);
+        }
+        if (meta.hide_value) {
+          decl.hide_value();
+        }
+        if (meta.description.has_value()) {
+          decl.description(*meta.description);
+        }
         break;
+      }
       case GLSLBoundaryType::Vec2:
       case GLSLBoundaryType::Vec3:
       case GLSLBoundaryType::Vec4: {
-        auto &decl = b.add_input<decl::Vector>(socket_name, socket_id);
-        decl.dimensions(glsl_boundary_dimensions(param.type));
+        const int dim = glsl_boundary_dimensions(param.type);
+        auto &decl = b.add_input<decl::Vector>(socket_name, socket_id)
+                         .dimensions(dim)
+                         .min(meta.has_min ? meta.min_value : -10000.0f)
+                         .max(meta.has_max ? meta.max_value : 10000.0f);
+        if (meta.has_default_value) {
+          switch (dim) {
+            case 2:
+              decl.default_value(float2(meta.default_value.x, meta.default_value.y));
+              break;
+            case 3:
+              decl.default_value(float3(meta.default_value.x, meta.default_value.y,
+                                        meta.default_value.z));
+              break;
+            case 4:
+              decl.default_value(meta.default_value);
+              break;
+          }
+        }
+        if (meta.subtype.has_value()) {
+          decl.subtype(*meta.subtype);
+        }
+        if (meta.hide_value) {
+          decl.hide_value();
+        }
+        if (meta.description.has_value()) {
+          decl.description(*meta.description);
+        }
         break;
       }
       default:
@@ -1108,11 +2105,12 @@ static int node_shader_gpu_glsl_function(GPUMaterial *mat,
 
   Vector<GLSLToken> tokens = tokenize_glsl_source(source, true);
   Vector<std::string> names = find_top_level_glsl_function_names(tokens);
+  const std::string chosen = glslfn_pick_function(node, names);
   GLSLFunctionDefinition func;
   std::string error;
   bool parsed = false;
-  if (!names.is_empty()) {
-    parsed = find_glsl_function_definition(tokens, names[0], func, error);
+  if (!chosen.empty()) {
+    parsed = find_glsl_function_definition(tokens, chosen, func, error);
   }
 
   const std::string wrapper_filename = "__glslfn_wrap.glsl";
@@ -1155,20 +2153,6 @@ static int node_shader_gpu_glsl_function(GPUMaterial *mat,
     wrapper = "vec3 " + wrapper_name + "(vec3 In_Color)\n{\n  return vec3(0.5);\n}\n";
   }
 
-  {
-    int n = 0;
-    for (int i = 0; in && !in[i].end; i++) {
-      fprintf(stderr, "[GLSLFN gpu_fn] in[%d] type=%d\n", i, (int)in[i].type);
-      n++;
-    }
-    fprintf(stderr, "[GLSLFN gpu_fn] total_in=%d\n", n);
-    int sn = 0;
-    for (const bNodeSocket &s : node->inputs) {
-      fprintf(stderr, "[GLSLFN sock] name='%s' id='%s'\n", s.name, s.identifier);
-      sn++;
-    }
-    fprintf(stderr, "[GLSLFN sock] total=%d\n", sn);
-  }
   std::string combined = source + "\n" + wrapper;
   fprintf(stderr, "[GLSLFN combined]\n%s\n", combined.c_str());
   GPU_material_generated_source_add(mat, wrapper_filename.c_str(), {}, combined.c_str());
