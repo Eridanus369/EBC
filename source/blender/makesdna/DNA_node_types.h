@@ -2944,6 +2944,11 @@ struct NodeShaderDerivative {
   int data_type = SOCK_FLOAT;
 };
 
+enum NodeShaderCurvatureRadiusType {
+  SHD_CURVATURE_RADIUS_PIXEL = 0,
+  SHD_CURVATURE_RADIUS_VIEW = 1,
+};
+
 struct NodeTexMagic {
   DNA_DEFINE_CXX_METHODS(NodeTexMagic)
 
