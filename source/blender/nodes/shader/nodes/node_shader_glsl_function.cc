@@ -1007,6 +1007,7 @@ static void node_declare(NodeDeclarationBuilder &b)
     return;
   }
 
+  fprintf(stderr, "[GLSLFN gpu_fn] called\n");
   const std::string source = glslfn_read_source(node);
   Vector<GLSLToken> tokens = tokenize_glsl_source(source, true);
   Vector<std::string> names = find_top_level_glsl_function_names(tokens);
@@ -1114,9 +1115,6 @@ static int node_shader_gpu_glsl_function(GPUMaterial *mat,
     parsed = find_glsl_function_definition(tokens, names[0], func, error);
   }
 
-  const std::string lib_filename = "__glslfn_lib.glsl";
-  GPU_material_generated_source_add(mat, lib_filename.c_str(), {}, source.c_str());
-
   const std::string wrapper_filename = "__glslfn_wrap.glsl";
   const std::string wrapper_name = "glslfn_wrap_node";
   std::string wrapper;
@@ -1136,22 +1134,44 @@ static int node_shader_gpu_glsl_function(GPUMaterial *mat,
       params += param.type_name + " " + id;
       args += id;
     }
-    const std::string ret_type = (func.return_type == GLSLBoundaryType::Void) ?
-                                     std::string("void") :
-                                     func.return_type_name;
-    wrapper = ret_type + " " + wrapper_name + "(" + params + ")\n{\n";
-    if (func.return_type == GLSLBoundaryType::Void) {
-      wrapper += "  " + func.name + "(" + args + ");\n}\n";
-    } else {
-      wrapper += "  return " + func.name + "(" + args + ");\n}\n";
+    /* Blender shader functions use the out-parameter convention:
+     * void fn(in..., out T result). The codegen always passes the node's
+     * output socket as the final argument. */
+    const bool has_return = (func.return_type != GLSLBoundaryType::Void);
+    if (has_return) {
+      if (!params.empty()) {
+        params += ", ";
+      }
+      params += "out " + func.return_type_name + " Result";
     }
+    wrapper = "void " + wrapper_name + "(" + params + ")\n{\n";
+    if (has_return) {
+      wrapper += "  Result = " + func.name + "(" + args + ");\n";
+    } else {
+      wrapper += "  " + func.name + "(" + args + ");\n";
+    }
+    wrapper += "}\n";
   } else {
     wrapper = "vec3 " + wrapper_name + "(vec3 In_Color)\n{\n  return vec3(0.5);\n}\n";
   }
 
-  Vector<StringRefNull> deps;
-  deps.append(lib_filename.c_str());
-  GPU_material_generated_source_add(mat, wrapper_filename.c_str(), deps, wrapper.c_str());
+  {
+    int n = 0;
+    for (int i = 0; in && !in[i].end; i++) {
+      fprintf(stderr, "[GLSLFN gpu_fn] in[%d] type=%d\n", i, (int)in[i].type);
+      n++;
+    }
+    fprintf(stderr, "[GLSLFN gpu_fn] total_in=%d\n", n);
+    int sn = 0;
+    for (const bNodeSocket &s : node->inputs) {
+      fprintf(stderr, "[GLSLFN sock] name='%s' id='%s'\n", s.name, s.identifier);
+      sn++;
+    }
+    fprintf(stderr, "[GLSLFN sock] total=%d\n", sn);
+  }
+  std::string combined = source + "\n" + wrapper;
+  fprintf(stderr, "[GLSLFN combined]\n%s\n", combined.c_str());
+  GPU_material_generated_source_add(mat, wrapper_filename.c_str(), {}, combined.c_str());
 
   return GPU_stack_link_custom(mat,
                                node,

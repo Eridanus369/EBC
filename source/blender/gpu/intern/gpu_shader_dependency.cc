@@ -451,8 +451,22 @@ struct GPUSource {
 
         GPUSource *dependency_source = dict.lookup_default(dependency_name, nullptr);
         if (dependency_source == nullptr) {
-          /* Will certainly fail compilation. But avoid crashing the application. */
-          std::cerr << "Generated dependency not found : " + dependency_name << std::endl;
+          /* Runtime-generated sources (e.g. GLSL Function wrappers) live in a
+           * per-material list, not in the static shader dictionary. */
+          const shader::GeneratedSource *dep_gen_src = nullptr;
+          for (const shader::GeneratedSource &g : generated_sources) {
+            if (!g.filename.is_empty() && g.filename == dependency_name) {
+              dep_gen_src = &g;
+              break;
+            }
+          }
+          if (dep_gen_src != nullptr) {
+            included.append(dep_gen_src->content);
+            result.append(dep_gen_src->content);
+            continue;
+          }
+          std::cerr << "Generated dependency not found : '" << std::string(dependency_name)
+                    << "' (len=" << dependency_name.size() << ")" << std::endl;
           return;
         }
         /* WATCH: Recursive. */

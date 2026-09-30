@@ -336,7 +336,12 @@ void GPUCodegen::node_serialize(Set<StringRefNull> &used_libraries,
                                 std::stringstream &eval_ss,
                                 const GPUNode *node)
 {
-  gpu_material_library_use_function(used_libraries, node->name);
+  if (node->use_static_function) {
+    gpu_material_library_use_function(used_libraries, node->name);
+  }
+  /* Non-static custom functions (e.g. GLSL Function wrappers) are inlined into
+   * the material shader from GPUMaterial generated sources, so no shader-library
+   * dependency is needed. */
 
   auto source_reference = [&](GPUInput *input) {
     BLI_assert(ELEM(input->source, GPU_SOURCE_OUTPUT, GPU_SOURCE_ATTR));

@@ -1303,6 +1303,16 @@ void ShaderModule::material_create_info_amend(GPUMaterial *gpumat, GPUCodegenOut
 
   std::stringstream vert_gen, frag_gen;
 
+  /* NPR: inline runtime-generated material sources (GLSL Function wrappers etc.)
+   * at global scope of the fragment shader so custom node functions resolve
+   * without relying on the include/dependency mechanism. */
+  for (int i = 0; i < GPU_material_generated_source_count(gpumat); i++) {
+    const GPUMaterialGeneratedSource *gs = GPU_material_generated_source_get(gpumat, i);
+    if (gs != nullptr && !gs->content.empty()) {
+      frag_gen << gs->content << "\n";
+    }
+  }
+
   if (do_vertex_attrib_load) {
     vert_gen << global_vars.str() << "void attrib_load(" << domain_type_vert << " domain)"
              << attr_load.str();
