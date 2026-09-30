@@ -6133,6 +6133,25 @@ static void def_sh_tex_white_noise(BlenderRNA * /*brna*/, StructRNA *srna)
   RNA_def_property_update(prop, NC_NODE | NA_EDITED, "rna_ShaderNode_socket_update");
 }
 
+static void def_sh_water_ripples(BlenderRNA * /*brna*/, StructRNA *srna)
+{
+  static const EnumPropertyItem prop_water_ripples_mode_items[] = {
+      {NODE_WATER_RIPPLES_DROPS, "DROPS", 0, "Drops", "Water droplets"},
+      {NODE_WATER_RIPPLES_RIPPLES, "RIPPLES", 0, "Ripples", "Continuous ripples"},
+      {NODE_WATER_RIPPLES_FLOW, "FLOW", 0, "Flow", "Flowing water"},
+      {NODE_WATER_RIPPLES_CAUSTIC, "CAUSTIC", 0, "Caustic", "Caustic effect"},
+      {0, nullptr, 0, nullptr, nullptr},
+  };
+
+  PropertyRNA *prop;
+
+  prop = RNA_def_property(srna, "mode", PROP_ENUM, PROP_NONE);
+  RNA_def_property_enum_sdna(prop, nullptr, "custom1");
+  RNA_def_property_enum_items(prop, prop_water_ripples_mode_items);
+  RNA_def_property_ui_text(prop, "Mode", "Procedural water ripples mode");
+  RNA_def_property_update(prop, NC_NODE | NA_EDITED, "rna_ShaderNode_socket_update");
+}
+
 static void def_sh_tex_coord(BlenderRNA * /*brna*/, StructRNA *srna)
 {
   PropertyRNA *prop;
@@ -10807,6 +10826,7 @@ static void rna_def_nodes(BlenderRNA *brna)
   define("ShaderNode", "ShaderNodeTexWave", def_sh_tex_wave);
   define("ShaderNode", "ShaderNodeTexWhiteNoise", def_sh_tex_white_noise);
   define("ShaderNode", "ShaderNodeTwirl");
+  define("ShaderNode", "ShaderNodeWaterRipples", def_sh_water_ripples);
   define("ShaderNode", "ShaderNodeUVAlongStroke", def_sh_uvalongstroke);
   define("ShaderNode", "ShaderNodeUVMap", def_sh_uvmap);
   define("ShaderNode", "ShaderNodeValToRGB", def_colorramp);

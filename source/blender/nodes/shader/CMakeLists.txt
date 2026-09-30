@@ -120,6 +120,7 @@ set(SRC
   nodes/node_shader_wavelength.cc
   nodes/node_shader_wireframe.cc
   nodes/node_shader_twirl.cc
+  nodes/node_shader_water_ripples.cc
 
   node_shader_register.cc
   node_shader_tree.cc
