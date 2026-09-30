@@ -1,0 +1,45 @@
+# 构建产物
+build_linux/
+lib.old_2024-02/
+
+# 预编译库（太大，不上传）
+lib/
+
+# 中间文件
+*.log
+*.bak
+*.bak2
+*.bak3
+*.bak4
+*.bak5
+*.bak6
+*.o
+*.a
+CMakeCache.txt
+CMakeFiles/
+.ninja_log
+.ninja_deps
+
+# 其它
+__pycache__/
+*.pyc
+.cache/
+
+# 日志
+build_logs/
+
+# 测试资源（LFS 指针，无实际内容）
+tests/files/
+# Windows 专用（Linux 不需要）
+release/windows/msix/
+
+# 测试资源（LFS 指针）
+tests/files/
+# Windows 专用
+release/windows/msix/
+
+# 平台特定资源（LFS 指针）
+release/darwin/
+release/windows/installer_wix/
+doc/python_api/static/favicon.png
+release/datafiles/icons_blend/toolbar.blend

@@ -1,0 +1,112 @@
+/* SPDX-FileCopyrightText: 2022 Blender Authors
+ *
+ * SPDX-License-Identifier: GPL-2.0-or-later */
+
+/** \file
+ * \ingroup gpu
+ */
+
+#pragma once
+
+#include "GPU_vertex_buffer.hh"
+
+#include "vk_buffer.hh"
+#include "vk_common.hh"
+#include "vk_staging_buffer.hh"
+#include <atomic>
+
+namespace blender::gpu {
+
+class VKVertexBuffer : public VertBuf {
+  VKBuffer buffer_;
+  /** When a vertex buffer is used as a UNIFORM_TEXEL_BUFFER the buffer requires a buffer view. */
+  VkBufferView vk_buffer_view_ = VK_NULL_HANDLE;
+
+  bool data_uploaded_ = false;
+  /** When true, allocate the vertex buffer as host-visible and persistently mapped. */
+  bool use_host_visible_allocation_ = false;
+  /** Timeline value from the previous read_if_ready submission, 0 if none pending. */
+  TimelineValue read_if_ready_timeline_ = 0;
+  /** Dedicated host-visible staging buffer for async readback. */
+  VKStagingBuffer *read_if_ready_buffer_ = nullptr;
+  /** Indicates the mapped read buffer is currently the target of an async copy. */
+  mutable std::atomic_bool read_if_ready_in_use_ = false; // upbge
+
+ public:
+  ~VKVertexBuffer();
+
+  void bind_as_ssbo(uint binding) override;
+  void bind_as_texture(uint binding) override;
+  void wrap_handle(uint64_t handle) override;
+
+  void update_sub(uint start_offset, uint data_size_in_bytes, const void *data) override;
+  void copy_sub(VertBuf &source_buf,
+                uint source_first_vertex,
+                uint dest_first_vertex,
+                uint vertex_len) override;
+
+  void read(void *data) const override;
+
+  VkBuffer vk_handle() const
+  {
+    return buffer_.vk_handle();
+  }
+  const VKResourceWithHandle<VkBuffer> &resource() const
+  {
+    return buffer_.resource();
+  }
+
+  inline bool has_device_address() const
+  {
+    return buffer_.has_device_address();
+  }
+
+  inline VkDeviceAddress device_address_get() const
+  {
+    return buffer_.device_address_get();
+  }
+
+  VkBufferView vk_buffer_view_get() const
+  {
+    BLI_assert(vk_buffer_view_ != VK_NULL_HANDLE);
+    return vk_buffer_view_;
+  }
+
+  void ensure_updated();
+  void ensure_buffer_view();
+  void *mapped_ptr_get() const;
+
+  void enable_host_visible_mapping() override;
+  bool read_if_ready(void *data) override;
+
+  VkFormat to_vk_format()
+  {
+    return gpu::to_vk_format(to_texture_format(&format));
+  }
+
+ protected:
+  void acquire_data() override;
+  void resize_data() override;
+  void release_data() override;
+  void upload_data() override;
+
+ private:
+  void allocate();
+
+  void upload_data_direct(const VKBuffer &host_buffer);
+  void upload_data_via_staging_buffer(VKContext &context);
+
+  /* VKTexture requires access to `buffer_` to convert a vertex buffer to a texture. */
+  friend class VKTexture;
+};
+
+BLI_INLINE VKVertexBuffer *unwrap(VertBuf *vertex_buffer)
+{
+  return static_cast<VKVertexBuffer *>(vertex_buffer);
+}
+BLI_INLINE VKVertexBuffer &unwrap(VertBuf &vertex_buffer)
+{
+  return static_cast<VKVertexBuffer &>(vertex_buffer);
+}
+
+}  // namespace blender::gpu

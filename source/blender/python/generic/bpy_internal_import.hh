@@ -1,0 +1,56 @@
+/*
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License
+ * as published by the Free Software Foundation; either version 2
+ * of the License, or (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
+ */
+
+/** \file
+ * \ingroup pygen
+ */
+
+/* Note, the BGE needs to use this too, keep it minimal */
+
+#pragma once
+
+namespace blender {
+
+/* python redefines :/ */
+#ifdef _POSIX_C_SOURCE
+#  undef _POSIX_C_SOURCE
+#endif
+
+#ifdef _XOPEN_SOURCE
+#  undef _XOPEN_SOURCE
+#endif
+
+void bpy_import_init(PyObject *builtins);
+
+bool bpy_text_compile(blender::Text *text);
+PyObject *bpy_text_import(blender::Text *text);
+PyObject *bpy_text_import_name(const char *name, int *found);
+PyObject *bpy_text_reimport(PyObject *module, int *found);
+/* void		bpy_text_clear_modules(int clear_all);*/ /* Clear user modules */
+
+void bpy_text_filename_get(char *fn, size_t fn_len, struct Text *text);
+
+/* The game engine has its own Main struct, if this is set search this rather than G.main */
+blender::Main *bpy_import_main_get(void);
+void bpy_import_main_set(blender::Main *maggie);
+
+/* This is used for importing text from dynamically loaded libraries in the game engine */
+void bpy_import_main_extra_add(blender::Main *maggie);
+void bpy_import_main_extra_remove(blender::Main *maggie);
+
+extern PyMethodDef bpy_import_meth;
+
+}  // namespace blender

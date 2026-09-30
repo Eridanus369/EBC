@@ -1,0 +1,85 @@
+/*
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License
+ * as published by the Free Software Foundation; either version 2
+ * of the License, or (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
+ *
+ */
+
+#include "node_shader_util.hh"
+
+namespace blender {
+namespace nodes::node_shader_sprite_anim_cc {
+
+/* **************** SPRITES ANIMATION - UPBGE **************** */
+
+static void node_declare(NodeDeclarationBuilder &b)
+{
+  b.add_input<decl::Float>("Frames"_ustr)
+      .default_value(0.0f)
+      .min(0.0f)
+      .max(10000.0f)
+      .subtype(PROP_NONE);
+  b.add_input<decl::Float>("Columns"_ustr)
+      .default_value(0.0f)
+      .min(0.0f)
+      .max(1024.0f)
+      .subtype(PROP_NONE);
+  b.add_input<decl::Float>("Rows"_ustr)
+      .default_value(0.0f)
+      .min(0.0f)
+      .max(1024.0f)
+      .subtype(PROP_NONE);
+  b.add_input<decl::Float>("Columns Offset"_ustr)
+      .default_value(0.0f)
+      .min(0.0f)
+      .max(10000.0f)
+      .subtype(PROP_NONE);
+  b.add_input<decl::Float>("Rows Offset"_ustr)
+      .default_value(0.0f)
+      .min(0.0f)
+      .max(10000.0f)
+      .subtype(PROP_NONE);
+  b.add_output<decl::Vector>("Location"_ustr).hide_value();
+  b.add_output<decl::Vector>("Scale"_ustr).hide_value();
+}
+
+static int gpu_shader_sprites_animation(GPUMaterial *mat,
+                                        bNode *node,
+                                        bNodeExecData * /*execdata*/,
+                                        GPUNodeStack *in,
+                                        GPUNodeStack *out)
+{
+  return GPU_stack_link(mat, node, "node_sprites_animation", in, out);
+}
+
+}  // namespace nodes::node_shader_sprite_anim_cc
+
+void register_node_type_sh_sprites_animation()
+{
+
+  namespace file_ns = blender::nodes::node_shader_sprite_anim_cc;
+
+  static bke::bNodeType ntype;
+
+  sh_node_type_base(&ntype, "ShaderNodeSpritesAnimation"_ustr, SH_NODE_SPRITES_ANIMATION);
+  ntype.ui_name = "SpritesAnimation";
+  ntype.ui_description = "To animate sprites";
+  ntype.nclass = NODE_CLASS_SHADER;
+  ntype.declare = file_ns::node_declare;
+  ntype.add_ui_poll = object_eevee_shader_nodes_poll;
+  ntype.gpu_fn = file_ns::gpu_shader_sprites_animation;
+
+  node_register_type(ntype);
+}
+
+}  // namespace blender
