@@ -2,8 +2,93 @@
  *
  * SPDX-License-Identifier: GPL-2.0-or-later */
 
-/* NPR GLSL Light Access (reduced): exposes EEVEE lights to GLSL Function nodes.
- * Light Shader per-light parameters are not available in this build. */
+bool glsl_light_is_zero(float3 value)
+{
+  return all(lessThanEqual(abs(value), float3(1e-8f)));
+}
+
+float glsl_light_power_get(LightData light, LightingType type)
+{
+  /* Mask anything above 3. See LIGHT_TRANSLUCENT_WITH_THICKNESS. */
+  return light.power[type & 3u];
+}
+
+bool glsl_light_linking_affects_receiver(uint2 light_set_membership, uchar receiver_light_set)
+{
+  return bitmask64_test(light_set_membership, receiver_light_set);
+}
+
+float glsl_light_shape_radiance(LightData light)
+{
+  if (light.type == LIGHT_RECT || light.type == LIGHT_ELLIPSE) {
+    float area = light.area().size.x * light.area().size.y * 4.0f;
+    if (light.type == LIGHT_ELLIPSE) {
+      area *= M_PI / 4.0f;
+    }
+    return float(M_1_PI) / area;
+  }
+
+  if (light.type == LIGHT_OMNI_SPHERE || light.type == LIGHT_OMNI_DISK ||
+      light.type == LIGHT_SPOT_SPHERE || light.type == LIGHT_SPOT_DISK)
+  {
+    float area = float(4.0f * M_PI) * square(light.local().local.shape_radius);
+    return 1.0f / (area * float(M_PI));
+  }
+
+  if (is_sun_light(light.type)) {
+    float inv_sin_sq = 1.0f + 1.0f / square(light.sun().shape_radius);
+    return float(M_1_PI) * inv_sin_sq;
+  }
+
+  return 1.0f;
+}
+
+float glsl_light_point_radiance(LightData light)
+{
+  if (light.type == LIGHT_RECT || light.type == LIGHT_ELLIPSE) {
+    float area = light.area().size.x * light.area().size.y * 4.0f;
+    float tmp = M_PI_2 / (M_PI_2 + sqrt(area));
+    float mrp_scaling = tmp + (1.0f - tmp) * M_1_PI;
+    return float(M_1_PI) * mrp_scaling;
+  }
+
+  if (light.type == LIGHT_OMNI_SPHERE || light.type == LIGHT_OMNI_DISK ||
+      light.type == LIGHT_SPOT_SPHERE || light.type == LIGHT_SPOT_DISK)
+  {
+    return float(1.0f / (4.0f * M_PI));
+  }
+
+  if (is_sun_light(light.type)) {
+    return 1.0f;
+  }
+
+  return 1.0f;
+}
+
+float glsl_light_friendly_power(LightData light, LightingType type)
+{
+  float shape_power = glsl_light_shape_radiance(light);
+  float point_power = glsl_light_point_radiance(light);
+  if (shape_power <= 1e-16f) {
+    return 0.0f;
+  }
+  return glsl_light_power_get(light, type) * (point_power / shape_power);
+}
+
+float3 glsl_light_resolve_normal(float3 normal_value)
+{
+  float normal_len_squared = dot(normal_value, normal_value);
+  if (normal_len_squared > 1e-16f) {
+    return normal_value * inversesqrt(normal_len_squared);
+  }
+
+  float geom_len_squared = dot(g_data.Ng, g_data.Ng);
+  if (geom_len_squared > 1e-16f) {
+    return g_data.Ng * inversesqrt(geom_len_squared);
+  }
+
+  return float3(0.0f, 0.0f, 1.0f);
+}
 
 #define GLSL_LIGHT_TYPE_INVALID 0
 #define GLSL_LIGHT_TYPE_SUN 1
@@ -25,7 +110,20 @@ struct GLSLLight {
   float3 diffuse_color;
   float3 specular_color;
   float attenuation;
+  /* Surface influence cutoff radius in world units. Sun/invalid lights return zero. */
   float influence_radius;
+};
+
+struct GLSLLightIterator {
+  uint phase;
+  uint light_index;
+  uint public_index;
+};
+
+struct GLSLLightIteratorSample {
+  GLSLLight light;
+  uint light_index;
+  bool is_local;
 };
 
 GLSLLight glsl_light_default()
@@ -47,8 +145,62 @@ GLSLLight glsl_light_default()
   return light;
 }
 
-#if defined(GPU_FRAGMENT_SHADER) && defined(MAT_GLSL_LIGHT_ACCESS) && \
-    defined(EEVEE_LIGHT_DATA_AVAILABLE)
+float glsl_light_parameter_float(GLSLLight light, uint lo, uint hi, float fallback, out bool valid)
+{
+  float4 value;
+  valid = light_shader_parameter_read(light.shader_parameter_uid, lo, hi, 1u, value);
+  return valid ? value.x : fallback;
+}
+
+int glsl_light_parameter_int(GLSLLight light, uint lo, uint hi, int fallback, out bool valid)
+{
+  float4 value;
+  valid = light_shader_parameter_read(light.shader_parameter_uid, lo, hi, 2u, value);
+  return valid ? int(value.x) : fallback;
+}
+
+bool glsl_light_parameter_bool(GLSLLight light, uint lo, uint hi, bool fallback, out bool valid)
+{
+  float4 value;
+  valid = light_shader_parameter_read(light.shader_parameter_uid, lo, hi, 3u, value);
+  return valid ? value.x != 0.0f : fallback;
+}
+
+float2 glsl_light_parameter_vec2(GLSLLight light, uint lo, uint hi, float2 fallback, out bool valid)
+{
+  float4 value;
+  valid = light_shader_parameter_read(light.shader_parameter_uid, lo, hi, 4u, value);
+  return valid ? value.xy : fallback;
+}
+
+float3 glsl_light_parameter_vec3(GLSLLight light, uint lo, uint hi, float3 fallback, out bool valid)
+{
+  float4 value;
+  valid = light_shader_parameter_read(light.shader_parameter_uid, lo, hi, 5u, value);
+  return valid ? value.xyz : fallback;
+}
+
+float4 glsl_light_parameter_vec4(GLSLLight light, uint lo, uint hi, float4 fallback, out bool valid)
+{
+  float4 value;
+  valid = light_shader_parameter_read(light.shader_parameter_uid, lo, hi, 6u, value);
+  return valid ? value : fallback;
+}
+
+float4 glsl_light_parameter_color(GLSLLight light, uint lo, uint hi, float4 fallback, out bool valid)
+{
+  float4 value;
+  valid = light_shader_parameter_read(light.shader_parameter_uid, lo, hi, 7u, value);
+  return valid ? value : fallback;
+}
+
+#if defined(GPU_FRAGMENT_SHADER) && defined(MAT_GLSL_LIGHT_ACCESS)
+
+bool glsl_light_index_matches_locality(uint light_index, bool is_local)
+{
+  bool expected_is_local = light_index < light_cull_buf.local_lights_len;
+  return expected_is_local == is_local;
+}
 
 bool glsl_light_lookup(uint light_index,
                        bool is_local,
@@ -56,13 +208,23 @@ bool glsl_light_lookup(uint light_index,
                        out LightVector light_vector,
                        out bool is_directional)
 {
-  if (light_index >= light_cull_buf.items_count) {
+  if ((light_index >= light_cull_buf.items_count) ||
+      !glsl_light_index_matches_locality(light_index, is_local))
+  {
     return false;
   }
+
   light = light_buf[light_index];
-  if (all(lessThanEqual(abs(light.color), float3(1e-8f)))) {
+  if (glsl_light_is_zero(light.color)) {
     return false;
   }
+
+  ObjectInfos object_infos = object_infos_get();
+  uchar receiver_light_set = receiver_light_set_get(object_infos);
+  if (!glsl_light_linking_affects_receiver(light.light_set_membership, receiver_light_set)) {
+    return false;
+  }
+
   is_directional = !is_local;
   light_vector = light_vector_get(light, is_directional, g_data.P);
   return true;
@@ -76,8 +238,46 @@ bool glsl_light_loop_accept(uint light_index, bool is_local)
   if (!glsl_light_lookup(light_index, is_local, light, light_vector, is_directional)) {
     return false;
   }
-  return max(light.power[LIGHT_DIFFUSE], light.power[LIGHT_SPECULAR]) >=
-         LIGHT_ATTENUATION_THRESHOLD;
+
+  float diffuse_power = glsl_light_power_get(light, LIGHT_DIFFUSE);
+  float specular_power = glsl_light_power_get(light, LIGHT_SPECULAR);
+  return max(diffuse_power, specular_power) >= LIGHT_ATTENUATION_THRESHOLD;
+}
+
+bool glsl_light_find_ordinal(int light_ordinal, out uint r_light_index, out bool r_is_local)
+{
+  if (light_ordinal < 0) {
+    return false;
+  }
+
+  int current = 0;
+  for (uint light_index = 0u; light_index < light_cull_buf.visible_count; light_index++) {
+    bool is_local = true;
+    if (!glsl_light_loop_accept(light_index, is_local)) {
+      continue;
+    }
+    if (current == light_ordinal) {
+      r_light_index = light_index;
+      r_is_local = is_local;
+      return true;
+    }
+    current += 1;
+  }
+  for (uint light_index = light_cull_buf.local_lights_len; light_index < light_cull_buf.items_count;
+       light_index++)
+  {
+    bool is_local = false;
+    if (!glsl_light_loop_accept(light_index, is_local)) {
+      continue;
+    }
+    if (current == light_ordinal) {
+      r_light_index = light_index;
+      r_is_local = is_local;
+      return true;
+    }
+    current += 1;
+  }
+  return false;
 }
 
 int glsl_light_public_type(LightData light)
@@ -97,6 +297,47 @@ int glsl_light_public_type(LightData light)
   return GLSL_LIGHT_TYPE_POINT;
 }
 
+bool glsl_light_shader_eval(uint light_index,
+                            LightData light,
+                            LightVector light_vector,
+                            bool is_directional,
+                            GLSLLight &result)
+{
+#if defined(MAT_GLSL_LIGHT_SHADER_EVAL)
+  int light_shader_index = light_shader_index_buf[light_index];
+  int light_shader_uniform_index = (light_shader_index < -1) ? -light_shader_index - 2 : -1;
+  float4 light_shader;
+  if (light_shader_uniform_index >= 0) {
+    light_shader = light_shader_uniform_buf[light_shader_uniform_index];
+  }
+#  if defined(LIGHT_SHADER_TEXTURE_EVAL)
+  else if (light_shader_index >= 0) {
+    light_shader = texelFetch(light_shader_tx, int3(int2(gl_FragCoord.xy), light_shader_index), 0);
+  }
+#  endif
+  else {
+    return false;
+  }
+
+  result.diffuse_color = light_shader.rgb * glsl_light_friendly_power(light, LIGHT_DIFFUSE);
+  result.specular_color = light_shader.rgb * glsl_light_friendly_power(light, LIGHT_SPECULAR);
+  result.attenuation = light_attenuation_common(light, is_directional, light_vector.L) *
+                       light_shader.a;
+  if (!is_directional) {
+    result.attenuation *= light_influence_cutoff(
+        light_vector.dist, light.local().local.influence_radius_invsqr_surface);
+  }
+  return true;
+#else
+  UNUSED_VARS(light_index);
+  UNUSED_VARS(light);
+  UNUSED_VARS(light_vector);
+  UNUSED_VARS(is_directional);
+  UNUSED_VARS(result);
+  return false;
+#endif
+}
+
 GLSLLight glsl_light_build(uint light_index, bool is_local, uint public_index)
 {
   GLSLLight result = glsl_light_default();
@@ -109,7 +350,9 @@ GLSLLight glsl_light_build(uint light_index, bool is_local, uint public_index)
 
   result.valid = true;
   result.index = public_index;
+  result.shader_parameter_uid = light.shader_parameter_uid;
   result.type = glsl_light_public_type(light);
+  result.lightgroup_id = light.lightgroup_id;
   result.vector = light_vector.L;
   result.position = is_directional ? float3(0.0f) : light.position();
   if (is_directional) {
@@ -118,59 +361,90 @@ GLSLLight glsl_light_build(uint light_index, bool is_local, uint public_index)
   else if (is_spot_light(light.type) || is_area_light(light.type)) {
     result.direction = light.z_axis();
   }
+  else {
+    result.direction = float3(0.0f);
+  }
   result.distance = light_vector.dist;
-  result.diffuse_color = light.color * light.power[LIGHT_DIFFUSE];
-  result.specular_color = light.color * light.power[LIGHT_SPECULAR];
-  result.attenuation = light_attenuation_common(light, is_directional, light_vector.L) *
+  if (!is_directional) {
+    float inverse_radius_squared = light.local().local.influence_radius_invsqr_surface;
+    result.influence_radius = inverse_radius_squared > 0.0f ?
+                                  inversesqrt(inverse_radius_squared) : 0.0f;
+  }
+  result.diffuse_color = light.color * glsl_light_friendly_power(light, LIGHT_DIFFUSE);
+  result.specular_color = light.color * glsl_light_friendly_power(light, LIGHT_SPECULAR);
+  result.attenuation = light_point_light(light, is_directional, light_vector) *
                        light_attenuation_surface(light, is_directional, light_vector);
+  glsl_light_shader_eval(light_index, light, light_vector, is_directional, result);
   return result;
-}
-
-bool glsl_light_find_ordinal(int light_ordinal, out uint r_light_index, out bool r_is_local)
-{
-  if (light_ordinal < 0) {
-    return false;
-  }
-  int current = 0;
-  for (uint i = 0u; i < light_cull_buf.local_lights_len; i++) {
-    if (!glsl_light_loop_accept(i, true)) {
-      continue;
-    }
-    if (current == light_ordinal) {
-      r_light_index = i;
-      r_is_local = true;
-      return true;
-    }
-    current += 1;
-  }
-  for (uint i = light_cull_buf.local_lights_len; i < light_cull_buf.items_count; i++) {
-    if (!glsl_light_loop_accept(i, false)) {
-      continue;
-    }
-    if (current == light_ordinal) {
-      r_light_index = i;
-      r_is_local = false;
-      return true;
-    }
-    current += 1;
-  }
-  return false;
 }
 
 int glsl_light_count()
 {
   int count = 0;
-  for (uint i = 0u; i < light_cull_buf.local_lights_len; i++) {
-    if (glsl_light_loop_accept(i, true)) {
-      count += 1;
+  for (uint light_index = 0u; light_index < light_cull_buf.visible_count; light_index++) {
+    bool is_local = true;
+    if (!glsl_light_loop_accept(light_index, is_local)) {
+      continue;
     }
+    count += 1;
   }
-  for (uint i = light_cull_buf.local_lights_len; i < light_cull_buf.items_count; i++) {
-    if (glsl_light_loop_accept(i, false)) {
-      count += 1;
+  for (uint light_index = light_cull_buf.local_lights_len; light_index < light_cull_buf.items_count;
+       light_index++)
+  {
+    bool is_local = false;
+    if (!glsl_light_loop_accept(light_index, is_local)) {
+      continue;
     }
+    count += 1;
   }
   return count;
+}
+
+GLSLLightIterator glsl_light_iterator_init()
+{
+  GLSLLightIterator iterator;
+  iterator.phase = 0u;
+  iterator.light_index = 0u;
+  iterator.public_index = 0u;
+  return iterator;
+}
+
+bool glsl_light_iterator_next(GLSLLightIterator &iterator, out GLSLLightIteratorSample light_sample)
+{
+  while (iterator.phase < 2u) {
+    if (iterator.phase == 0u) {
+      while (iterator.light_index < light_cull_buf.visible_count) {
+        uint light_index = iterator.light_index++;
+        if (!glsl_light_loop_accept(light_index, true)) {
+          continue;
+        }
+        light_sample.light = glsl_light_build(light_index, true, iterator.public_index++);
+        light_sample.light_index = light_index;
+        light_sample.is_local = true;
+        return true;
+      }
+      iterator.phase = 1u;
+      iterator.light_index = light_cull_buf.local_lights_len;
+      continue;
+    }
+
+    while (iterator.light_index < light_cull_buf.items_count) {
+      uint light_index = iterator.light_index++;
+      if (!glsl_light_loop_accept(light_index, false)) {
+        continue;
+      }
+      light_sample.light = glsl_light_build(light_index, false, iterator.public_index++);
+      light_sample.light_index = light_index;
+      light_sample.is_local = false;
+      return true;
+    }
+    iterator.phase = 2u;
+  }
+
+  light_sample.light = glsl_light_default();
+  light_sample.light_index = 0u;
+  light_sample.is_local = false;
+  return false;
 }
 
 GLSLLight glsl_light_get(int light_ordinal)
@@ -183,26 +457,24 @@ GLSLLight glsl_light_get(int light_ordinal)
   return glsl_light_build(light_index, is_local, uint(light_ordinal));
 }
 
-float glsl_light_shadow(int light_ordinal, float3 shading_normal)
+float glsl_light_shadow_raw(uint light_index, bool is_local, float3 shading_normal)
 {
 #  if defined(MAT_GLSL_LIGHT_SHADOW_ACCESS)
-  uint light_index = 0u;
-  bool is_local = false;
-  if (!glsl_light_find_ordinal(light_ordinal, light_index, is_local)) {
-    return 0.0f;
-  }
   LightData light;
   LightVector light_vector;
   bool is_directional;
   if (!glsl_light_lookup(light_index, is_local, light, light_vector, is_directional)) {
     return 0.0f;
   }
+
+  ObjectInfos object_infos = object_infos_get();
+  float3 geometry_normal = glsl_light_resolve_normal(g_data.Ng);
+  float3 resolved_shading_normal = glsl_light_resolve_normal(shading_normal);
+
   if (light.tilemap_index == LIGHT_NO_SHADOW) {
     return 1.0f;
   }
-  ObjectInfos object_infos = object_infos_get();
-  float3 geometry_normal = normalize(g_data.Ng);
-  float3 resolved_shading_normal = normalize(shading_normal);
+
   return eevee_shadow_eval(light,
                            is_directional,
                            false,
@@ -216,17 +488,84 @@ float glsl_light_shadow(int light_ordinal, float3 shading_normal)
                            uniform_buf.shadow.ray_count,
                            uniform_buf.shadow.step_count);
 #  else
-  UNUSED_VARS(light_ordinal);
-  UNUSED_VARS(shading_normal);
   return 0.0f;
 #  endif
 }
 
-#else  /* !(fragment && MAT_GLSL_LIGHT_ACCESS && EEVEE_LIGHT_DATA_AVAILABLE) */
+float glsl_light_shadow(int light_ordinal, float3 shading_normal)
+{
+  uint light_index = 0u;
+  bool is_local = false;
+  if (!glsl_light_find_ordinal(light_ordinal, light_index, is_local)) {
+    return 0.0f;
+  }
+  return glsl_light_shadow_raw(light_index, is_local, shading_normal);
+}
+
+float glsl_light_cast_shadow_raw(uint light_index, bool is_local, float3 shading_normal)
+{
+#  if defined(SHADOW_CASTER_CLASSIFY)
+  LightData light;
+  LightVector light_vector;
+  bool is_directional;
+  if (!glsl_light_lookup(light_index, is_local, light, light_vector, is_directional)) {
+    return 1.0f;
+  }
+  if (light.tilemap_index == LIGHT_NO_SHADOW) {
+    return 1.0f;
+  }
+
+  ObjectInfos object_infos = object_infos_get();
+  float3 geometry_normal = glsl_light_resolve_normal(g_data.Ng);
+  float3 resolved_shading_normal = glsl_light_resolve_normal(shading_normal);
+  /* Single-sample classification: harder than All + shadow_random. Do not
+   * pull in gpu_shader_material_shader_info.glsl ([[node]] overloads). */
+  float3 classification = eevee_shadow_caster_classification_seeded(
+      light,
+      is_directional,
+      resource_id_get() & 0xFFFFu,
+      g_data.P,
+      geometry_normal,
+      resolved_shading_normal,
+      object_infos.shadow_terminator_normal_offset,
+      object_infos.shadow_terminator_geometry_offset,
+      1,
+      8,
+      float3(0.5f),
+      float2(0.0f));
+  return 1.0f - saturate(classification.z);
+#  else
+  UNUSED_VARS(light_index);
+  UNUSED_VARS(is_local);
+  UNUSED_VARS(shading_normal);
+  return 1.0f;
+#  endif
+}
+
+#else
 
 int glsl_light_count()
 {
   return 0;
+}
+
+GLSLLightIterator glsl_light_iterator_init()
+{
+  GLSLLightIterator iterator;
+  iterator.phase = 2u;
+  iterator.light_index = 0u;
+  iterator.public_index = 0u;
+  return iterator;
+}
+
+bool glsl_light_iterator_next(GLSLLightIterator &iterator,
+                              out GLSLLightIteratorSample light_sample)
+{
+  UNUSED_VARS(iterator);
+  light_sample.light = glsl_light_default();
+  light_sample.light_index = 0u;
+  light_sample.is_local = false;
+  return false;
 }
 
 GLSLLight glsl_light_get(int light_ordinal)
@@ -242,62 +581,20 @@ float glsl_light_shadow(int light_ordinal, float3 shading_normal)
   return 0.0f;
 }
 
-#endif
+float glsl_light_shadow_raw(uint light_index, bool is_local, float3 shading_normal)
+{
+  UNUSED_VARS(light_index);
+  UNUSED_VARS(is_local);
+  UNUSED_VARS(shading_normal);
+  return 0.0f;
+}
 
-/* Per-light shader parameters are not available in this build. */
-float glsl_light_parameter_float(GLSLLight light, uint lo, uint hi, float fallback, out bool valid)
+float glsl_light_cast_shadow_raw(uint light_index, bool is_local, float3 shading_normal)
 {
-  UNUSED_VARS(light);
-  UNUSED_VARS(lo);
-  UNUSED_VARS(hi);
-  valid = false;
-  return fallback;
+  UNUSED_VARS(light_index);
+  UNUSED_VARS(is_local);
+  UNUSED_VARS(shading_normal);
+  return 1.0f;
 }
-int glsl_light_parameter_int(GLSLLight light, uint lo, uint hi, int fallback, out bool valid)
-{
-  UNUSED_VARS(light);
-  UNUSED_VARS(lo);
-  UNUSED_VARS(hi);
-  valid = false;
-  return fallback;
-}
-bool glsl_light_parameter_bool(GLSLLight light, uint lo, uint hi, bool fallback, out bool valid)
-{
-  UNUSED_VARS(light);
-  UNUSED_VARS(lo);
-  UNUSED_VARS(hi);
-  valid = false;
-  return fallback;
-}
-float2 glsl_light_parameter_vec2(GLSLLight light, uint lo, uint hi, float2 fallback, out bool valid)
-{
-  UNUSED_VARS(light);
-  UNUSED_VARS(lo);
-  UNUSED_VARS(hi);
-  valid = false;
-  return fallback;
-}
-float3 glsl_light_parameter_vec3(GLSLLight light, uint lo, uint hi, float3 fallback, out bool valid)
-{
-  UNUSED_VARS(light);
-  UNUSED_VARS(lo);
-  UNUSED_VARS(hi);
-  valid = false;
-  return fallback;
-}
-float4 glsl_light_parameter_vec4(GLSLLight light, uint lo, uint hi, float4 fallback, out bool valid)
-{
-  UNUSED_VARS(light);
-  UNUSED_VARS(lo);
-  UNUSED_VARS(hi);
-  valid = false;
-  return fallback;
-}
-float4 glsl_light_parameter_color(GLSLLight light, uint lo, uint hi, float4 fallback, out bool valid)
-{
-  UNUSED_VARS(light);
-  UNUSED_VARS(lo);
-  UNUSED_VARS(hi);
-  valid = false;
-  return fallback;
-}
+
+#endif

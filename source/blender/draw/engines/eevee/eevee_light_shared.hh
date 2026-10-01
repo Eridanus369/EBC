@@ -216,6 +216,21 @@ struct [[host_shared]] LightData {
   /* Shadow Map resolution maximum resolution. */
   float lod_min;
   uint2 light_set_membership;
+  uint2 shadow_set_membership;
+
+  /** Numeric lightgroup for GLSL light access. */
+  int lightgroup_id;
+  /** Camera visibility. */
+  bool32_t visible_camera;
+  /** Per-light shader parameter UID. Zero when unused. */
+  uint shader_parameter_uid;
+  float shadow_map_scale;
+  float _pad7;
+  float _pad8;
+  float _pad9;
+  float _pad10;
+  float _pad11;
+  float _pad12;
 
   union {
     union_t<struct LightLocalData> local;
