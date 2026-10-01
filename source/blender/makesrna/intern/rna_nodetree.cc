@@ -11441,6 +11441,8 @@ static void rna_def_nodes(BlenderRNA *brna)
   define("ShaderNode", "ShaderNodeOKLabColorRamp", def_colorramp);
   define("ShaderNode", "ShaderNodeGLSLFunction", def_sh_glsl_function);
   define("ShaderNode", "ShaderNodeImageToClosure", def_sh_image_to_closure);
+  define("ShaderNode", "ShaderNodeEeveeLightShaderOutput");
+  define("ShaderNode", "ShaderNodeEeveeLightShaderInfo");
   define("ShaderNode", "ShaderNodeTexGradient", def_sh_tex_gradient);
   define("ShaderNode", "ShaderNodeTexIES", def_sh_tex_ies);
   define("ShaderNode", "ShaderNodeTexImage", def_sh_tex_image);

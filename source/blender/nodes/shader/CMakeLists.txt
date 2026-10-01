@@ -133,6 +133,8 @@ set(SRC
   nodes/node_shader_oklab_color_ramp.cc
   nodes/node_shader_glsl_function.cc
   nodes/node_shader_image_to_closure.cc
+  nodes/node_shader_eevee_light_shader_output.cc
+  nodes/node_shader_eevee_light_shader_info.cc
 
   node_shader_register.cc
   node_shader_tree.cc
