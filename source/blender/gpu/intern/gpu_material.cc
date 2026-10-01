@@ -108,6 +108,8 @@ struct GPUMaterial {
   bool has_surface_output = false;
   bool has_volume_output = false;
   bool has_displacement_output = false;
+  bool has_light_shader_output = false;
+  bool has_glsl_light_shader_eval = false;
 
   std::string name;
 
@@ -624,6 +626,31 @@ void GPU_material_output_thickness(GPUMaterial *material, GPUNodeLink *link)
   if (!material->graph.outlink_thickness) {
     material->graph.outlink_thickness = link;
   }
+}
+
+void GPU_material_output_light_shader(GPUMaterial *material, GPUNodeLink *link)
+{
+  if (link != nullptr && material->graph.outlink_light_shader == nullptr) {
+    material->graph.outlink_light_shader = link;
+    material->has_light_shader_output = true;
+  }
+}
+
+bool GPU_material_has_light_shader_output(const GPUMaterial *mat)
+{
+  return mat != nullptr && mat->has_light_shader_output;
+}
+
+void GPU_material_glsl_light_shader_eval_set(GPUMaterial *material)
+{
+  if (material != nullptr) {
+    material->has_glsl_light_shader_eval = true;
+  }
+}
+
+bool GPU_material_has_glsl_light_shader_eval(const GPUMaterial *mat)
+{
+  return mat != nullptr && mat->has_glsl_light_shader_eval;
 }
 
 void GPU_material_add_output_link_aov(GPUMaterial *material, GPUNodeLink *link, int hash)

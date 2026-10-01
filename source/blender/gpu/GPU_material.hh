@@ -779,6 +779,10 @@ void GPU_material_output_volume(GPUMaterial *material, GPUNodeLink *link);
 void GPU_material_output_displacement(GPUMaterial *material, GPUNodeLink *link);
 void GPU_material_output_thickness(GPUMaterial *material, GPUNodeLink *link);
 
+void GPU_material_output_light_shader(GPUMaterial *material, GPUNodeLink *link);
+bool GPU_material_has_light_shader_output(const GPUMaterial *mat);
+void GPU_material_glsl_light_shader_eval_set(GPUMaterial *material);
+bool GPU_material_has_glsl_light_shader_eval(const GPUMaterial *mat);
 void GPU_material_add_output_link_aov(GPUMaterial *material, GPUNodeLink *link, int hash);
 
 void GPU_material_add_output_link_composite(GPUMaterial *material, GPUNodeLink *link);

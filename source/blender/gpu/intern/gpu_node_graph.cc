@@ -1242,6 +1242,7 @@ void gpu_node_graph_free_nodes(GPUNodeGraph *graph)
   graph->outlink_volume = nullptr;
   graph->outlink_displacement = nullptr;
   graph->outlink_thickness = nullptr;
+  graph->outlink_light_shader = nullptr;
 }
 
 void gpu_node_graph_free(GPUNodeGraph *graph)

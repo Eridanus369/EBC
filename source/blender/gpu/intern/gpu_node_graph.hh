@@ -215,6 +215,7 @@ struct GPUNodeGraph {
   GPUNodeLink *outlink_volume;
   GPUNodeLink *outlink_displacement;
   GPUNodeLink *outlink_thickness;
+  GPUNodeLink *outlink_light_shader;
   /* List of GPUNodeGraphOutputLink */
   ListBaseT<GPUNodeGraphOutputLink> outlink_aovs;
   /* List of GPUNodeGraphFunctionLink */
