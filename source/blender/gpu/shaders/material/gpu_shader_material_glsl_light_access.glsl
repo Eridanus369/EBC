@@ -70,12 +70,9 @@ float glsl_light_point_radiance(LightData light)
 
 float glsl_light_friendly_power(LightData light, LightingType type)
 {
-  float shape_power = glsl_light_shape_radiance(light);
-  float point_power = glsl_light_point_radiance(light);
-  if (shape_power <= 1e-16f) {
-    return 0.0f;
-  }
-  return glsl_light_power_get(light, type) * (point_power / shape_power);
+  /* EBC LightData already bakes shape/point radiance into shape_power /
+   * point_power. Just return the per-channel power. */
+  return glsl_light_power_get(light, type);
 }
 
 float3 glsl_light_resolve_normal(float3 normal_value)
@@ -254,7 +251,7 @@ bool glsl_light_find_ordinal(int light_ordinal, out uint r_light_index, out bool
   }
 
   int current = 0;
-  for (uint light_index = 0u; light_index < light_cull_buf.visible_count; light_index++) {
+  for (uint light_index = 0u; light_index < light_cull_buf.local_lights_len; light_index++) {
     bool is_local = true;
     if (!glsl_light_loop_accept(light_index, is_local)) {
       continue;
@@ -384,7 +381,7 @@ GLSLLight glsl_light_build(uint light_index, bool is_local, uint public_index)
 int glsl_light_count()
 {
   int count = 0;
-  for (uint light_index = 0u; light_index < light_cull_buf.visible_count; light_index++) {
+  for (uint light_index = 0u; light_index < light_cull_buf.local_lights_len; light_index++) {
     bool is_local = true;
     if (!glsl_light_loop_accept(light_index, is_local)) {
       continue;
@@ -416,7 +413,7 @@ bool glsl_light_iterator_next(GLSLLightIterator &iterator, out GLSLLightIterator
 {
   while (iterator.phase < 2u) {
     if (iterator.phase == 0u) {
-      while (iterator.light_index < light_cull_buf.visible_count) {
+      while (iterator.light_index < light_cull_buf.local_lights_len) {
         uint light_index = iterator.light_index++;
         if (!glsl_light_loop_accept(light_index, true)) {
           continue;

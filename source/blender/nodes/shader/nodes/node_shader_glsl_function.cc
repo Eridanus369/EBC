@@ -2700,18 +2700,15 @@ static int node_shader_gpu_glsl_function(GPUMaterial *mat,
   std::string combined = build_glsl_define_block(defines) + source + "\n" + wrapper;
 
   /* NPR light access: if the user references glsl_light_* / GLSLLight, set the
-   * material flag and prepend the access helper (light_buf / light_cull_buf
-   * are provided by the EEVEE material pass once the flag is set). */
-  /* NOTE: GLSL light access (glsl_light_*) is disabled pending a LightData
-   * layout refactor. EBC uses power_factor / shape_power / point_power while
-   * the helper expects power[4]; forcing the adapter only works in a subset
-   * of cases. The GPU/material API and shader helper remain in the tree
-   * (see GPU_material.hh, gpu_shader_material_glsl_light_access.glsl) so the
-   * subsystem can be completed without re-porting. Regular GLSL Function
-   * usage (socket layout, @glsl_meta, @glsl_defines, sampler2D/3D) is
-   * unaffected. */
+   * material flag and prepend the access helper. light_buf / light_cull_buf
+   * SSBOs are bound by the EEVEE hybrid pipeline once the flag is set. */
+  Vector<StringRefNull> deps;
+  if (parsed && glslfn_uses_light_access(source)) {
+    GPU_material_flag_set(mat, GPU_MATFLAG_GLSL_LIGHT_ACCESS);
+    deps.append("gpu_shader_material_glsl_light_access.glsl");
+  }
 
-  GPU_material_generated_source_add(mat, wrapper_filename.c_str(), {}, combined.c_str());
+  GPU_material_generated_source_add(mat, wrapper_filename.c_str(), deps, combined.c_str());
 
   return GPU_stack_link_custom(mat,
                                node,

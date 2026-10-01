@@ -226,6 +226,13 @@ MaterialPass MaterialModule::material_pass_get(Object *ob,
       matpass.sub_pass = &shader_sub->sub(GPU_material_get_name(matpass.gpumat));
       matpass.sub_pass->material_set(
           *inst_.manager, matpass.gpumat, true, inst_.anisotropic_filtering);
+      /* NPR: bind light + shadow SSBOs for GLSL light access materials. */
+      if (pipeline_type == MAT_PIPE_FORWARD ||
+          GPU_material_flag_get(matpass.gpumat, GPU_MATFLAG_GLSL_LIGHT_ACCESS))
+      {
+        matpass.sub_pass->bind_resources(inst_.lights);
+        matpass.sub_pass->bind_resources(inst_.shadows);
+      }
     }
     else {
       matpass.sub_pass = nullptr;
