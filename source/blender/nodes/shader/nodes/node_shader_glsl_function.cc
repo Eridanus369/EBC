@@ -2558,6 +2558,18 @@ static void node_layout(ui::Layout &layout, bContext * /*C*/, PointerRNA * /*ptr
  * default). Body is passed through verbatim. No @glsl_meta parsing,
  * no sampler, no closure, no light access. */
 
+/* Detect whether the user source references NPR light-access helpers. */
+static bool glslfn_uses_light_access(const std::string &source)
+{
+  return source.find("glsl_light_") != std::string::npos ||
+         source.find("GLSLLight") != std::string::npos;
+}
+
+static bool glslfn_uses_light_shadow(const std::string &source)
+{
+  return source.find("glsl_light_shadow") != std::string::npos;
+}
+
 static int node_shader_gpu_glsl_function(GPUMaterial *mat,
                                          bNode *node,
                                          bNodeExecData * /*execdata*/,
@@ -2686,6 +2698,18 @@ static int node_shader_gpu_glsl_function(GPUMaterial *mat,
   extract_glsl_defines(source, defines, define_error);
 
   std::string combined = build_glsl_define_block(defines) + source + "\n" + wrapper;
+
+  /* NPR light access: if the user references glsl_light_* / GLSLLight, set the
+   * material flag and prepend the access helper (light_buf / light_cull_buf
+   * are provided by the EEVEE material pass once the flag is set). */
+  if (parsed && glslfn_uses_light_access(source)) {
+    GPU_material_flag_set(mat, GPU_MATFLAG_GLSL_LIGHT_ACCESS);
+    combined = "#define MAT_GLSL_LIGHT_ACCESS 1\n" + combined;
+    if (glslfn_uses_light_shadow(source)) {
+      combined = "#define MAT_GLSL_LIGHT_SHADOW_ACCESS 1\n" + combined;
+    }
+  }
+
   GPU_material_generated_source_add(mat, wrapper_filename.c_str(), {}, combined.c_str());
 
   return GPU_stack_link_custom(mat,
