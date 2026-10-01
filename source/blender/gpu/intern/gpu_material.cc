@@ -99,6 +99,11 @@ struct GPUMaterial {
   /* NPR: runtime-generated shader sources (GLSL Function, etc). */
   Vector<GPUMaterialGeneratedSource> generated_sources;
 
+  /* NPR: referenced object + per-light shader parameter requests. */
+  bool uses_referenced_object_data = false;
+  Vector<GPUReferencedObject> referenced_objects;
+  Vector<GPULightShaderParameterRequest> light_shader_parameters;
+
   bool has_surface_output = false;
   bool has_volume_output = false;
   bool has_displacement_output = false;
@@ -662,5 +667,126 @@ char *GPU_material_split_sub_function(GPUMaterial *material,
 
   return func_link->name;
 }
+
+/* -------------------------------------------------------------------- */
+/** \name NPR: referenced objects + light shader parameters
+ * \{
+ */
+
+static Object *gpu_material_referenced_object_original(Object *object)
+{
+  if (object == nullptr) {
+    return nullptr;
+  }
+  if (object->id.orig_id != nullptr) {
+    return reinterpret_cast<Object *>(object->id.orig_id);
+  }
+  return object;
+}
+
+uint32_t GPU_material_referenced_object_ensure(GPUMaterial *material,
+                                               Object *object,
+                                               eGPUReferencedObjectDataFlag flags)
+{
+  if (material == nullptr) {
+    return 0;
+  }
+  material->uses_referenced_object_data = true;
+
+  Object *original = gpu_material_referenced_object_original(object);
+  if (original == nullptr) {
+    return 0;
+  }
+
+  if (original->id.tag & ID_TAG_TEMP_MAIN) {
+    return 0;
+  }
+  if (original->id.session_uid == 0) {
+    BKE_lib_libblock_session_uid_ensure(&original->id);
+  }
+  const uint32_t session_uid = original->id.session_uid;
+  if (session_uid == 0) {
+    return 0;
+  }
+
+  for (GPUReferencedObject &entry : material->referenced_objects) {
+    if (entry.session_uid == session_uid) {
+      entry.flags |= flags;
+      return session_uid;
+    }
+  }
+
+  GPUReferencedObject entry;
+  entry.object = original;
+  entry.session_uid = session_uid;
+  entry.flags = flags;
+  material->referenced_objects.append(entry);
+  return session_uid;
+}
+
+bool GPU_material_uses_referenced_object_data(const GPUMaterial *material)
+{
+  return material != nullptr && material->uses_referenced_object_data;
+}
+
+int GPU_material_referenced_object_count(const GPUMaterial *material)
+{
+  return material != nullptr ? int(material->referenced_objects.size()) : 0;
+}
+
+const GPUReferencedObject *GPU_material_referenced_object_get(const GPUMaterial *material,
+                                                              int index)
+{
+  if (material == nullptr || index < 0 || index >= int(material->referenced_objects.size())) {
+    return nullptr;
+  }
+  return &material->referenced_objects[index];
+}
+
+uint64_t GPU_light_shader_parameter_key(const char *name)
+{
+  /* Stable FNV-1a key. Draw Manager checks full names for collisions before upload. */
+  uint64_t key = 14695981039346656037ull;
+  for (const unsigned char *p = reinterpret_cast<const unsigned char *>(name); *p; p++) {
+    key = (key ^ *p) * 1099511628211ull;
+  }
+  return key;
+}
+
+uint64_t GPU_material_light_shader_parameter_ensure(GPUMaterial *material,
+                                                    const char *name,
+                                                    Object *object)
+{
+  GPULightShaderParameterRequest request;
+  STRNCPY(request.name, name);
+  request.key = GPU_light_shader_parameter_key(request.name);
+  if (!material) {
+    return request.key;
+  }
+  material->uses_referenced_object_data = true;
+  if (object) {
+    request.object_uid = GPU_material_referenced_object_ensure(
+        material, object, GPU_REFERENCED_OBJECT_DATA_LIGHT);
+    if (request.object_uid == 0) {
+      return request.key;
+    }
+  }
+  for (const auto &existing : material->light_shader_parameters) {
+    if (existing.object_uid == request.object_uid && STREQ(existing.name, request.name)) {
+      return request.key;
+    }
+  }
+  material->light_shader_parameters.append(request);
+  return request.key;
+}
+
+Span<GPULightShaderParameterRequest> GPU_material_light_shader_parameters(
+    const GPUMaterial *material)
+{
+  return material ? material->light_shader_parameters.as_span() :
+                    Span<GPULightShaderParameterRequest>();
+}
+
+/** \} */
 
 }  // namespace blender

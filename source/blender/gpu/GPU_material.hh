@@ -11,6 +11,8 @@
 #include <string>
 #include <variant>
 
+#include "BLI_span.hh"
+#include "BLI_utildefines.hh"
 #include "BLI_assert.hh"
 #include "BLI_enum_flags.hh"
 #include "BLI_math_base_c.hh"
@@ -28,6 +30,7 @@
 namespace blender {
 
 struct GHash;
+struct Object;
 struct GPUMaterial;
 struct GPUInput;
 struct GPUNodeLink;
@@ -126,6 +129,47 @@ enum eGPUMaterialFlag {
   GPU_MATFLAG_LIGHTPROBE_ACCESS = (1 << 28),
   GPU_MATFLAG_GLSL_LIGHT_ACCESS = (1 << 30),
 };
+
+/** Data lanes requested from an evaluated object by a material node. */
+enum eGPUReferencedObjectDataFlag : uint32_t {
+  GPU_REFERENCED_OBJECT_DATA_NONE = 0,
+  GPU_REFERENCED_OBJECT_DATA_TRANSFORM = (1u << 0),
+  GPU_REFERENCED_OBJECT_DATA_COLOR = (1u << 1),
+  GPU_REFERENCED_OBJECT_DATA_VISIBILITY = (1u << 2),
+  GPU_REFERENCED_OBJECT_DATA_TYPE = (1u << 3),
+  GPU_REFERENCED_OBJECT_DATA_LIGHT = (1u << 4),
+};
+ENUM_OPERATORS(eGPUReferencedObjectDataFlag);
+
+/** Original object identity retained by a GPUMaterial until Draw Manager sync. */
+struct GPUReferencedObject {
+  Object *object = nullptr;
+  uint32_t session_uid = 0;
+  eGPUReferencedObjectDataFlag flags = GPU_REFERENCED_OBJECT_DATA_NONE;
+};
+
+/** A per-light named shader parameter requested by a GLSL Function node. */
+struct GPULightShaderParameterRequest {
+  char name[64] = "";
+  uint64_t key = 0;
+  /* Zero requests the parameter for all lights (GLSL light iteration). */
+  uint32_t object_uid = 0;
+};
+
+uint64_t GPU_light_shader_parameter_key(const char *name);
+uint64_t GPU_material_light_shader_parameter_ensure(GPUMaterial *material,
+                                                    const char *name,
+                                                    Object *object = nullptr);
+Span<GPULightShaderParameterRequest> GPU_material_light_shader_parameters(
+    const GPUMaterial *material);
+
+uint32_t GPU_material_referenced_object_ensure(GPUMaterial *material,
+                                               Object *object,
+                                               eGPUReferencedObjectDataFlag flags);
+bool GPU_material_uses_referenced_object_data(const GPUMaterial *material);
+int GPU_material_referenced_object_count(const GPUMaterial *material);
+const GPUReferencedObject *GPU_material_referenced_object_get(const GPUMaterial *material,
+                                                              int index);
 ENUM_OPERATORS(eGPUMaterialFlag);
 
 using GPUCodegenCallbackFn = void (*)(void *thunk,
