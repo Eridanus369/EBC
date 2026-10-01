@@ -749,6 +749,8 @@ set(GLSL_SRC
   shaders/material/gpu_shader_material_render_info.glsl
   shaders/material/gpu_shader_material_oklab_colorramp.glsl
   shaders/material/gpu_shader_material_glsl_light_access.glsl
+  shaders/material/gpu_shader_material_light_shader_output.glsl
+  shaders/material/gpu_shader_material_light_shader_info.glsl
   shaders/material/gpu_shader_material_uv_map.bsl.hh
   shaders/material/gpu_shader_material_vector_displacement.bsl.hh
   shaders/material/gpu_shader_material_vector_math.bsl.hh

@@ -54,6 +54,8 @@
 #include "eevee_light_lib.bsl.hh"                    /* IWYU pragma: export */
 #include "eevee_light_shadow_setup.bsl.hh"           /* IWYU pragma: export */
 #include "eevee_light_shape_display.bsl.hh"          /* IWYU pragma: export */
+#include "eevee_light_shader_common.bsl.hh"         /* IWYU pragma: export */
+#include "eevee_light_shader.bsl.hh"                /* IWYU pragma: export */
 #include "eevee_lightprobe.bsl.hh"                   /* IWYU pragma: export */
 #include "eevee_lightprobe_display.bsl.hh"           /* IWYU pragma: export */
 #include "eevee_lightprobe_plane.bsl.hh"             /* IWYU pragma: export */

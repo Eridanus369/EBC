@@ -66,6 +66,7 @@ enum GPUNodeTag {
   GPU_NODE_TAG_AOV = (1 << 4),
   GPU_NODE_TAG_FUNCTION = (1 << 5),
   GPU_NODE_TAG_COMPOSITOR = (1 << 6),
+  GPU_NODE_TAG_LIGHT_SHADER = (1 << 7),
 };
 
 ENUM_OPERATORS(GPUNodeTag)

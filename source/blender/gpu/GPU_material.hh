@@ -8,6 +8,7 @@
 
 #pragma once
 
+#include <optional>
 #include <string>
 #include <variant>
 
@@ -682,6 +683,7 @@ struct GPUCodegenOutput {
   GPUGraphOutput surface;
   GPUGraphOutput volume;
   GPUGraphOutput thickness;
+  std::optional<GPUGraphOutput> light_shader;
   GPUGraphOutput composite;
   Vector<GPUGraphOutput> material_functions;
 

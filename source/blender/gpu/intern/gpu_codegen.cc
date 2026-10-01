@@ -619,6 +619,10 @@ void GPUCodegen::generate_graphs()
   output.displacement = graph_serialize(
       GPU_NODE_TAG_DISPLACEMENT, graph.outlink_displacement, nullptr);
   output.thickness = graph_serialize(GPU_NODE_TAG_THICKNESS, graph.outlink_thickness, nullptr);
+  if (graph.outlink_light_shader != nullptr) {
+    output.light_shader = graph_serialize(
+        GPU_NODE_TAG_LIGHT_SHADER, graph.outlink_light_shader, "float4(1.0f)");
+  }
   if (!graph.outlink_compositor.is_empty()) {
     output.composite = graph_serialize(GPU_NODE_TAG_COMPOSITOR);
   }

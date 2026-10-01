@@ -457,6 +457,18 @@ const char *ShaderModule::static_shader_create_info_name_get(eShaderType shader_
       return "eevee_light_shape_display";
     case LIGHT_SHADOW_SETUP:
       return "eevee_light_shadow_setup";
+    case LIGHT_SHADER:
+      return "eevee_light_shader";
+    case LIGHT_SHADER_FRONT:
+      return "eevee_light_shader_front";
+    case LIGHT_SHADER_BAKE:
+      return "eevee_light_shader_bake";
+    case LIGHT_SHADER_VOLUME:
+      return "eevee_light_shader_volume";
+    case LIGHT_SHADER_UNIFORM:
+      return "eevee_light_shader_uniform";
+    case LIGHT_SHADER_SURFEL:
+      return "eevee_light_shader_surfel";
     case RAY_DENOISE_SPATIAL:
       return "eevee_raytracing_denoise_spatial";
     case RAY_DENOISE_TEMPORAL:
