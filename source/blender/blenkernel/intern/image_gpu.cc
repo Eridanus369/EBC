@@ -680,12 +680,19 @@ static gpu::Texture **image_gpu_3d_lut_strip_texture_ptr(Image *ima,
 
 void BKE_image_free_gpu_3d_lut_textures(Image *ima)
 {
-  for (ImageRuntimeGPUTexture3DLutStrip &lut : ima->runtime->gputextures_3d_lut_strip) {
+  ListBaseT<ImageRuntimeGPUTexture3DLutStrip> &luts = ima->runtime->gputextures_3d_lut_strip;
+  for (ImageRuntimeGPUTexture3DLutStrip &lut : luts) {
     if (lut.texture == nullptr) {
       continue;
     }
     GPU_texture_free(lut.texture);
     lut.texture = nullptr;
+  }
+  /* Free the cache entries themselves, they are re-created on demand. */
+  while (!luts.is_empty()) {
+    ImageRuntimeGPUTexture3DLutStrip *lut = luts.first();
+    BLI_remlink(&luts, lut);
+    MEM_delete(lut);
   }
 }
 
@@ -765,6 +772,10 @@ static ImageGPUTextures image_get_gpu_material_3d_lut_texture(Image *ima,
 
   gpu::Texture **slot = image_gpu_3d_lut_strip_texture_ptr(ima, width, height, depth);
   if (*slot != nullptr) {
+    /* Return an owned reference (the image keeps its own reference in the cache), matching
+     * the #IMB_acquire_gpu_texture contract used by the 2D path. Callers such as
+     * #Manager::hold_texture release their reference after drawing. */
+    GPU_texture_ref(*slot);
     result.texture = *slot;
     return result;
   }
@@ -781,7 +792,11 @@ static ImageGPUTextures image_get_gpu_material_3d_lut_texture(Image *ima,
   *slot = image_gpu_texture_3d_lut_strip_create(ima, ibuf, width, height, depth);
   BKE_image_release_ibuf(ima, ibuf, lock);
 
-  result.texture = *slot;
+  if (*slot != nullptr) {
+    /* Return an owned reference, see above. */
+    GPU_texture_ref(*slot);
+    result.texture = *slot;
+  }
   return result;
 }
 

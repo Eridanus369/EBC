@@ -2627,10 +2627,11 @@ static int node_shader_gpu_glsl_function(GPUMaterial *mat,
                   }
                   BKE_image_release_ibuf(img, ibuf, lock);
                 }
-                /* sampler3D disabled (GL bind / Vulkan view crash). */
-                (void)w;
-                (void)h;
-                (void)d;
+                if (w > 0 && h > 0 && d > 0) {
+                  in[socket_index].type = GPU_TEX3D;
+                  in[socket_index].link = GPU_image_3d_lut_strip(
+                      mat, img, nullptr, w, h, d, GPUSamplerState::default_sampler());
+                }
               }
             }
           }

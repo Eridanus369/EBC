@@ -87,6 +87,11 @@ class Manager {
     blender::Image *image = nullptr;
     blender::ImageUser *image_user = nullptr;
     bool use_tile_mapping = false;
+    /* 3D LUT strip (sampler3D) support. */
+    bool use_3d_lut_strip = false;
+    int lut_3d_width = 0;
+    int lut_3d_height = 0;
+    int lut_3d_depth = 0;
 
     /* Loaded textures. */
     gpu::Texture *texture = nullptr;
@@ -326,13 +331,21 @@ class Manager {
    */
   DeferredTexture &add_texture_deferred(blender::Image *image,
                                         blender::ImageUser *image_user,
-                                        const bool use_tile_mapping)
+                                        const bool use_tile_mapping,
+                                        const bool use_3d_lut_strip = false,
+                                        const int lut_3d_width = 0,
+                                        const int lut_3d_height = 0,
+                                        const int lut_3d_depth = 0)
   {
     deferred_textures_.append(std::make_unique<DeferredTexture>());
     DeferredTexture &deferred = *deferred_textures_.last();
     deferred.image = image;
     deferred.image_user = image_user;
     deferred.use_tile_mapping = use_tile_mapping;
+    deferred.use_3d_lut_strip = use_3d_lut_strip;
+    deferred.lut_3d_width = lut_3d_width;
+    deferred.lut_3d_height = lut_3d_height;
+    deferred.lut_3d_depth = lut_3d_depth;
     return deferred;
   }
 

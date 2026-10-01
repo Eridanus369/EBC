@@ -1156,11 +1156,27 @@ inline void PassBase<T>::material_set(Manager &manager,
       const bool use_tile_mapping = tex->tiled_mapping_name[0];
       ImageUser *iuser = tex->iuser_available ? &tex->iuser : nullptr;
 
-      /* sampler3D disabled: GL backend fails to bind 3D texture to
-       * layout(binding=N) sampler3D (samples return 0). Vulkan crashes at
-       * vkCreateImageView. Needs backend-level fix. */
-      ImageGPUTextures gputex = BKE_image_acquire_gpu_material_texture(
-          tex->ima, iuser, use_tile_mapping, deferred_texture_loading);
+      ImageGPUTextures gputex;
+      if (deferred_texture_loading) {
+        gputex = tex->use_3d_lut_strip ?
+                     BKE_image_acquire_gpu_material_3d_lut_texture_try(tex->ima,
+                                                                       iuser,
+                                                                       tex->lut_3d_width,
+                                                                       tex->lut_3d_height,
+                                                                       tex->lut_3d_depth) :
+                     BKE_image_acquire_gpu_material_texture(
+                         tex->ima, iuser, use_tile_mapping, true);
+      }
+      else {
+        gputex = tex->use_3d_lut_strip ?
+                     BKE_image_acquire_gpu_material_3d_lut_texture(tex->ima,
+                                                                   iuser,
+                                                                   tex->lut_3d_width,
+                                                                   tex->lut_3d_height,
+                                                                   tex->lut_3d_depth) :
+                     BKE_image_acquire_gpu_material_texture(
+                         tex->ima, iuser, use_tile_mapping, false);
+      }
 
       GPUSamplerState sampler_state = tex->sampler_state;
       /* If any anisotropic filtering is requested, reset it to the scene setting. */
@@ -1173,7 +1189,13 @@ inline void PassBase<T>::material_set(Manager &manager,
         /* Texture not yet loaded, add to deferred list and bind by reference.
          * The pointer will be filled in later by #Manager::load_deferred_textures. */
         Manager::DeferredTexture &deferred = manager.add_texture_deferred(
-            tex->ima, iuser, use_tile_mapping);
+            tex->ima,
+            iuser,
+            use_tile_mapping,
+            tex->use_3d_lut_strip,
+            tex->lut_3d_width,
+            tex->lut_3d_height,
+            tex->lut_3d_depth);
         bind_texture(tex->sampler_name, &deferred.texture, sampler_state);
         if (gputex.need_tile_mapping) {
           bind_texture(tex->tiled_mapping_name, &deferred.tile_mapping, sampler_state);

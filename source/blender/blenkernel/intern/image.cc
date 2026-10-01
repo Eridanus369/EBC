@@ -188,6 +188,9 @@ static void image_free_data(ID *id)
   /* Also frees animations (#Image.anims list). */
   BKE_image_free_buffers(image);
 
+  /* Free 3D LUT strip GPU textures and their cache entries. */
+  BKE_image_free_gpu_3d_lut_textures(image);
+
   image_free_packedfiles(image);
   image_free_autosave_packedfiles(image);
 
