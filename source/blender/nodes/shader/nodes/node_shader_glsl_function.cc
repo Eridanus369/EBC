@@ -2702,15 +2702,17 @@ static int node_shader_gpu_glsl_function(GPUMaterial *mat,
   /* NPR light access: if the user references glsl_light_* / GLSLLight, set the
    * material flag and prepend the access helper (light_buf / light_cull_buf
    * are provided by the EEVEE material pass once the flag is set). */
+  Vector<StringRefNull> deps;
   if (parsed && glslfn_uses_light_access(source)) {
     GPU_material_flag_set(mat, GPU_MATFLAG_GLSL_LIGHT_ACCESS);
+    deps.append("gpu_shader_material_glsl_light_access.glsl");
     combined = "#define MAT_GLSL_LIGHT_ACCESS 1\n" + combined;
     if (glslfn_uses_light_shadow(source)) {
       combined = "#define MAT_GLSL_LIGHT_SHADOW_ACCESS 1\n" + combined;
     }
   }
 
-  GPU_material_generated_source_add(mat, wrapper_filename.c_str(), {}, combined.c_str());
+  GPU_material_generated_source_add(mat, wrapper_filename.c_str(), deps, combined.c_str());
 
   return GPU_stack_link_custom(mat,
                                node,

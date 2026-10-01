@@ -796,6 +796,9 @@ char *GPU_material_split_sub_function(GPUMaterial *material,
                                       GPUNodeLink **link);
 
 void GPU_material_flag_set(GPUMaterial *mat, eGPUMaterialFlag flag);
+
+/* Read a registered shader source (used to inline generated-source deps). */
+StringRefNull GPU_material_dependency_source_get(StringRefNull name);
 eGPUMaterialFlag GPU_material_flag(const GPUMaterial *mat);
 
 GHash *GPU_uniform_attr_list_hash_new(const char *info);

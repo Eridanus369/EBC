@@ -33,6 +33,7 @@
 #include "NOD_shader_nodes_inline.hh"
 
 #include "GPU_material.hh"
+#include "gpu_shader_dependency_private.hh"
 #include "GPU_pass.hh"
 #include "GPU_shader.hh"
 #include "GPU_texture.hh"
@@ -788,5 +789,10 @@ Span<GPULightShaderParameterRequest> GPU_material_light_shader_parameters(
 }
 
 /** \} */
+
+StringRefNull GPU_material_dependency_source_get(StringRefNull name)
+{
+  return gpu::shader::gpu_shader_dependency_get_source(name);
+}
 
 }  // namespace blender

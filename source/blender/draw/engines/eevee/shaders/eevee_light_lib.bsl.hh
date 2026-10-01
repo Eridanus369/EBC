@@ -287,6 +287,14 @@ bool light_linking_affects_receiver(uint2 light_set_membership, uchar receiver_l
   return bitmask64_test(light_set_membership, receiver_light_set);
 }
 
+float light_influence_cutoff(float dist, float inv_sqr_influence)
+{
+  if (inv_sqr_influence <= 0.0f) {
+    return 0.0f;
+  }
+  return float(square(dist) * inv_sqr_influence < 1.0f);
+}
+
 }  // namespace light
 }  // namespace eevee
 

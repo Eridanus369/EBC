@@ -1308,9 +1308,17 @@ void ShaderModule::material_create_info_amend(GPUMaterial *gpumat, GPUCodegenOut
    * without relying on the include/dependency mechanism. */
   for (int i = 0; i < GPU_material_generated_source_count(gpumat); i++) {
     const GPUMaterialGeneratedSource *gs = GPU_material_generated_source_get(gpumat, i);
-    if (gs != nullptr && !gs->content.empty()) {
-      frag_gen << gs->content << "\n";
+    if (gs == nullptr || gs->content.empty()) {
+      continue;
     }
+    /* Inline registered shader deps (e.g. GLSL light access helper). */
+    for (const std::string &dep : gs->dependencies) {
+      StringRefNull dep_src = GPU_material_dependency_source_get(dep.c_str());
+      if (!dep_src.is_empty()) {
+        frag_gen << dep_src << "\n";
+      }
+    }
+    frag_gen << gs->content << "\n";
   }
 
   if (do_vertex_attrib_load) {
