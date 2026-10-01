@@ -950,7 +950,8 @@ void ShaderModule::material_create_info_amend(GPUMaterial *gpumat, GPUCodegenOut
 
   uint64_t shader_uuid = GPU_material_uuid_get(gpumat);
   const bool use_shader_to_rgba = GPU_material_flag_get(gpumat, GPU_MATFLAG_SHADER_TO_RGBA);
-  const bool use_lighting_nodes = GPU_material_flag_get(gpumat, GPU_MATFLAG_LIGHTING);
+  const bool use_lighting_nodes = GPU_material_flag_get(gpumat, GPU_MATFLAG_LIGHTING) ||
+                                  GPU_material_flag_get(gpumat, GPU_MATFLAG_GLSL_LIGHT_ACCESS);
 
   eMaterialPipeline pipeline_type;
   eMaterialGeometry geometry_type;
@@ -1306,6 +1307,32 @@ void ShaderModule::material_create_info_amend(GPUMaterial *gpumat, GPUCodegenOut
   /* NPR: inline runtime-generated material sources (GLSL Function wrappers etc.)
    * at global scope of the fragment shader so custom node functions resolve
    * without relying on the include/dependency mechanism. */
+  /* NPR: if any generated source depends on the GLSL light access helper,
+   * define MAT_GLSL_LIGHT_ACCESS before inlining it (the helper gates its
+   * implementation on that macro). */
+  bool has_glsl_light_access = false;
+  bool has_glsl_light_shadow = false;
+  for (int i = 0; i < GPU_material_generated_source_count(gpumat); i++) {
+    const GPUMaterialGeneratedSource *gs = GPU_material_generated_source_get(gpumat, i);
+    if (gs == nullptr) {
+      continue;
+    }
+    for (const std::string &dep : gs->dependencies) {
+      if (dep.find("glsl_light_access") != std::string::npos) {
+        has_glsl_light_access = true;
+      }
+    }
+    if (gs->content.find("MAT_GLSL_LIGHT_SHADOW_ACCESS") != std::string::npos) {
+      has_glsl_light_shadow = true;
+    }
+  }
+  if (has_glsl_light_access) {
+    frag_gen << "#define MAT_GLSL_LIGHT_ACCESS 1\n";
+    if (has_glsl_light_shadow) {
+      frag_gen << "#define MAT_GLSL_LIGHT_SHADOW_ACCESS 1\n";
+    }
+  }
+
   for (int i = 0; i < GPU_material_generated_source_count(gpumat); i++) {
     const GPUMaterialGeneratedSource *gs = GPU_material_generated_source_get(gpumat, i);
     if (gs == nullptr || gs->content.empty()) {

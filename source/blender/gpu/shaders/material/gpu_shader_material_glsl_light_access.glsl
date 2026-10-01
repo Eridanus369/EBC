@@ -9,8 +9,11 @@ bool glsl_light_is_zero(float3 value)
 
 float glsl_light_power_get(LightData light, LightingType type)
 {
-  /* Mask anything above 3. See LIGHT_TRANSLUCENT_WITH_THICKNESS. */
-  return light.power[type & 3u];
+  /* Mask anything above 3. See LIGHT_TRANSLUCENT_WITH_THICKNESS.
+   * EBC LightData stores power_factor + shape_power / point_power instead of
+   * a single power[4] array. */
+  return light.power_factor[type & 3u] *
+         (type != LIGHT_VOLUME ? light.shape_power : light.point_power);
 }
 
 bool glsl_light_linking_affects_receiver(uint2 light_set_membership, uchar receiver_light_set)
