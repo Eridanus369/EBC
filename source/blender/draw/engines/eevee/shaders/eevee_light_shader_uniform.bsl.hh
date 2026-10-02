@@ -38,7 +38,7 @@ void light_shader_uniform_comp([[resource_table]] const LightRenderData &lrd,
   g_data.ray_length = distance(P, view.position());
 
   data.out_light_shader_buf[data.light_index] = light_shader_result_clamp(
-      nodetree_light_shader());
+      ::nodetree_light_shader());
 }
 
 }  // namespace eevee::light_shader

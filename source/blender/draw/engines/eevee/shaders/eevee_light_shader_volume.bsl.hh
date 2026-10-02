@@ -55,7 +55,7 @@ void light_shader_volume_comp([[resource_table]] VolumeData &data,
   const int layer = data.light_index * uni.uniform_buf.volumes.tex_size.z + froxel.z;
   imageStoreFast(data.out_light_shader_img,
                  int3(froxel.xy, layer),
-                 light_shader_result_clamp(nodetree_light_shader()));
+                 light_shader_result_clamp(::nodetree_light_shader()));
 }
 
 }  // namespace eevee::light_shader

@@ -61,7 +61,9 @@ void light_shader_front_frag([[resource_table]] const HiZ &hiz,
   g_data.Ng = N;
   g_data.ray_length = distance(P, view.position());
 
-  frag_out.out_light_shader = light_shader_result_clamp(nodetree_light_shader());
+  ::attrib_load(WorldPoint{g_data.P});
+
+  frag_out.out_light_shader = light_shader_result_clamp(::nodetree_light_shader());
 }
 
 }  // namespace eevee::light_shader

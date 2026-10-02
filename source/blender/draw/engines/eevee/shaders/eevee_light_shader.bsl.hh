@@ -45,7 +45,9 @@ void light_shader_frag([[resource_table]] const HiZ &hiz,
   g_data.Ng = gbuf.header.geometry_normal(g_data.N);
   g_data.ray_length = distance(P, view.position());
 
-  frag_out.out_light_shader = light_shader_result_clamp(nodetree_light_shader());
+  ::attrib_load(WorldPoint{g_data.P});
+
+  frag_out.out_light_shader = light_shader_result_clamp(::nodetree_light_shader());
 }
 
 }  // namespace eevee::light_shader

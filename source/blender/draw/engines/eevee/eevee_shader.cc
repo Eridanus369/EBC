@@ -26,6 +26,7 @@
 
 #include "BLI_assert.hh"
 #include "BLI_math_bits.hh"
+#include "BLI_set.hh"
 #include <fmt/format.h>
 
 namespace blender::eevee {
@@ -1006,19 +1007,103 @@ static const LightShaderPipelineInfo &light_shader_pipeline_info_get(
   return infos[index];
 }
 
+/* Find a runtime-generated source registered on the material by its dependency filename. */
+static const GPUMaterialGeneratedSource *light_material_generated_source_find(
+    const GPUMaterial *gpumat, const StringRefNull filename)
+{
+  for (int i = 0; i < GPU_material_generated_source_count(gpumat); i++) {
+    const GPUMaterialGeneratedSource *generated_source = GPU_material_generated_source_get(
+        gpumat, i);
+    if (generated_source != nullptr && generated_source->filename == filename) {
+      return generated_source;
+    }
+  }
+  return nullptr;
+}
+
+/* Split a graph dependency name into either a static shader dependency (resolved through the
+ * shader dictionary) or a runtime-generated source whose content is inlined directly.
+ * Runtime-generated sources may themselves depend on other generated sources. */
+static void light_material_generated_dependency_append(
+    const GPUMaterial *gpumat,
+    const StringRefNull dependency_name,
+    Set<StringRefNull> &r_static_dependencies,
+    Set<StringRefNull> &r_emitted_generated_sources,
+    std::stringstream &r_generated_source_block)
+{
+  if (dependency_name.is_empty()) {
+    return;
+  }
+
+  const GPUMaterialGeneratedSource *generated_source = light_material_generated_source_find(
+      gpumat, dependency_name);
+  if (generated_source == nullptr) {
+    r_static_dependencies.add(dependency_name);
+    return;
+  }
+
+  if (!r_emitted_generated_sources.add(dependency_name)) {
+    return;
+  }
+
+  for (const std::string &generated_dependency : generated_source->dependencies) {
+    light_material_generated_dependency_append(gpumat,
+                                               StringRefNull(generated_dependency.c_str()),
+                                               r_static_dependencies,
+                                               r_emitted_generated_sources,
+                                               r_generated_source_block);
+  }
+
+  r_generated_source_block << generated_source->content;
+  if (!generated_source->content.empty() && generated_source->content.back() != '\n') {
+    r_generated_source_block << "\n";
+  }
+  r_generated_source_block << "\n";
+}
+
 void ShaderModule::light_create_info_amend(GPUMaterial *gpumat,
                                            GPUCodegenOutput *codegen_,
                                            eLightShaderPipeline pipeline_type)
 {
   using namespace blender::gpu::shader;
-  UNUSED_VARS(gpumat);
 
   const LightShaderPipelineInfo &pipeline_info = light_shader_pipeline_info_get(pipeline_type);
   GPUCodegenOutput &codegen = *codegen_;
   ShaderCreateInfo &info = *reinterpret_cast<ShaderCreateInfo *>(codegen.create_info);
 
+  /* Detect GLSL light/shadow access used inside generated sources (e.g. GLSL Function nodes). */
+  bool has_glsl_light_access = false;
+  bool has_glsl_light_shadow = false;
+  for (int i = 0; i < GPU_material_generated_source_count(gpumat); i++) {
+    const GPUMaterialGeneratedSource *gs = GPU_material_generated_source_get(gpumat, i);
+    if (gs == nullptr) {
+      continue;
+    }
+    for (const std::string &dep : gs->dependencies) {
+      if (dep.find("glsl_light_access") != std::string::npos) {
+        has_glsl_light_access = true;
+      }
+    }
+    if (gs->content.find("MAT_GLSL_LIGHT_SHADOW_ACCESS") != std::string::npos) {
+      has_glsl_light_shadow = true;
+    }
+  }
+
+  /* IMPORTANT: All additional_info containing resources should go before SlotAllocator::
+   * reserve_slots so engine resource slots are reserved before material texture slots get
+   * re-assigned. */
   info.additional_info(pipeline_info.create_info_name);
   info.additional_info("eevee_Uniform");
+  if (has_glsl_light_shadow) {
+    info.additional_info("eevee_shadow_data");
+  }
+
+  if (has_glsl_light_access) {
+    info.define("MAT_GLSL_LIGHT_ACCESS");
+  }
+  if (has_glsl_light_shadow) {
+    info.define("MAT_GLSL_LIGHT_SHADOW_ACCESS");
+  }
 
   if (codegen.light_shader.has_value()) {
     info.define("MAT_LIGHT_SHADER");
@@ -1026,8 +1111,61 @@ void ShaderModule::light_create_info_amend(GPUMaterial *gpumat,
 
   info.name_ += pipeline_info.name_suffix;
 
+  /* Re-assign material texture slots so they cannot collide with engine resource slots. */
+  SlotAllocator slots;
+  slots.reserve_slots(info);
+
+  /* Make the node-tree UBO and material textures part of the eevee_node_tree interface instead
+   * of the shader-name interface. */
+  for (auto &res : info.batch_resources_) {
+    res.info_name = "eevee_node_tree";
+  }
+  for (auto &res : info.pass_resources_) {
+    res.info_name = "eevee_node_tree";
+  }
+  for (auto &res : info.geometry_resources_) {
+    res.info_name = "eevee_node_tree";
+  }
+
+  /* Declare node-tree resources (UBO, samplers) through the generated type header. */
+  std::string generated_resource_header = info.typedef_source_generated;
+  generated_resource_header += "#ifdef CREATE_INFO_RES_PASS_eevee_node_tree\n";
+  generated_resource_header += "CREATE_INFO_RES_PASS_eevee_node_tree\n";
+  generated_resource_header += "#endif\n";
+  generated_resource_header += "#ifdef CREATE_INFO_RES_BATCH_eevee_node_tree\n";
+  generated_resource_header += "CREATE_INFO_RES_BATCH_eevee_node_tree\n";
+  generated_resource_header += "#endif\n";
+  generated_resource_header += "#ifdef CREATE_INFO_RES_GEOMETRY_eevee_node_tree\n";
+  generated_resource_header += "CREATE_INFO_RES_GEOMETRY_eevee_node_tree\n";
+  generated_resource_header += "#endif\n";
+  generated_resource_header += "\n";
+  info.generated_sources.append({"eevee_nodetree_type_lib.glsl", {}, generated_resource_header});
+
+  Set<StringRefNull> dependencies_set;
+  Set<StringRefNull> emitted_generated_sources;
+  std::stringstream generated_source_block;
+
+  dependencies_set.add("eevee_geom_types_lib.bsl.hh");
+  dependencies_set.add("eevee_attributes_world_lib.glsl");
+  dependencies_set.add("eevee_light_lib.bsl.hh");
+  dependencies_set.add("eevee_nodetree_lib.bsl.hh");
+  if (has_glsl_light_shadow) {
+    dependencies_set.add("eevee_shadow_tracing.bsl.hh");
+  }
+
+  if (codegen.light_shader.has_value()) {
+    for (const StringRefNull dependency_name : codegen.light_shader->dependencies) {
+      light_material_generated_dependency_append(gpumat,
+                                                 dependency_name,
+                                                 dependencies_set,
+                                                 emitted_generated_sources,
+                                                 generated_source_block);
+    }
+  }
+
   std::stringstream comp_gen;
   comp_gen << "void attrib_load(WorldPoint domain) {}\n\n";
+  comp_gen << generated_source_block.str();
   comp_gen << "float4 nodetree_light_shader()\n";
   comp_gen << "{\n";
   comp_gen << (codegen.light_shader.has_value() ?
@@ -1035,11 +1173,21 @@ void ShaderModule::light_create_info_amend(GPUMaterial *gpumat,
                    "return float4(1.0f);\n");
   comp_gen << "}\n\n";
 
-  Vector<StringRefNull> deps;
-  if (codegen.light_shader.has_value()) {
-    deps.extend(codegen.light_shader->dependencies);
+  Vector<StringRefNull> dependencies;
+  dependencies.reserve(dependencies_set.size());
+  for (const StringRefNull dependency_name : dependencies_set) {
+    dependencies.append(dependency_name);
   }
-  info.generated_sources.append({"eevee_nodetree_frag_lib.glsl", deps, comp_gen.str()});
+  std::sort(dependencies.begin(), dependencies.end());
+
+  info.generated_sources.append({"eevee_nodetree_frag_lib.glsl", dependencies, comp_gen.str()});
+
+  if (slots.sampler_overflow()) {
+    std::cerr << "Error: EEVEE: " << pipeline_info.error_label << " "
+              << (info.name_.c_str() + 2) << " uses too many samplers." << std::endl;
+    /* Avoid assert in ShaderCreateInfo::finalize. */
+    info.batch_resources_.clear();
+  }
 }
 
 void ShaderModule::material_create_info_amend(GPUMaterial *gpumat, GPUCodegenOutput *codegen_)

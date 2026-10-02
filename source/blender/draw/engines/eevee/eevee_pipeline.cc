@@ -425,6 +425,7 @@ void ForwardPipeline::sync()
       opaque_ps_.bind_resources(inst_.volume_probes);
       opaque_ps_.bind_resources(inst_.sphere_probes);
       opaque_ps_.bind_resources(inst_.planar_probes);
+      inst_.lights.bind_front_light_shader_resources(opaque_ps_);
     }
 
     const DRWState state = DRW_STATE_WRITE_COLOR | DRW_STATE_CLIP_CONTROL_UNIT_RANGE |
@@ -467,6 +468,7 @@ void ForwardPipeline::sync()
     sub.bind_resources(inst_.volume_probes);
     sub.bind_resources(inst_.sphere_probes);
     sub.bind_resources(inst_.planar_probes);
+    inst_.lights.bind_front_light_shader_resources(sub);
   }
   {
     gpu::Shader *sh = inst_.shaders.static_shader_get(TRANSPARENCY_RESOLVE);
@@ -962,6 +964,7 @@ void DeferredLayer::end_sync(bool is_first_pass,
           sub.bind_resources(inst_.shadows);
           sub.bind_resources(inst_.sampling);
           sub.bind_resources(inst_.hiz_buffer.front);
+          inst_.lights.bind_light_shader_resources(sub);
           sub.bind_resources(inst_.sphere_probes);
           sub.bind_resources(inst_.volume_probes);
           uint8_t compare_mask = uint8_t(StencilBits::CLOSURE_COUNT_0) |
@@ -1539,6 +1542,7 @@ void DeferredProbePipeline::end_sync()
     pass.bind_resources(inst_.shadows);
     pass.bind_resources(inst_.sampling);
     pass.bind_resources(inst_.hiz_buffer.front);
+    inst_.lights.bind_light_shader_resources(pass);
     pass.bind_resources(inst_.volume_probes);
     pass.barrier(GPU_BARRIER_TEXTURE_FETCH | GPU_BARRIER_SHADER_IMAGE_ACCESS);
     pass.draw_procedural(GPU_PRIM_TRIS, 1, 3);
@@ -1638,6 +1642,7 @@ void PlanarProbePipeline::end_sync()
     pass.bind_resources(inst_.shadows);
     pass.bind_resources(inst_.sampling);
     pass.bind_resources(inst_.hiz_buffer.front);
+    inst_.lights.bind_light_shader_resources(pass);
     pass.bind_resources(inst_.sphere_probes);
     pass.bind_resources(inst_.volume_probes);
     pass.barrier(GPU_BARRIER_TEXTURE_FETCH | GPU_BARRIER_SHADER_IMAGE_ACCESS);

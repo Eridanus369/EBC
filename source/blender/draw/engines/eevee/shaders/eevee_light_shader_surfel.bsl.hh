@@ -46,7 +46,7 @@ void light_shader_surfel_comp([[resource_table]] SurfelCompute &data,
   g_data.ray_length = distance(P, view.position());
 
   data.out_light_shader_buf[data.light_index * int(surfels.capture_info_buf.surfel_len) + index] =
-      light_shader_result_clamp(nodetree_light_shader());
+      light_shader_result_clamp(::nodetree_light_shader());
 }
 
 }  // namespace eevee::light_shader

@@ -52,7 +52,9 @@ void light_shader_bake_frag([[resource_table]] const BakeData &data,
   g_data.Ng = g_data.N;
   g_data.ray_length = distance(position.xyz, view.position());
 
-  frag_out.out_light_shader = light_shader_result_clamp(nodetree_light_shader());
+  ::attrib_load(WorldPoint{g_data.P});
+
+  frag_out.out_light_shader = light_shader_result_clamp(::nodetree_light_shader());
 }
 
 }  // namespace eevee::light_shader
