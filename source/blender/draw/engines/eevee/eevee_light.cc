@@ -48,6 +48,24 @@ static eLightType to_light_type(short blender_light_type,
   }
 }
 
+static void light_shader_index_buf_ensure_no_shader(LightShaderIndexBuf &index_buf, int len)
+{
+  index_buf.resize(len);
+  for (const int i : IndexRange(len)) {
+    index_buf[i] = -1;
+  }
+}
+
+static void light_shader_index_buf_disable_point_dependent(LightShaderIndexBuf &index_buf, int len)
+{
+  index_buf.resize(len);
+  for (const int i : IndexRange(len)) {
+    if (index_buf[i] >= 0) {
+      index_buf[i] = -1;
+    }
+  }
+}
+
 /** \} */
 
 /* -------------------------------------------------------------------- */
@@ -431,6 +449,23 @@ void LightModule::begin_sync()
   sun_lights_len_ = 0;
   local_lights_len_ = 0;
 
+  light_shader_materials_.clear();
+  front_light_shader_materials_.clear();
+  volume_light_shader_materials_.clear();
+  surfel_light_shader_materials_.clear();
+  uniform_light_shader_materials_.clear();
+  light_shader_lights_.clear();
+  front_light_shader_lights_.clear();
+  volume_light_shader_lights_.clear();
+  surfel_light_shader_lights_.clear();
+  uniform_light_shader_lights_.clear();
+  light_shader_valid_ = false;
+  front_light_shader_valid_ = false;
+  uniform_light_shader_valid_ = false;
+  volume_light_shader_valid_ = false;
+  surfel_light_shader_valid_ = false;
+  has_time_dependent_light_shaders_ = false;
+
   if (use_sun_lights_ && inst_.world.sun_threshold() > 0.0f) {
     if (inst_.pipelines.world.use_lightpath_node()) {
       add_world_sun_light(world_sunlight_key_[WORLD_SUN_DIFFUSE], true, false);
@@ -652,6 +687,424 @@ void LightModule::update_pass_sync()
   pass.bind_resources(inst_.sampling);
   pass.dispatch(int3(shadow_setup_dispatch_size, 1, 1));
   pass.barrier(GPU_BARRIER_SHADER_STORAGE);
+}
+
+void LightModule::light_shader_pass_sync(const int2 extent)
+{
+  constexpr eGPUTextureUsage usage = GPU_TEXTURE_USAGE_ATTACHMENT | GPU_TEXTURE_USAGE_SHADER_READ;
+  const float white[4] = {1.0f, 1.0f, 1.0f, 1.0f};
+  light_shader_valid_ = false;
+  if (light_shader_materials_.is_empty()) {
+    light_shader_fbs_.clear();
+    light_shader_tx_.ensure_2d_array(
+        gpu::TextureFormat::SFLOAT_16_16_16_16, int2(1), 1, usage, white);
+    return;
+  }
+
+  const int layer_len = light_shader_materials_.size();
+  if (layer_len > GPU_max_texture_layers()) {
+    light_shader_fbs_.clear();
+    light_shader_tx_.ensure_2d_array(
+        gpu::TextureFormat::SFLOAT_16_16_16_16, int2(1), 1, usage, white);
+    light_shader_index_buf_disable_point_dependent(light_shader_src_index_buf_,
+                                                   max_ii(lights_len_, 1));
+    light_shader_src_index_buf_.push_update();
+    light_shader_index_buf_disable_point_dependent(light_shader_index_buf_,
+                                                   max_ii(lights_len_, 1));
+    light_shader_index_buf_.push_update();
+    inst_.info_append_i18n("Error: Too many custom light shader surface layers.");
+    return;
+  }
+  const int lights_allocated = ceil_to_multiple_u(max_ii(layer_len, 1), LIGHT_CHUNK);
+  light_shader_light_buf_.resize(lights_allocated);
+  for (const int layer : light_shader_lights_.index_range()) {
+    light_shader_light_buf_[layer] = light_shader_lights_[layer];
+  }
+  light_shader_light_buf_.push_update();
+
+  light_shader_tx_.ensure_2d_array(
+      gpu::TextureFormat::SFLOAT_16_16_16_16, math::max(extent, int2(1)), layer_len, usage);
+  light_shader_tx_.ensure_layer_views();
+
+  while (light_shader_fbs_.size() < layer_len) {
+    light_shader_fbs_.append(std::make_unique<Framebuffer>("LightShader.Framebuffer"));
+  }
+  while (light_shader_fbs_.size() > layer_len) {
+    light_shader_fbs_.remove_last();
+  }
+  for (const int layer : light_shader_materials_.index_range()) {
+    light_shader_fbs_[layer]->ensure(
+        GPU_ATTACHMENT_NONE, GPU_ATTACHMENT_TEXTURE_LAYER(light_shader_tx_.layer_view(layer), 0));
+  }
+  light_shader_valid_ = light_shader_tx_.is_valid();
+}
+
+void LightModule::front_light_shader_pass_sync(const int2 extent)
+{
+  constexpr eGPUTextureUsage usage = GPU_TEXTURE_USAGE_ATTACHMENT | GPU_TEXTURE_USAGE_SHADER_READ;
+  const float white[4] = {1.0f, 1.0f, 1.0f, 1.0f};
+  front_light_shader_valid_ = false;
+  if (front_light_shader_materials_.is_empty()) {
+    front_light_shader_fbs_.clear();
+    front_light_shader_tx_.ensure_2d_array(
+        gpu::TextureFormat::SFLOAT_16_16_16_16, int2(1), 1, usage, white);
+    return;
+  }
+
+  const int layer_len = front_light_shader_materials_.size();
+  if (layer_len > GPU_max_texture_layers()) {
+    front_light_shader_fbs_.clear();
+    front_light_shader_tx_.ensure_2d_array(
+        gpu::TextureFormat::SFLOAT_16_16_16_16, int2(1), 1, usage, white);
+    light_shader_index_buf_disable_point_dependent(front_light_shader_src_index_buf_,
+                                                   max_ii(lights_len_, 1));
+    front_light_shader_src_index_buf_.push_update();
+    disable_point_dependent_front_light_shader_indices();
+    inst_.info_append_i18n("Error: Too many custom light shader front-layer surface layers.");
+    return;
+  }
+
+  const int lights_allocated = ceil_to_multiple_u(max_ii(layer_len, 1), LIGHT_CHUNK);
+  front_light_shader_light_buf_.resize(lights_allocated);
+  for (const int layer : front_light_shader_lights_.index_range()) {
+    front_light_shader_light_buf_[layer] = front_light_shader_lights_[layer];
+  }
+  front_light_shader_light_buf_.push_update();
+
+  front_light_shader_tx_.ensure_2d_array(
+      gpu::TextureFormat::SFLOAT_16_16_16_16, math::max(extent, int2(1)), layer_len, usage);
+  front_light_shader_tx_.ensure_layer_views();
+
+  while (front_light_shader_fbs_.size() < layer_len) {
+    front_light_shader_fbs_.append(std::make_unique<Framebuffer>("FrontLightShader.Framebuffer"));
+  }
+  while (front_light_shader_fbs_.size() > layer_len) {
+    front_light_shader_fbs_.remove_last();
+  }
+  for (const int layer : front_light_shader_materials_.index_range()) {
+    front_light_shader_fbs_[layer]->ensure(
+        GPU_ATTACHMENT_NONE,
+        GPU_ATTACHMENT_TEXTURE_LAYER(front_light_shader_tx_.layer_view(layer), 0));
+  }
+  front_light_shader_valid_ = front_light_shader_tx_.is_valid();
+}
+
+void LightModule::uniform_light_shader_pass_sync()
+{
+  uniform_light_shader_valid_ = false;
+  const int result_len = max_ii(uniform_light_shader_materials_.size(), 1);
+  uniform_light_shader_buf_.resize(result_len);
+  uniform_light_shader_buf_.clear_to_zero();
+
+  if (uniform_light_shader_materials_.is_empty()) {
+    return;
+  }
+
+  const int lights_allocated = ceil_to_multiple_u(result_len, LIGHT_CHUNK);
+  uniform_light_shader_light_buf_.resize(lights_allocated);
+  for (const int layer : uniform_light_shader_lights_.index_range()) {
+    uniform_light_shader_light_buf_[layer] = uniform_light_shader_lights_[layer];
+  }
+  uniform_light_shader_light_buf_.push_update();
+  uniform_light_shader_valid_ = true;
+}
+
+void LightModule::disable_point_dependent_front_light_shader_indices()
+{
+  light_shader_index_buf_disable_point_dependent(front_light_shader_index_buf_,
+                                                 max_ii(lights_len_, 1));
+  front_light_shader_index_buf_.push_update();
+}
+
+void LightModule::volume_light_shader_pass_sync(const int3 grid_size)
+{
+  constexpr eGPUTextureUsage usage = GPU_TEXTURE_USAGE_SHADER_READ |
+                                     GPU_TEXTURE_USAGE_SHADER_WRITE;
+  const float white[4] = {1.0f, 1.0f, 1.0f, 1.0f};
+  volume_light_shader_valid_ = false;
+  volume_light_shader_dummy_tx_.ensure_2d_array(
+      gpu::TextureFormat::SFLOAT_16_16_16_16, int2(1), 1, usage, white);
+  if (volume_light_shader_materials_.is_empty()) {
+    volume_light_shader_tx_.free();
+    return;
+  }
+
+  const int layer_len = volume_light_shader_materials_.size() * max_ii(grid_size.z, 1);
+  if (layer_len > GPU_max_texture_layers()) {
+    volume_light_shader_tx_.free();
+    light_shader_index_buf_disable_point_dependent(volume_light_shader_src_index_buf_,
+                                                   max_ii(lights_len_, 1));
+    volume_light_shader_src_index_buf_.push_update();
+    light_shader_index_buf_disable_point_dependent(volume_light_shader_index_buf_,
+                                                   max_ii(lights_len_, 1));
+    volume_light_shader_index_buf_.push_update();
+    inst_.info_append_i18n("Error: Too many custom light shader volume layers.");
+    return;
+  }
+
+  volume_light_shader_tx_.ensure_2d_array(gpu::TextureFormat::SFLOAT_16_16_16_16,
+                                          math::max(int2(grid_size), int2(1)),
+                                          layer_len,
+                                          usage);
+  const int lights_allocated = ceil_to_multiple_u(max_ii(volume_light_shader_materials_.size(), 1),
+                                                  LIGHT_CHUNK);
+  volume_light_shader_light_buf_.resize(lights_allocated);
+  for (const int layer : volume_light_shader_lights_.index_range()) {
+    volume_light_shader_light_buf_[layer] = volume_light_shader_lights_[layer];
+  }
+  volume_light_shader_light_buf_.push_update();
+  volume_light_shader_valid_ = volume_light_shader_tx_.is_valid();
+}
+
+void LightModule::surfel_light_shader_pass_sync(uint surfel_len)
+{
+  surfel_light_shader_valid_ = false;
+  if (surfel_light_shader_materials_.is_empty() || surfel_len == 0) {
+    surfel_light_shader_buf_.resize(1);
+    surfel_light_shader_buf_.clear_to_zero();
+    light_shader_index_buf_disable_point_dependent(surfel_light_shader_src_index_buf_,
+                                                   max_ii(lights_len_, 1));
+    surfel_light_shader_src_index_buf_.push_update();
+    light_shader_index_buf_disable_point_dependent(surfel_light_shader_index_buf_,
+                                                   max_ii(lights_len_, 1));
+    surfel_light_shader_index_buf_.push_update();
+    return;
+  }
+
+  const uint64_t light_shader_count = uint64_t(surfel_light_shader_materials_.size());
+  const uint64_t result_len = light_shader_count * uint64_t(surfel_len);
+  const size_t required_mem = size_t(result_len) * sizeof(float4);
+  size_t max_size = GPU_max_storage_buffer_size();
+  if (result_len > uint64_t(std::numeric_limits<int64_t>::max()) || required_mem > max_size) {
+    surfel_light_shader_buf_.resize(1);
+    surfel_light_shader_buf_.clear_to_zero();
+    inst_.info_append_i18n(
+        "Error: Too many custom light shader surfel bake samples ({} / {} MBytes).",
+        uint(required_mem / (1024 * 1024)),
+        uint(max_size / (1024 * 1024)));
+    return;
+  }
+
+  surfel_light_shader_buf_.resize(int64_t(result_len));
+  surfel_light_shader_buf_.clear_to_zero();
+
+  const int lights_allocated = ceil_to_multiple_u(max_ii(surfel_light_shader_materials_.size(), 1),
+                                                  LIGHT_CHUNK);
+  surfel_light_shader_light_buf_.resize(lights_allocated);
+  for (const int layer : surfel_light_shader_lights_.index_range()) {
+    surfel_light_shader_light_buf_[layer] = surfel_light_shader_lights_[layer];
+  }
+  surfel_light_shader_light_buf_.push_update();
+  surfel_light_shader_valid_ = true;
+}
+
+void LightModule::eval_light_shaders(View &view, const int2 extent)
+{
+  if (light_shader_materials_.is_empty()) {
+    return;
+  }
+
+  light_shader_pass_sync(extent);
+  if (!light_shader_valid_) {
+    return;
+  }
+
+  for (const int layer : light_shader_materials_.index_range()) {
+    PassSimple pass = {"LightShader.Pass"};
+    pass.state_set(DRW_STATE_WRITE_COLOR);
+    pass.framebuffer_set(&*light_shader_fbs_[layer]);
+    pass.clear_color(float4(1.0f));
+    pass.material_set(*inst_.manager, light_shader_materials_[layer], false, inst_.anisotropic_filtering);
+    pass.push_constant("light_index", layer);
+    pass.bind_resources(inst_.uniform_data);
+    pass.bind_texture(GBUF_NORMAL_TEX_SLOT, &inst_.gbuffer.normal_tx);
+    pass.bind_texture(GBUF_HEADER_TEX_SLOT, &inst_.gbuffer.header_tx);
+    pass.bind_texture(GBUF_CLOSURE_TEX_SLOT, &inst_.gbuffer.closure_tx);
+    pass.bind_resources(inst_.hiz_buffer.front);
+    pass.bind_resources(inst_.lights);
+    pass.bind_resources(inst_.shadows);
+    pass.bind_texture(RBUFS_UTILITY_TEX_SLOT, &inst_.pipelines.utility_tx);
+    pass.bind_ssbo(LIGHT_BUF_SLOT, &light_shader_light_buf_);
+    pass.barrier(GPU_BARRIER_FRAMEBUFFER | GPU_BARRIER_TEXTURE_FETCH);
+    pass.draw_procedural(GPU_PRIM_TRIS, 1, 3);
+    inst_.manager->submit(pass, view);
+  }
+  GPU_memory_barrier(GPU_BARRIER_FRAMEBUFFER | GPU_BARRIER_TEXTURE_FETCH);
+}
+
+void LightModule::eval_front_light_shaders(View &view, const int2 extent)
+{
+  if (!needs_front_light_shader()) {
+    return;
+  }
+
+  const bool has_prepass_normal = inst_.render_buffers.prepass_normal_tx.is_valid();
+  const int2 normal_extent = has_prepass_normal ?
+                                 int2(inst_.render_buffers.prepass_normal_tx.width(),
+                                      inst_.render_buffers.prepass_normal_tx.height()) :
+                                 int2(0);
+  if (!has_prepass_normal || normal_extent != math::max(extent, int2(1))) {
+    constexpr eGPUTextureUsage usage = GPU_TEXTURE_USAGE_ATTACHMENT |
+                                       GPU_TEXTURE_USAGE_SHADER_READ;
+    const float white[4] = {1.0f, 1.0f, 1.0f, 1.0f};
+    front_light_shader_valid_ = false;
+    front_light_shader_fbs_.clear();
+    front_light_shader_tx_.ensure_2d_array(
+        gpu::TextureFormat::SFLOAT_16_16_16_16, int2(1), 1, usage, white);
+    disable_point_dependent_front_light_shader_indices();
+    if (!front_light_shader_missing_prepass_reported_) {
+      inst_.info_append_i18n(
+          "Error: Point-dependent custom light shader front-layer cache needs a full-size "
+          "prepass normal buffer; falling back to default surface lighting for this view.");
+      front_light_shader_missing_prepass_reported_ = true;
+    }
+    return;
+  }
+
+  front_light_shader_pass_sync(extent);
+  if (!front_light_shader_valid_) {
+    disable_point_dependent_front_light_shader_indices();
+    return;
+  }
+
+  for (const int layer : front_light_shader_materials_.index_range()) {
+    PassSimple pass = {"FrontLightShader.Pass"};
+    pass.state_set(DRW_STATE_WRITE_COLOR);
+    pass.framebuffer_set(&*front_light_shader_fbs_[layer]);
+    pass.clear_color(float4(1.0f));
+    pass.material_set(*inst_.manager, front_light_shader_materials_[layer], false, inst_.anisotropic_filtering);
+    pass.push_constant("light_index", layer);
+    pass.bind_resources(inst_.uniform_data);
+    pass.bind_resources(inst_.hiz_buffer.front);
+    pass.bind_resources(inst_.lights);
+    pass.bind_resources(inst_.shadows);
+    pass.bind_texture(RBUFS_UTILITY_TEX_SLOT, &inst_.pipelines.utility_tx);
+    pass.bind_texture(PREPASS_NORMAL_TEX_SLOT, &inst_.render_buffers.prepass_normal_tx);
+    pass.bind_ssbo(LIGHT_BUF_SLOT, &front_light_shader_light_buf_);
+    pass.draw_procedural(GPU_PRIM_TRIS, 1, 3);
+    inst_.manager->submit(pass, view);
+  }
+  GPU_memory_barrier(GPU_BARRIER_FRAMEBUFFER | GPU_BARRIER_TEXTURE_FETCH);
+}
+
+void LightModule::eval_bake_light_shaders(View &view,
+                                          const int2 extent,
+                                          Texture &position_tx,
+                                          Texture &normal_tx)
+{
+  if (front_light_shader_materials_.is_empty()) {
+    return;
+  }
+
+  front_light_shader_pass_sync(extent);
+  if (!front_light_shader_valid_) {
+    disable_point_dependent_front_light_shader_indices();
+    return;
+  }
+
+  for (const int layer : front_light_shader_materials_.index_range()) {
+    PassSimple pass = {"BakeLightShader.Pass"};
+    pass.state_set(DRW_STATE_WRITE_COLOR);
+    pass.framebuffer_set(&*front_light_shader_fbs_[layer]);
+    pass.clear_color(float4(1.0f));
+    pass.material_set(*inst_.manager, front_light_shader_materials_[layer], false, inst_.anisotropic_filtering);
+    pass.push_constant("light_index", layer);
+    pass.bind_resources(inst_.uniform_data);
+    pass.bind_resources(inst_.lights);
+    pass.bind_resources(inst_.shadows);
+    pass.bind_texture(RBUFS_UTILITY_TEX_SLOT, &inst_.pipelines.utility_tx);
+    pass.bind_texture("bake_light_shader_position_tx", &position_tx);
+    pass.bind_texture("bake_light_shader_normal_tx", &normal_tx);
+    pass.bind_ssbo(LIGHT_BUF_SLOT, &front_light_shader_light_buf_);
+    pass.draw_procedural(GPU_PRIM_TRIS, 1, 3);
+    inst_.manager->submit(pass, view);
+  }
+  GPU_memory_barrier(GPU_BARRIER_FRAMEBUFFER | GPU_BARRIER_TEXTURE_FETCH);
+}
+
+void LightModule::eval_uniform_light_shaders(View &view)
+{
+  if (uniform_light_shader_materials_.is_empty() || !uniform_light_shader_valid_) {
+    return;
+  }
+
+  for (const int layer : uniform_light_shader_materials_.index_range()) {
+    PassSimple pass = {"UniformLightShader.Pass"};
+    pass.material_set(*inst_.manager, uniform_light_shader_materials_[layer], false, inst_.anisotropic_filtering);
+    pass.push_constant("light_index", layer);
+    pass.bind_resources(inst_.uniform_data);
+    pass.bind_resources(inst_.lights);
+    pass.bind_resources(inst_.shadows);
+    pass.bind_texture(RBUFS_UTILITY_TEX_SLOT, &inst_.pipelines.utility_tx);
+    pass.bind_ssbo(LIGHT_BUF_SLOT, &uniform_light_shader_light_buf_);
+    pass.bind_ssbo(LIGHT_SHADER_UNIFORM_BUF_SLOT, &uniform_light_shader_buf_);
+    pass.dispatch(int3(1, 1, 1));
+    pass.barrier(GPU_BARRIER_SHADER_STORAGE);
+    inst_.manager->submit(pass, view);
+  }
+  GPU_memory_barrier(GPU_BARRIER_SHADER_STORAGE);
+}
+
+void LightModule::sync_volume_light_shaders(const int3 grid_size)
+{
+  volume_light_shader_pass_sync(grid_size);
+}
+
+void LightModule::eval_volume_light_shaders(View &view, const int3 grid_size)
+{
+  if (volume_light_shader_materials_.is_empty() || !volume_light_shader_valid_) {
+    return;
+  }
+  if (!volume_light_shader_tx_.is_valid()) {
+    return;
+  }
+
+  volume_light_shader_tx_.clear(float4(1.0f));
+
+  for (const int layer : volume_light_shader_materials_.index_range()) {
+    PassSimple pass = {"VolumeLightShader.Pass"};
+    pass.material_set(*inst_.manager, volume_light_shader_materials_[layer], false, inst_.anisotropic_filtering);
+    pass.push_constant("light_index", layer);
+    pass.bind_resources(inst_.uniform_data);
+    pass.bind_resources(inst_.sampling);
+    pass.bind_resources(inst_.lights);
+    pass.bind_resources(inst_.shadows);
+    pass.bind_texture(RBUFS_UTILITY_TEX_SLOT, &inst_.pipelines.utility_tx);
+    pass.bind_ssbo(LIGHT_BUF_SLOT, &volume_light_shader_light_buf_);
+    pass.bind_image("out_light_shader_img", &volume_light_shader_tx_);
+    pass.dispatch(math::divide_ceil(grid_size, int3(VOLUME_GROUP_SIZE)));
+    inst_.manager->submit(pass, view);
+  }
+  GPU_memory_barrier(GPU_BARRIER_TEXTURE_FETCH | GPU_BARRIER_SHADER_IMAGE_ACCESS);
+}
+
+void LightModule::eval_surfel_light_shaders(View &view,
+                                            draw::StorageArrayBuffer<Surfel, 64> &surfels_buf,
+                                            draw::StorageBuffer<CaptureInfoData> &capture_info_buf,
+                                            uint surfel_len)
+{
+  surfel_light_shader_pass_sync(surfel_len);
+  if (surfel_light_shader_materials_.is_empty() || !surfel_light_shader_valid_) {
+    return;
+  }
+
+  for (const int layer : surfel_light_shader_materials_.index_range()) {
+    PassSimple pass = {"SurfelLightShader.Pass"};
+    pass.material_set(*inst_.manager, surfel_light_shader_materials_[layer], false, inst_.anisotropic_filtering);
+    pass.push_constant("light_index", layer);
+    pass.bind_resources(inst_.uniform_data);
+    pass.bind_resources(inst_.lights);
+    pass.bind_resources(inst_.shadows);
+    pass.bind_texture(RBUFS_UTILITY_TEX_SLOT, &inst_.pipelines.utility_tx);
+    pass.bind_ssbo(SURFEL_BUF_SLOT, &surfels_buf);
+    pass.bind_ssbo(CAPTURE_BUF_SLOT, &capture_info_buf);
+    pass.bind_ssbo(LIGHT_BUF_SLOT, &surfel_light_shader_light_buf_);
+    pass.bind_ssbo(LIGHT_SHADER_SURFEL_BUF_SLOT, &surfel_light_shader_buf_);
+    const int dispatch_len = int(divide_ceil_u(surfel_len, uint(SURFEL_GROUP_SIZE)));
+    pass.dispatch(int3(dispatch_len, 1, 1));
+    inst_.manager->submit(pass, view);
+  }
+  GPU_memory_barrier(GPU_BARRIER_SHADER_STORAGE);
 }
 
 void LightModule::debug_pass_sync()
