@@ -288,7 +288,10 @@ struct DeferredLayerBase {
   PassMain::Sub *get_gbuffer_subpass(blender::Material *blender_mat, GPUMaterial *gpumat)
   {
     const bool is_hybrid = GPU_material_flag_get(gpumat, GPU_MATFLAG_SHADER_TO_RGBA) ||
-                           GPU_material_flag_get(gpumat, GPU_MATFLAG_LIGHTING);
+                           GPU_material_flag_get(gpumat, GPU_MATFLAG_LIGHTING) ||
+                           /* NPR: Screenspace Info reads the previous-layer buffers, which are
+                            * bound on the hybrid sub-passes. */
+                           GPU_material_flag_get(gpumat, GPU_MATFLAG_SCREENSPACE_INFO);
     const bool has_raycast = GPU_material_flag_get(gpumat, GPU_MATFLAG_RAYCAST);
     const bool double_sided = !(blender_mat->blend_flag & MA_BL_CULL_BACKFACE);
 

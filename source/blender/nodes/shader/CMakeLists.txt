@@ -140,6 +140,7 @@ set(SRC
   nodes/node_shader_portal_out.cc
   nodes/node_shader_light_probe_color.cc
   nodes/node_shader_world_environment.cc
+  nodes/node_shader_screenspace_info.cc
 
   node_shader_register.cc
   node_shader_tree.cc

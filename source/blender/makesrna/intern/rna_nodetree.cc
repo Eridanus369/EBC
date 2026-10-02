@@ -12198,6 +12198,7 @@ static void rna_def_nodes(BlenderRNA *brna)
   define("ShaderNode", "ShaderNodePortalOut", def_sh_portal_out);
   define("ShaderNode", "ShaderNodeLightProbeColor");
   define("ShaderNode", "ShaderNodeWorldEnvironment");
+  define("ShaderNode", "ShaderNodeScreenspaceInfo");
   define("ShaderNode", "ShaderNodeEeveeLightShaderOutput");
   define("ShaderNode", "ShaderNodeEeveeLightShaderInfo");
   define("ShaderNode", "ShaderNodeTexGradient", def_sh_tex_gradient);

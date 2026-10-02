@@ -715,7 +715,8 @@ static SlotAllocator add_pipeline_create_info(gpu::shader::ShaderCreateInfo &inf
                                               eMaterialGeometry geometry_type,
                                               const bool use_shader_to_rgba,
                                               const bool use_lighting_nodes,
-                                              const bool use_lightprobe_data)
+                                              const bool use_lightprobe_data,
+                                              const bool use_screenspace_info)
 {
   using namespace blender::gpu::shader;
 
@@ -852,7 +853,7 @@ static SlotAllocator add_pipeline_create_info(gpu::shader::ShaderCreateInfo &inf
           /* NPR: material node shaders (Curvature, Bevel, Light Probe Color, World Environment,
            * ...) guard their surface-pass code with these pipeline macros. */
           info.define("MAT_DEFERRED");
-          if (use_shader_to_rgba || use_lighting_nodes) {
+          if (use_shader_to_rgba || use_lighting_nodes || use_screenspace_info) {
             pipeline_info_name = "eevee_surf_hybrid_infos_";
             if (use_shader_to_rgba) {
               info.define("closure_to_rgba", "closure_to_rgba_hybrid");
@@ -1306,8 +1307,10 @@ void ShaderModule::material_create_info_amend(GPUMaterial *gpumat, GPUCodegenOut
   }
 
   if (ELEM(pipeline_type, MAT_PIPE_DEFERRED, MAT_PIPE_FORWARD) &&
-      GPU_material_flag_get(gpumat, GPU_MATFLAG_SHADER_TO_RGBA) &&
-      GPU_material_flag_get(gpumat, GPU_MATFLAG_TRANSPARENT))
+      ((GPU_material_flag_get(gpumat, GPU_MATFLAG_SHADER_TO_RGBA) &&
+        GPU_material_flag_get(gpumat, GPU_MATFLAG_TRANSPARENT)) ||
+       /* NPR: Screenspace Info node samples the previous-layer buffers. */
+       GPU_material_flag_get(gpumat, GPU_MATFLAG_SCREENSPACE_INFO)))
   {
     info.additional_info("eevee_PreviousLayerHiZ");
     info.additional_info("eevee_PreviousLayerRadiance");
@@ -1336,9 +1339,14 @@ void ShaderModule::material_create_info_amend(GPUMaterial *gpumat, GPUCodegenOut
   const bool use_lightprobe_data = pipeline_type == MAT_PIPE_DEFERRED &&
                                   GPU_material_flag_get(gpumat, GPU_MATFLAG_LIGHTPROBE_ACCESS);
 
+  /* NPR: Screenspace Info needs the hybrid pipeline (previous-layer color/depth buffers). */
+  const bool use_screenspace_info = ELEM(pipeline_type, MAT_PIPE_DEFERRED, MAT_PIPE_FORWARD) &&
+                                   GPU_material_flag_get(gpumat,
+                                                         GPU_MATFLAG_SCREENSPACE_INFO);
+
   SlotAllocator slots = add_pipeline_create_info(
       info, pipeline_type, geometry_type, use_shader_to_rgba, use_lighting_nodes,
-      use_lightprobe_data);
+      use_lightprobe_data, use_screenspace_info);
 
   if (GPU_material_flag_get(gpumat, GPU_MATFLAG_SHADER_TO_RGBA)) {
     info.define("MAT_SHADER_TO_RGBA");

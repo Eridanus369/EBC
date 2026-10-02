@@ -129,6 +129,8 @@ enum eGPUMaterialFlag {
   GPU_MATFLAG_UPDATED = (1 << 29),
   GPU_MATFLAG_LIGHTPROBE_ACCESS = (1 << 28),
   GPU_MATFLAG_GLSL_LIGHT_ACCESS = (1 << 30),
+  /* NPR: Screenspace Info node samples the previous-layer radiance/depth. */
+  GPU_MATFLAG_SCREENSPACE_INFO = (1 << 27),
 };
 
 /** Data lanes requested from an evaluated object by a material node. */
