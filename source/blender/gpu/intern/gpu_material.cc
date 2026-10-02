@@ -32,6 +32,7 @@
 #include "BKE_main.hh"
 #include "BKE_material.hh"
 #include "BKE_node.hh"
+#include "BKE_node_legacy_types.hh"
 #include "BKE_node_runtime.hh"
 #include "BKE_node_tree_dot_export.hh"
 
@@ -205,7 +206,34 @@ GPUMaterialFromNodeTreeResult GPU_material_from_nodetree(
   nodes::InlineShaderNodeTreeParams inline_params;
   inline_params.allow_preserving_repeat_zones = true;
   inline_params.target_engine_ = engine == GPU_MAT_EEVEE ? SHD_OUTPUT_EEVEE : SHD_OUTPUT_ALL;
-  nodes::inline_shader_node_tree(*ntree, *localtree, inline_params);
+
+  /* Shader Portal nodes: the demand-driven inliner drops Portal In nodes (they have no output
+   * sockets), so materialize portals into real links on a throwaway copy of the source tree
+   * first. Group node trees referenced by the copy are shared with the original. */
+  bNodeTree *portal_src_copy = nullptr;
+  const bNodeTree *inline_src_tree = ntree;
+  for (const bNode *node : ntree->all_nodes()) {
+    if (ELEM(node->type_legacy, SH_NODE_PORTAL_IN, SH_NODE_PORTAL_OUT)) {
+      portal_src_copy = bke::node_tree_copy_tree_ex(*ntree, nullptr, false);
+      bke::node_tree_runtime::materialize_shader_portals(*portal_src_copy);
+      inline_src_tree = portal_src_copy;
+      break;
+    }
+  }
+
+  nodes::inline_shader_node_tree(*inline_src_tree, *localtree, inline_params);
+
+  if (portal_src_copy != nullptr) {
+    /* Remap error nodes owned by the copy to the source tree before freeing it. Errors for
+     * group-internal nodes already point at the original group node trees. */
+    for (nodes::InlineShaderNodeTreeParams::ErrorMessage &error : inline_params.r_error_messages)
+    {
+      if (error.node != nullptr && &error.node->owner_tree() == portal_src_copy) {
+        error.node = ntree->node_by_id(error.node->identifier);
+      }
+    }
+    BKE_id_free(nullptr, &portal_src_copy->id);
+  }
 
   for (nodes::InlineShaderNodeTreeParams::ErrorMessage &error : inline_params.r_error_messages) {
     result.errors.append({error.node,

@@ -561,6 +561,25 @@ class NODE_MT_shader_node_utilities_base(node_add_menu.NodeMenu):
         self.draw_assets_for_catalog(layout, self.bl_label)
 
 
+class NODE_MT_shader_node_layout_base(node_add_menu.NodeMenu):
+    bl_label = "Layout"
+    menu_path = "Layout"
+
+    def draw(self, context):
+        layout = self.layout
+
+        self.node_operator(layout, "NodeFrame", search_weight=-1)
+        self.node_operator(layout, "NodeReroute")
+        if object_light_shader_nodes_poll(context):
+            self.draw_assets_for_catalog(layout, self.bl_label)
+            return
+        layout.separator()
+        self.node_operator(layout, "ShaderNodePortalIn")
+        self.node_operator(layout, "ShaderNodePortalOut")
+
+        self.draw_assets_for_catalog(layout, self.bl_label)
+
+
 class NODE_MT_shader_node_all_base(node_add_menu.NodeMenu):
     bl_label = ""
     menu_path = "Root"
@@ -605,6 +624,7 @@ add_menus = {
     "NODE_MT_category_shader_text": NODE_MT_shader_node_text_base,
     "NODE_MT_category_shader_upbge": NODE_MT_shader_node_upbge_base,
     "NODE_MT_category_shader_utilities": NODE_MT_shader_node_utilities_base,
+    "NODE_MT_category_shader_layout": NODE_MT_shader_node_layout_base,
     "NODE_MT_shader_node_add_all": NODE_MT_shader_node_all_base,
 }
 add_menus = node_add_menu.generate_menus(

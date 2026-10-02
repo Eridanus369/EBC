@@ -3219,6 +3219,14 @@ struct NodeShaderScriptExpression {
 #endif
 };
 
+struct NodeShaderPortal {
+  DNA_DEFINE_CXX_METHODS(NodeShaderPortal)
+
+  char name[/*MAX_NAME*/ 64] = "";
+  /** #eNodeSocketDatatype. */
+  int data_type = SOCK_FLOAT;
+};
+
 struct NodeShaderTangent {
   DNA_DEFINE_CXX_METHODS(NodeShaderTangent)
 

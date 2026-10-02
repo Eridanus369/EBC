@@ -265,6 +265,17 @@ class bNodeTreeRuntime : NonCopyable, NonMovable {
   bool has_undefined_nodes_or_sockets = false;
   bNode *group_output_node = nullptr;
   Vector<bNode *> root_frames;
+
+  /**
+   * Shader Portal In nodes by their portal name. A nullptr value means multiple Portal In nodes
+   * share the same name. Only valid when the topology cache exists.
+   */
+  Map<StringRefNull, const bNode *> shader_portal_inputs_by_name;
+  /**
+   * Maps #bNode::identifier of a Shader Portal Out node to the input socket of its resolved
+   * Portal In node. Only valid when the topology cache exists.
+   */
+  Map<int32_t, const bNodeSocket *> shader_portal_source_socket_by_out_node_id;
 };
 
 /**
@@ -432,6 +443,18 @@ namespace node_tree_runtime {
  * Is executed when the node tree changed in the depsgraph.
  */
 void preprocess_geometry_node_tree_for_evaluation(bNodeTree &tree_cow);
+
+const bNode *find_shader_portal_input_node(const bNodeTree &tree, StringRefNull portal_name);
+const bNodeSocket *find_shader_portal_source_socket(const bNodeTree &tree,
+                                                    const bNode &portal_out_node);
+const bNodeSocket *find_shader_portal_origin_socket(const bNodeTree &tree,
+                                                    const bNode &portal_out_node);
+/**
+ * Replace Portal Out links with real direct links to their resolved origin sockets.
+ * This is intended for temporary backend compilation trees only.
+ */
+void materialize_shader_portals(bNodeTree &tree);
+void update_shader_portal_validation(bNodeTree &tree);
 
 class AllowUsingOutdatedInfo : NonCopyable, NonMovable {
  private:

@@ -1084,6 +1084,7 @@ static bNode *ntree_shader_eevee_light_shader_output_node(bNodeTree *ntree)
 void ntreeGPULightShaderNodes(bNodeTree *localtree, GPUMaterial *mat)
 {
   ntree_shader_unlink_script_nodes(localtree);
+  bke::node_tree_runtime::materialize_shader_portals(*localtree);
   bNode *output = ntree_shader_eevee_light_shader_output_node(localtree);
 
   ntree_shader_pruned_unused(localtree, output);
@@ -1100,6 +1101,7 @@ void ntreeGPUMaterialNodes(bNodeTree *localtree, GPUMaterial *mat)
   bNodeTreeExec *exec;
 
   ntree_shader_unlink_script_nodes(localtree);
+  bke::node_tree_runtime::materialize_shader_portals(*localtree);
   bNode *output = ntreeShaderOutputNode(localtree, SHD_OUTPUT_EEVEE);
 
   /* Tree is valid if it contains no undefined implicit socket type cast. */

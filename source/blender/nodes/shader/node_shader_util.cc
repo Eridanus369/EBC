@@ -293,10 +293,58 @@ static void nodestack_get_vec(float *in, short type_in, bNodeStack *ns)
   }
 }
 
+const bNodeSocket *node_shader_portal_out_source_socket(const bNode &portal_out)
+{
+  if (portal_out.type_legacy != SH_NODE_PORTAL_OUT) {
+    return nullptr;
+  }
+  const bNodeTree *tree = portal_out.runtime->owner_tree;
+  if (tree == nullptr) {
+    return nullptr;
+  }
+  tree->ensure_topology_cache();
+  return bke::node_tree_runtime::find_shader_portal_source_socket(*tree, portal_out);
+}
+
+void node_shader_gpu_stack_from_portal_out(const bNode &portal_out,
+                                           bNodeStack *stack,
+                                           GPUNodeStack *out)
+{
+  int output_index = 0;
+  const bNodeSocket *available_output = nullptr;
+  for (const bNodeSocket &socket : portal_out.outputs) {
+    node_gpu_stack_from_data(&out[output_index], const_cast<bNodeSocket *>(&socket), nullptr);
+    if (socket.is_available() && available_output == nullptr) {
+      available_output = &socket;
+    }
+    output_index++;
+  }
+  out[output_index].end = true;
+
+  if (available_output == nullptr) {
+    return;
+  }
+
+  const bNodeSocket *source_socket = node_shader_portal_out_source_socket(portal_out);
+  if (source_socket == nullptr) {
+    return;
+  }
+
+  const bNodeStack *source_stack = node_get_socket_stack(
+      stack, const_cast<bNodeSocket *>(source_socket));
+  if (source_stack == nullptr) {
+    return;
+  }
+
+  const int available_index = available_output->index();
+  node_gpu_stack_from_data(&out[available_index],
+                           const_cast<bNodeSocket *>(available_output),
+                           const_cast<bNodeStack *>(source_stack));
+}
+
 void node_gpu_stack_from_data(GPUNodeStack *gs, bNodeSocket *socket, bNodeStack *ns)
 {
   *gs = GPUNodeStack{};
-
   if (ns == nullptr) {
     /* node_get_stack() will generate nullptr bNodeStack pointers
      * for unknown/unsupported types of sockets. */

@@ -139,6 +139,8 @@ void register_shader_nodes()
   register_node_type_sh_eevee_light_shader_output();
   register_node_type_sh_eevee_light_shader_info();
   register_node_type_sh_script_expression();
+  register_node_type_sh_portal_in();
+  register_node_type_sh_portal_out();
 
   /* UPBGE */
   register_node_type_sh_sprites_animation();

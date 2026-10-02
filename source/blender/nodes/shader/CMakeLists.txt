@@ -136,6 +136,8 @@ set(SRC
   nodes/node_shader_eevee_light_shader_output.cc
   nodes/node_shader_eevee_light_shader_info.cc
   nodes/node_shader_script_expression.cc
+  nodes/node_shader_portal_in.cc
+  nodes/node_shader_portal_out.cc
 
   node_shader_register.cc
   node_shader_tree.cc
