@@ -714,7 +714,8 @@ static SlotAllocator add_pipeline_create_info(gpu::shader::ShaderCreateInfo &inf
                                               eMaterialPipeline pipeline_type,
                                               eMaterialGeometry geometry_type,
                                               const bool use_shader_to_rgba,
-                                              const bool use_lighting_nodes)
+                                              const bool use_lighting_nodes,
+                                              const bool use_lightprobe_data)
 {
   using namespace blender::gpu::shader;
 
@@ -848,6 +849,9 @@ static SlotAllocator add_pipeline_create_info(gpu::shader::ShaderCreateInfo &inf
           info.fragment_function("eevee_surf_capture");
           break;
         case MAT_PIPE_DEFERRED:
+          /* NPR: material node shaders (Curvature, Bevel, Light Probe Color, World Environment,
+           * ...) guard their surface-pass code with these pipeline macros. */
+          info.define("MAT_DEFERRED");
           if (use_shader_to_rgba || use_lighting_nodes) {
             pipeline_info_name = "eevee_surf_hybrid_infos_";
             if (use_shader_to_rgba) {
@@ -863,14 +867,24 @@ static SlotAllocator add_pipeline_create_info(gpu::shader::ShaderCreateInfo &inf
             info.fragment_function("eevee_surf_hybrid");
           }
           else {
-            pipeline_info_name = "eevee_surf_deferred_infos_";
-            info.name_ += "_deferred";
+            /* NPR: Deferred materials whose graph samples light-probe data (Light Probe Color /
+             * World Environment) use a dedicated entry-point that exposes LightprobeRenderData
+             * to the material node code. */
+            if (use_lightprobe_data) {
+              pipeline_info_name = "eevee_surf_deferred_lightprobe_infos_";
+              info.name_ += "_deferred_lightprobe";
+            }
+            else {
+              pipeline_info_name = "eevee_surf_deferred_infos_";
+              info.name_ += "_deferred";
+            }
             info.compilation_constant(gpu::shader::Type::bool_t, "use_velocity", false);
             info.compilation_constant(gpu::shader::Type::bool_t, "use_lighting_nodes", false);
             /* Until every vertex shader are ported, we need to bridge the gap here by defining the
              * pipeline. */
             info.fragment_source("eevee_surf_deferred.bsl.hh");
-            info.fragment_function("eevee_surf_deferred");
+            info.fragment_function(use_lightprobe_data ? "eevee_surf_deferred_lightprobe" :
+                                                         "eevee_surf_deferred");
           }
           /* Enable the access to `nt.crypto_hash`.
            * Necessary workaround for static shader compilation tests. */
@@ -878,6 +892,7 @@ static SlotAllocator add_pipeline_create_info(gpu::shader::ShaderCreateInfo &inf
           break;
         case MAT_PIPE_FORWARD:
           pipeline_info_name = "eevee_surf_forward_infos_";
+          info.define("MAT_FORWARD");
           info.define("closure_to_rgba", "closure_to_rgba_forward");
           info.compilation_constant(gpu::shader::Type::bool_t, "use_velocity", false);
           info.compilation_constant(
@@ -1315,8 +1330,15 @@ void ShaderModule::material_create_info_amend(GPUMaterial *gpumat, GPUCodegenOut
    * add_pipeline_create_info. This ensure all resource slot are correctly reserved inside the
    * SlotAllocator. */
 
+  /* NPR: Deferred materials whose graph samples world / sphere / volume probe data get a
+   * dedicated fragment entry-point with the LightprobeRenderData resource table. Forward
+   * materials already expose the probe resources unconditionally. */
+  const bool use_lightprobe_data = pipeline_type == MAT_PIPE_DEFERRED &&
+                                  GPU_material_flag_get(gpumat, GPU_MATFLAG_LIGHTPROBE_ACCESS);
+
   SlotAllocator slots = add_pipeline_create_info(
-      info, pipeline_type, geometry_type, use_shader_to_rgba, use_lighting_nodes);
+      info, pipeline_type, geometry_type, use_shader_to_rgba, use_lighting_nodes,
+      use_lightprobe_data);
 
   if (GPU_material_flag_get(gpumat, GPU_MATFLAG_SHADER_TO_RGBA)) {
     info.define("MAT_SHADER_TO_RGBA");

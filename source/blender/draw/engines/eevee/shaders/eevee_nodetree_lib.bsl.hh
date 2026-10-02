@@ -76,6 +76,27 @@ ViewMatrices view_matrices_get()
   return views.get(view_id_get());
 }
 
+#if defined(GPU_FRAGMENT_SHADER)
+/* Sample the world light-probe sphere along direction L, ignoring occluding geometry.
+ * Only surface material passes carry the light-probe resource table; other passes get black. */
+float3 lightprobe_world_sample(float3 L, float lod)
+{
+#  if defined(CREATE_INFO_eevee_LightprobeRenderData)
+  [[resource_table]] eevee::LightprobeRenderData &lightprobes = resource_table_get(
+      eevee::LightprobeRenderData);
+  [[resource_table]] eevee::LightprobeSphereRenderData &lp_spheres = lightprobes.spheres;
+  const ViewMatrices view = view_matrices_get();
+  float3 V = view.world_incident_vector(g_data.P);
+  eevee::LightProbeSample samp = lightprobes.load(gl_FragCoord.xy, g_data.P, g_data.Ng, V);
+  return lp_spheres.spherical_sample_normalized_with_parallax(samp, g_data.P, L, lod);
+#  else
+  UNUSED_VARS(L);
+  UNUSED_VARS(lod);
+  return float3(0.0f);
+#  endif
+}
+#endif
+
 #define closure_base_copy(cl, in_cl) \
   cl.color = in_cl.color; \
   cl.N = in_cl.N; \

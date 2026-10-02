@@ -138,6 +138,8 @@ set(SRC
   nodes/node_shader_script_expression.cc
   nodes/node_shader_portal_in.cc
   nodes/node_shader_portal_out.cc
+  nodes/node_shader_light_probe_color.cc
+  nodes/node_shader_world_environment.cc
 
   node_shader_register.cc
   node_shader_tree.cc

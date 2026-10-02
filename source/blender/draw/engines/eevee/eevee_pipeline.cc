@@ -1073,6 +1073,19 @@ PassMain::Sub *DeferredLayer::material_add(blender::Material *blender_mat, GPUMa
   if (blender_mat->blend_flag & MA_BL_THICKNESS_FROM_SHADOW) {
     material_stencil_bits |= uint8_t(StencilBits::THICKNESS_FROM_SHADOW);
   }
+  /* NPR: deferred materials whose graph samples light-probe data use the dedicated
+   * surf_deferred_lightprobe shader entry-point and therefore need the probe resource tables
+   * bound for this material. */
+  if (GPU_material_flag_get(gpumat, GPU_MATFLAG_LIGHTPROBE_ACCESS)) {
+    material_pass->bind_resources(inst_.sphere_probes);
+    material_pass->bind_resources(inst_.volume_probes);
+    if (is_probe_) {
+      material_pass->bind_resources(inst_.planar_probes.dummy_resources);
+    }
+    else {
+      material_pass->bind_resources(inst_.planar_probes);
+    }
+  }
   /* We use this opportunity to clear the stencil bits. The undefined areas are discarded using the
    * gbuf header value. */
   material_pass->state_stencil(0xFFu, material_stencil_bits, 0xFFu);
