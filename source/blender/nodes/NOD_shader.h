@@ -34,4 +34,9 @@ struct bNode *ntreeShaderOutputNode(struct bNodeTree *ntree, int target);
  */
 void ntreeGPUMaterialNodes(struct bNodeTree *localtree, struct GPUMaterial *mat);
 
+/**
+ * Generate GPU node graph starting from the EEVEE Light Shader Output node for light shaders.
+ */
+void ntreeGPULightShaderNodes(struct bNodeTree *localtree, struct GPUMaterial *mat);
+
 }  // namespace blender

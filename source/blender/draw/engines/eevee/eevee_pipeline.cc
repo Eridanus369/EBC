@@ -654,6 +654,11 @@ void ForwardPipeline::render(View &view,
   inst_.volume_probes.set_view(view);
   inst_.sphere_probes.set_view(view);
 
+  /* NPR: evaluate per-light (uniform) and front-layer (point-dependent) light shaders before the
+   * transparent passes can consume their results. */
+  inst_.lights.eval_uniform_light_shaders(view);
+  inst_.lights.eval_front_light_shaders(view, extent);
+
   transp_buffer_.acquire(extent, use_colored_transparency());
 
   if (!use_colored_transparency()) {
@@ -1117,8 +1122,15 @@ gpu::Texture *DeferredLayer::render(View &render_view,
   inst_.sphere_probes.set_view(render_view);
   inst_.shadows.render(render_view, extent);
 
+  /* NPR: front-layer and point-independent light shaders must be evaluated after the prepass
+   * (normal buffer) and before the GBuffer pass; surface light shaders need the GBuffer. */
+  inst_.lights.eval_uniform_light_shaders(render_view);
+  inst_.lights.eval_front_light_shaders(render_view, extent);
+
   inst_.gbuffer.bind(gbuffer_fb);
   inst_.manager->submit(gbuffer_ps_, render_view);
+
+  inst_.lights.eval_light_shaders(render_view, extent);
 
   for (int i = 0; i < ARRAY_SIZE(direct_radiance_txs_); i++) {
     direct_radiance_txs_[i].acquire_2d((closure_count_ > i) ? extent : int2(1),
@@ -1599,8 +1611,13 @@ void DeferredProbePipeline::render(View &view,
   /* Update for lighting pass. */
   inst_.hiz_buffer.update();
 
+  inst_.lights.eval_uniform_light_shaders(view);
+  inst_.lights.eval_front_light_shaders(view, extent);
+
   inst_.gbuffer.bind(gbuffer_fb);
   inst_.manager->submit(opaque_layer_.gbuffer_ps_, view);
+
+  inst_.lights.eval_light_shaders(view, extent);
 
   combined_fb.bind();
   inst_.manager->submit(eval_light_ps_, view);
@@ -1702,8 +1719,13 @@ void PlanarProbePipeline::render(View &view,
   inst_.volume_probes.set_view(view);
   inst_.sphere_probes.set_view(view);
 
+  inst_.lights.eval_uniform_light_shaders(view);
+  inst_.lights.eval_front_light_shaders(view, extent);
+
   inst_.gbuffer.bind(gbuffer_fb, true);
   inst_.manager->submit(gbuffer_ps_, view);
+
+  inst_.lights.eval_light_shaders(view, extent);
 
   GPU_framebuffer_bind(combined_fb);
   inst_.manager->submit(eval_light_ps_, view);

@@ -149,6 +149,7 @@ GPUMaterialFromNodeTreeResult GPU_material_from_nodetree(
     const char *name,
     eGPUMaterialEngine engine,
     uint64_t shader_uuid,
+    bool compile_light_shader_graph,
     bool deferred_compilation,
     GPUCodegenCallbackFn callback,
     void *thunk,
@@ -188,7 +189,12 @@ GPUMaterialFromNodeTreeResult GPU_material_from_nodetree(
                           GPUMaterialFromNodeTreeResult::WarningType(error.type)});
   }
 
-  ntreeGPUMaterialNodes(localtree, mat);
+  if (compile_light_shader_graph) {
+    ntreeGPULightShaderNodes(localtree, mat);
+  }
+  else {
+    ntreeGPUMaterialNodes(localtree, mat);
+  }
 
   gpu_material_ramp_texture_build(mat);
   gpu_material_sky_texture_build(mat);

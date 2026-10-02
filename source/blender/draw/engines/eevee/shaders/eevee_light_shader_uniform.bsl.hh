@@ -16,14 +16,14 @@
 namespace eevee::light_shader {
 
 
-struct UniformData {
+struct LightShaderUniformData {
   [[push_constant]] const int light_index;
   [[storage(LIGHT_SHADER_UNIFORM_BUF_SLOT, write)]] float4 (&out_light_shader_buf)[];
 };
 
 [[compute, local_size(1)]]
 void light_shader_uniform_comp([[resource_table]] const LightRenderData &lrd,
-                               [[resource_table]] const UniformData &data,
+                               [[resource_table]] const LightShaderUniformData &data,
                                [[resource_table]] const draw::View &views)
 {
   const LightData light = lrd.light_buf[data.light_index];

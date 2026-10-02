@@ -1064,6 +1064,37 @@ static void ntree_shader_setup_custom_lighting_zone(bNodeTree *ntree)
   }
 }
 
+static bNode *ntree_shader_eevee_light_shader_output_node(bNodeTree *ntree)
+{
+  bNode *output = nullptr;
+  for (bNode &node : ntree->nodes) {
+    if (node.type_legacy != SH_NODE_EEVEE_LIGHT_SHADER_OUTPUT) {
+      continue;
+    }
+    if (output == nullptr) {
+      output = &node;
+    }
+    else if ((node.flag & NODE_DO_OUTPUT) && !(output->flag & NODE_DO_OUTPUT)) {
+      output = &node;
+    }
+  }
+  return output;
+}
+
+void ntreeGPULightShaderNodes(bNodeTree *localtree, GPUMaterial *mat)
+{
+  ntree_shader_unlink_script_nodes(localtree);
+  bNode *output = ntree_shader_eevee_light_shader_output_node(localtree);
+
+  ntree_shader_pruned_unused(localtree, output);
+
+  bNodeTreeExec *exec = ntreeShaderBeginExecTree(localtree);
+  if (output != nullptr) {
+    ntreeExecGPUNodes(exec, mat, output, nullptr);
+  }
+  ntreeShaderEndExecTree(exec);
+}
+
 void ntreeGPUMaterialNodes(bNodeTree *localtree, GPUMaterial *mat)
 {
   bNodeTreeExec *exec;
