@@ -359,9 +359,18 @@ void GPUCodegen::node_serialize(Set<StringRefNull> &used_libraries,
   if (node->use_static_function) {
     gpu_material_library_use_function(used_libraries, node->name);
   }
-  /* Non-static custom functions (e.g. GLSL Function wrappers) are inlined into
-   * the material shader from GPUMaterial generated sources, so no shader-library
-   * dependency is needed. */
+  else if (node->dependency_name[0] != '\0') {
+    used_libraries.add(node->dependency_name);
+  }
+  if (node->dependency_flags & GPU_CUSTOM_NODE_DEPENDENCY_GLSL_GEOMETRY_HELPERS) {
+    used_libraries.add(GPU_GLSL_FUNCTION_GEOMETRY_HELPER_FILENAME);
+  }
+  if (node->dependency_flags & GPU_CUSTOM_NODE_DEPENDENCY_GLSL_LIGHTPROBE_HELPERS) {
+    used_libraries.add(GPU_GLSL_FUNCTION_LIGHTPROBE_HELPER_FILENAME);
+  }
+  if (node->dependency_flags & GPU_CUSTOM_NODE_DEPENDENCY_GLSL_MATRIX_HELPERS) {
+    used_libraries.add(GPU_GLSL_FUNCTION_MATRIX_HELPER_FILENAME);
+  }
 
   auto source_reference = [&](GPUInput *input) {
     BLI_assert(ELEM(input->source, GPU_SOURCE_OUTPUT, GPU_SOURCE_ATTR));
