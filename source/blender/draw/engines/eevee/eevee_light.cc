@@ -59,7 +59,9 @@ void Light::sync(ShadowModule &shadows,
                  char visibility_flag,
                  const blender::Light *la,
                  const LightLinking *light_linking /* = nullptr */,
-                 float threshold)
+                 float light_shader_range_scale,
+                 float threshold,
+                 int lightgroup_id /* = 0 */)
 {
   using namespace blender::math;
 
@@ -67,6 +69,7 @@ void Light::sync(ShadowModule &shadows,
   if (assign_if_different(this->type, new_type)) {
     shadow_discard_safe(shadows);
   }
+  this->light_shader_range_scale = light_shader_range_scale;
 
   this->color = BKE_light_color(*la);
   float base_power = BKE_light_power(*la);
@@ -85,8 +88,12 @@ void Light::sync(ShadowModule &shadows,
 
   this->object_to_world = object_to_world;
 
-  shape_parameters_set(
-      la, scale, object_to_world.z_axis(), threshold, shadows.get_data().use_jitter);
+  shape_parameters_set(la,
+                       scale,
+                       object_to_world.z_axis(),
+                       light_shader_range_scale,
+                       threshold,
+                       shadows.get_data().use_jitter);
 
   const bool diffuse_visibility = (visibility_flag & OB_HIDE_DIFFUSE) == 0;
   const bool glossy_visibility = (visibility_flag & OB_HIDE_GLOSSY) == 0;
@@ -100,6 +107,9 @@ void Light::sync(ShadowModule &shadows,
   this->power_factor[LIGHT_TRANSMISSION] = la->transmission_fac * transmission_visibility;
   this->power_factor[LIGHT_VOLUME] = la->volume_fac * volume_visibility;
 
+  this->lightgroup_id = max_ii(lightgroup_id, 0);
+  this->shader_parameter_uid = 0;
+  this->shadow_map_scale = 1.0f;
   this->lod_bias = shadows.global_lod_bias();
   this->lod_min = shadow_lod_min_get(la);
   this->filter_radius = la->shadow_filter_radius;
@@ -180,9 +190,11 @@ float Light::attenuation_radius_get(const blender::Light *la,
 void Light::shape_parameters_set(const blender::Light *la,
                                  const float3 &scale,
                                  const float3 &z_axis,
+                                 const float light_shader_range_scale,
                                  const float threshold,
                                  const bool use_jitter)
 {
+  UNUSED_VARS(light_shader_range_scale);
   using namespace blender::math;
 
   /* Compute influence radius first. Can be amended by shape later. */
@@ -388,7 +400,7 @@ void LightModule::add_world_sun_light(const ObjectKey &key, bool use_diffuse, bo
 
   Light &light = light_map_.lookup_or_add_default(key);
   light.used = true;
-  light.sync(inst_.shadows, float4x4::identity(), visibility_flag, &la, nullptr, light_threshold_);
+  light.sync(inst_.shadows, float4x4::identity(), visibility_flag, &la, nullptr, 1.0f, light_threshold_);
 
   sun_lights_len_ += 1;
 }
@@ -455,6 +467,7 @@ void LightModule::sync_light(const ObjectRef &ob_ref)
                ob_ref.object->visibility_flag,
                &la,
                ob_ref.light_linking(),
+               1.0f,
                light_threshold_);
   }
   sun_lights_len_ += int(is_sun_light(light.type));
