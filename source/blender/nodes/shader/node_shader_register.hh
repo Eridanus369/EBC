@@ -137,6 +137,7 @@ void register_node_type_sh_glsl_function();
 void register_node_type_sh_image_to_closure();
 void register_node_type_sh_eevee_light_shader_output();
 void register_node_type_sh_eevee_light_shader_info();
+void register_node_type_sh_script_expression();
 
 /* UPBGE */
 void register_node_type_sh_sprites_animation();

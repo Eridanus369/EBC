@@ -135,6 +135,7 @@ set(SRC
   nodes/node_shader_image_to_closure.cc
   nodes/node_shader_eevee_light_shader_output.cc
   nodes/node_shader_eevee_light_shader_info.cc
+  nodes/node_shader_script_expression.cc
 
   node_shader_register.cc
   node_shader_tree.cc
@@ -144,6 +145,7 @@ set(SRC
   node_shader_util.hh
 
   include/NOD_shader_raycast.hh
+  include/NOD_sh_script_expression.hh
 )
 
 set(LIB

@@ -935,6 +935,7 @@ static const EnumPropertyItem node_cryptomatte_layer_name_items[] = {
 #  include "NOD_rna_define.hh"
 #  include "NOD_shader.h"
 #  include "NOD_shader_raycast.hh"
+#  include "NOD_sh_script_expression.hh"
 #  include "NOD_socket.hh"
 #  include "NOD_socket_items.hh"
 #  include "NOD_texture.h"
@@ -976,6 +977,7 @@ using nodes::RasterizePointsItemsAccessor;
 using nodes::RaycastSampleAttributeItemsAccessor;
 using nodes::RepeatItemsAccessor;
 using nodes::SeparateBundleItemsAccessor;
+using nodes::ShScriptExpressionVariablesAccessor;
 using nodes::SimulationItemsAccessor;
 
 extern FunctionRNA *rna_NodeTree_poll_func;
@@ -6686,6 +6688,82 @@ static void def_sh_glsl_function(BlenderRNA *brna, StructRNA *srna)
   RNA_def_struct_sdna_from(srna, "bNode", nullptr);
 }
 
+static const EnumPropertyItem shader_script_expression_socket_type_items[] = {
+    {SOCK_FLOAT, "FLOAT", ICON_NODE_SOCKET_FLOAT, "Float", "Evaluate to a floating-point value"},
+    {SOCK_VECTOR, "VECTOR", ICON_NODE_SOCKET_VECTOR, "Vector", "Evaluate to a vector value"},
+    {SOCK_RGBA, "RGBA", ICON_NODE_SOCKET_RGBA, "Color", "Evaluate to a color value"},
+    {0, nullptr, 0, nullptr, nullptr},
+};
+
+static void rna_def_sh_script_expression_variable(BlenderRNA *brna)
+{
+  StructRNA *srna = RNA_def_struct(brna, "ShaderScriptExpressionVariable", nullptr);
+  RNA_def_struct_ui_text(srna, "Script Expression Variable", "");
+  RNA_def_struct_sdna(srna, "NodeShaderScriptExpressionVariable");
+
+  rna_def_node_item_array_socket_item_common(srna, "ShScriptExpressionVariablesAccessor", true);
+}
+
+static void rna_def_sh_script_expression_variables(BlenderRNA *brna)
+{
+  StructRNA *srna = RNA_def_struct(brna, "NodeShaderScriptExpressionVariables", nullptr);
+  RNA_def_struct_ui_text(srna, "Script Expression Variables", "");
+  RNA_def_struct_sdna(srna, "bNode");
+
+  rna_def_node_item_array_new_with_socket_and_name(
+      srna, "ShaderScriptExpressionVariable", "ShScriptExpressionVariablesAccessor");
+  rna_def_node_item_array_common_functions(
+      srna, "ShaderScriptExpressionVariable", "ShScriptExpressionVariablesAccessor");
+}
+
+static void def_sh_script_expression(BlenderRNA *brna, StructRNA *srna)
+{
+  PropertyRNA *prop;
+
+  rna_def_sh_script_expression_variable(brna);
+  rna_def_sh_script_expression_variables(brna);
+
+  RNA_def_struct_sdna_from(srna, "NodeShaderScriptExpression", "storage");
+
+  prop = RNA_def_property(srna, "expression", PROP_STRING, PROP_NONE);
+  RNA_def_property_string_sdna(prop, nullptr, "expression");
+  RNA_def_property_ui_text(prop, "Expression", "Single GLSL expression assigned to the output");
+  RNA_def_property_update(prop, NC_NODE | NA_EDITED, "rna_Node_update");
+
+  prop = RNA_def_property(srna, "output_type", PROP_ENUM, PROP_NONE);
+  RNA_def_property_enum_sdna(prop, nullptr, "output_socket_type");
+  RNA_def_property_enum_items(prop, shader_script_expression_socket_type_items);
+  RNA_def_property_ui_text(prop, "Output Type", "Data type of the single result output");
+  RNA_def_property_update(prop, NC_NODE | NA_EDITED, "rna_Node_socket_update");
+
+  prop = RNA_def_property(srna, "variables", PROP_COLLECTION, PROP_NONE);
+  RNA_def_property_collection_sdna(prop, nullptr, "variables", "variables_num");
+  RNA_def_property_struct_type(prop, "ShaderScriptExpressionVariable");
+  RNA_def_property_ui_text(prop, "Variables", "Manual input variables exposed as node sockets");
+  RNA_def_property_srna(prop, "NodeShaderScriptExpressionVariables");
+
+  prop = RNA_def_property(srna, "active_variable_index", PROP_INT, PROP_UNSIGNED);
+  RNA_def_property_int_sdna(prop, nullptr, "active_variable_index");
+  RNA_def_property_ui_text(prop, "Active Variable Index", "Index of the active variable");
+  RNA_def_property_clear_flag(prop, PROP_ANIMATABLE);
+  RNA_def_property_flag(prop, PROP_NO_DEG_UPDATE);
+  RNA_def_property_update(prop, NC_NODE, nullptr);
+
+  prop = RNA_def_property(srna, "active_variable", PROP_POINTER, PROP_NONE);
+  RNA_def_property_struct_type(prop, "ShaderScriptExpressionVariable");
+  RNA_def_property_pointer_funcs(
+      prop,
+      "rna_Node_ItemArray_active_get<ShScriptExpressionVariablesAccessor>",
+      "rna_Node_ItemArray_active_set<ShScriptExpressionVariablesAccessor>",
+      nullptr,
+      nullptr);
+  RNA_def_property_flag(prop, PROP_EDITABLE | PROP_NO_DEG_UPDATE);
+  RNA_def_property_ui_text(prop, "Active Variable", "Active script expression variable");
+  RNA_def_property_update(prop, NC_NODE, nullptr);
+
+  RNA_def_struct_sdna_from(srna, "bNode", nullptr);
+}
+
 static void def_sh_image_to_closure(BlenderRNA * /*brna*/, StructRNA *srna)
 {
   static const EnumPropertyItem texture_type_items[] = {
@@ -12067,6 +12145,7 @@ static void rna_def_nodes(BlenderRNA *brna)
   define("ShaderNode", "ShaderNodeOKLabColorRamp", def_colorramp);
   define("ShaderNode", "ShaderNodeGLSLFunction", def_sh_glsl_function);
   define("ShaderNode", "ShaderNodeImageToClosure", def_sh_image_to_closure);
+  define("ShaderNode", "ShaderNodeScriptExpression", def_sh_script_expression);
   define("ShaderNode", "ShaderNodeEeveeLightShaderOutput");
   define("ShaderNode", "ShaderNodeEeveeLightShaderInfo");
   define("ShaderNode", "ShaderNodeTexGradient", def_sh_tex_gradient);
