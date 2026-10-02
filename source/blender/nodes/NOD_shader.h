@@ -8,6 +8,8 @@
 
 #pragma once
 
+#include <string>
+
 #include "BKE_node.hh"
 
 namespace blender {
@@ -38,5 +40,23 @@ void ntreeGPUMaterialNodes(struct bNodeTree *localtree, struct GPUMaterial *mat)
  * Generate GPU node graph starting from the EEVEE Light Shader Output node for light shaders.
  */
 void ntreeGPULightShaderNodes(struct bNodeTree *localtree, struct GPUMaterial *mat);
+
+bool node_shader_glsl_function_source_get(const bNode &node,
+                                          std::string &r_source,
+                                          std::string &r_error);
+bool node_shader_glsl_function_code_source_ensure(Main &bmain,
+                                                  bNode &node,
+                                                  bool &r_changed,
+                                                  std::string &r_error);
+bool node_shader_glsl_function_edit_source_get(const bNode &node,
+                                               std::string &r_source,
+                                               std::string &r_error);
+void node_shader_glsl_function_edit_source_set(bNode &node, const char *source);
+void node_shader_glsl_function_tag_text_users_dirty(Main &bmain, const bNode &node);
+bool node_shader_glsl_function_refresh_text_users(Main &bmain,
+                                                  bNodeTree &ntree,
+                                                  bNode &node,
+                                                  std::string &r_error);
+bool node_shader_glsl_function_reset_defaults(bNode &node, std::string &r_error);
 
 }  // namespace blender

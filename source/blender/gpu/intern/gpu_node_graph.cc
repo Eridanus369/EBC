@@ -151,8 +151,20 @@ static void gpu_node_link_free(GPUNodeLink *link)
     if (link->output) {
       link->output->link = nullptr;
     }
+    if (link->link_type == GPU_NODE_LINK_FUNCTION_CALL && link->function_call) {
+      MEM_delete(link->function_call);
+    }
     MEM_delete(link);
   }
+}
+
+void gpu_node_link_discard(GPUNodeLink *link)
+{
+  if (link == nullptr) {
+    return;
+  }
+  BLI_assert(link->users == 1);
+  gpu_node_link_free(link);
 }
 
 /* Node Functions */
@@ -200,6 +212,12 @@ static void gpu_node_input_link(GPUNode *node, GPUNodeLink *link, const GPUType 
           break;
         case GPU_SOURCE_TEX_TILED_MAPPING:
           /* Already handled by GPU_SOURCE_TEX. */
+          break;
+        case GPU_SOURCE_FUNCTION_CALL:
+          if (input->function_call) {
+            input->function_call = BLI_strdup(input->function_call);
+          }
+          break;
         default:
           break;
       }
@@ -263,10 +281,13 @@ static void gpu_node_input_link(GPUNode *node, GPUNodeLink *link, const GPUType 
     case GPU_NODE_LINK_DIFFERENTIATE_FLOAT_FN:
       input->source = GPU_SOURCE_FUNCTION_CALL;
       /* NOTE(@fclem): End of function call is the return variable set during codegen. */
-      SNPRINTF(input->function_call,
-               "dF_branch_incomplete(%s(), %g, ",
-               link->differentiate_float.function_name,
-               link->differentiate_float.filter_width);
+      input->function_call = BLI_sprintfN("dF_branch_incomplete(%s(), %g, $OUT)",
+                                          link->differentiate_float.function_name,
+                                          link->differentiate_float.filter_width);
+      break;
+    case GPU_NODE_LINK_FUNCTION_CALL:
+      input->source = GPU_SOURCE_FUNCTION_CALL;
+      input->function_call = BLI_strdup(link->function_call);
       break;
     default:
       break;
@@ -277,6 +298,9 @@ static void gpu_node_input_link(GPUNode *node, GPUNodeLink *link, const GPUType 
   }
 
   if (link->link_type != GPU_NODE_LINK_OUTPUT) {
+    if (link->link_type == GPU_NODE_LINK_FUNCTION_CALL && link->function_call) {
+      MEM_delete(link->function_call);
+    }
     MEM_delete(link);
   }
   BLI_addtail(&node->inputs, input);
@@ -876,6 +900,14 @@ GPUNodeLink *GPU_layer_attribute(GPUMaterial *mat, const char *name)
   return link;
 }
 
+GPUNodeLink *GPU_function_call(StringRefNull function_call)
+{
+  GPUNodeLink *link = gpu_node_link_create();
+  link->link_type = GPU_NODE_LINK_FUNCTION_CALL;
+  link->function_call = BLI_strdup(function_call.c_str());
+  return link;
+}
+
 GPUNodeLink *GPU_differentiate_float_function(const char *function_name, const float filter_width)
 {
   GPUNodeLink *link = gpu_node_link_create();
@@ -1203,6 +1235,11 @@ static void gpu_inputs_free(ListBaseT<GPUInput> *inputs)
       case GPU_SOURCE_TEX:
         input.texture->users--;
         break;
+      case GPU_SOURCE_FUNCTION_CALL:
+        if (input.function_call) {
+          MEM_delete(input.function_call);
+        }
+        break;
       case GPU_SOURCE_TEX_TILED_MAPPING:
         /* Already handled by GPU_SOURCE_TEX. */
       default:
@@ -1248,7 +1285,13 @@ void gpu_node_graph_free_nodes(GPUNodeGraph *graph)
 void gpu_node_graph_free(GPUNodeGraph *graph)
 {
   graph->outlink_aovs.free_no_destruct();
-  graph->material_functions.free_no_destruct();
+  while (GPUNodeGraphFunctionLink *func_link = static_cast<GPUNodeGraphFunctionLink *>(
+             BLI_pophead(&graph->material_functions)))
+  {
+    MEM_delete(func_link->input_types);
+    MEM_delete(func_link->outputs);
+    MEM_delete(func_link);
+  }
   graph->outlink_compositor.free_no_destruct();
   gpu_node_graph_free_nodes(graph);
 
@@ -1316,7 +1359,15 @@ void gpu_node_graph_prune_unused(GPUNodeGraph *graph)
     gpu_nodes_tag(graph, aovlink.outlink, GPU_NODE_TAG_AOV);
   }
   for (GPUNodeGraphFunctionLink &funclink : graph->material_functions) {
-    gpu_nodes_tag(graph, funclink.outlink, GPU_NODE_TAG_FUNCTION);
+    if (funclink.mode == GPU_NODE_GRAPH_FUNCTION_LEGACY) {
+      gpu_nodes_tag(graph, funclink.outlink, GPU_NODE_TAG_FUNCTION);
+    }
+    else {
+      BLI_assert(funclink.mode == GPU_NODE_GRAPH_FUNCTION_MULTI_IO);
+      for (int output_index = 0; output_index < funclink.outputs_len; output_index++) {
+        gpu_nodes_tag(graph, funclink.outputs[output_index].outlink, GPU_NODE_TAG_FUNCTION);
+      }
+    }
   }
   for (GPUNodeGraphOutputLink &compositor_link : graph->outlink_compositor) {
     gpu_nodes_tag(graph, compositor_link.outlink, GPU_NODE_TAG_COMPOSITOR);
