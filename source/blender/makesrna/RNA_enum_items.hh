@@ -16,6 +16,9 @@ DEF_ENUM(rna_enum_dummy_DEFAULT_items)
 
 DEF_ENUM(rna_enum_id_type_items)
 
+/* NPR: light shader parameter type (Light Info node). */
+DEF_ENUM(rna_enum_light_shader_parameter_type_items)
+
 DEF_ENUM(rna_enum_object_mode_items)
 DEF_ENUM(rna_enum_workspace_object_mode_items)
 DEF_ENUM(rna_enum_object_empty_drawtype_items)

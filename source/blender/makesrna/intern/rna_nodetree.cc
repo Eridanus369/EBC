@@ -12067,6 +12067,43 @@ static StructRNA *define_specific_node(BlenderRNA *brna,
   return srna;
 }
 
+/* NPR Light Info node (ShaderNodeNPRLightInfo). */
+static void def_sh_npr_light_info(BlenderRNA * /*brna*/, StructRNA *srna)
+{
+  PropertyRNA *prop;
+  static const EnumPropertyItem modes[] = {
+      {0, "BASIC", 0, "Basic Information", "Read built-in light information"},
+      {1, "PARAMETER", 0, "Shader Parameter", "Read one dedicated light shader parameter"},
+      {0, nullptr, 0, nullptr, nullptr},
+  };
+  prop = RNA_def_property(srna, "mode", PROP_ENUM, PROP_NONE);
+  RNA_def_property_enum_sdna(prop, nullptr, "custom1");
+  RNA_def_property_enum_items(prop, modes);
+  RNA_def_property_ui_text(prop, "Mode", "Light information to read");
+  RNA_def_property_update(prop, NC_NODE | NA_EDITED, "rna_Node_update");
+
+  /* Define bNode fields before switching the SDNA source to node storage. */
+  prop = RNA_def_property(srna, "light_object", PROP_POINTER, PROP_NONE);
+  RNA_def_property_pointer_sdna(prop, nullptr, "id");
+  RNA_def_property_struct_type(prop, "Object");
+  RNA_def_property_pointer_funcs(prop, nullptr, nullptr, nullptr, "rna_Light_object_poll");
+  RNA_def_property_flag(prop, PROP_EDITABLE | PROP_ID_REFCOUNT);
+  RNA_def_property_override_flag(prop, PROPOVERRIDE_OVERRIDABLE_LIBRARY);
+  RNA_def_property_ui_text(
+      prop, "Light", "Light object to read color, power, transform, and size from");
+  RNA_def_property_update(prop, NC_NODE | NA_EDITED, "rna_Node_update_relations");
+
+  RNA_def_struct_sdna_from(srna, "NodeShaderNPRLightInfo", "storage");
+  prop = RNA_def_property(srna, "parameter_name", PROP_STRING, PROP_NONE);
+  RNA_def_property_ui_text(prop, "Parameter", "Exact shader parameter name (not a custom property)");
+  RNA_def_property_update(prop, NC_NODE | NA_EDITED, "rna_Node_update");
+  prop = RNA_def_property(srna, "parameter_type", PROP_ENUM, PROP_NONE);
+  RNA_def_property_enum_items(prop, rna_enum_light_shader_parameter_type_items);
+  RNA_def_property_ui_text(prop, "Type", "Expected shader parameter type");
+  RNA_def_property_update(prop, NC_NODE | NA_EDITED, "rna_Node_update");
+  RNA_def_struct_sdna_from(srna, "bNode", nullptr);
+}
+
 static void rna_def_nodes(BlenderRNA *brna)
 {
   const auto define = [&](const char *base_name,
@@ -12199,6 +12236,7 @@ static void rna_def_nodes(BlenderRNA *brna)
   define("ShaderNode", "ShaderNodeLightProbeColor");
   define("ShaderNode", "ShaderNodeWorldEnvironment");
   define("ShaderNode", "ShaderNodeScreenspaceInfo");
+  define("ShaderNode", "ShaderNodeNPRLightInfo", def_sh_npr_light_info);
   define("ShaderNode", "ShaderNodeEeveeLightShaderOutput");
   define("ShaderNode", "ShaderNodeEeveeLightShaderInfo");
   define("ShaderNode", "ShaderNodeTexGradient", def_sh_tex_gradient);

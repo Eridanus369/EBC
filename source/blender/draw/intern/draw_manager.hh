@@ -123,6 +123,16 @@ class Manager {
   LayerAttributeBuf layer_attributes_buf;
 
   /**
+   * NPR: Unique objects referenced by data-sampling material nodes (Light Info, ...).
+   * Keyed by the object session UID.
+   */
+  Map<uint32_t, GPUReferencedObject> referenced_objects_;
+  /** NPR: Named light shader parameters requested by material nodes. */
+  Vector<GPULightShaderParameterRequest> light_shader_parameter_requests_;
+  uint referenced_object_table_offset_ = 0;
+  uint referenced_object_table_size_ = 0;
+
+  /**
    * List of textures coming from Image data-blocks.
    * They need to be reference-counted in order to avoid being freed in another thread.
    */
@@ -377,6 +387,11 @@ class Manager {
  private:
   void sync_layer_attributes();
 
+  /* NPR: Pack referenced-object records and named light shader parameters into the shared
+   * ObjectAttribute SSBO. */
+  void sync_referenced_objects();
+  void sync_light_shader_parameters();
+
   /* Fingerprint of the manager in a certain state. Assured to not be 0.
    * Not reliable enough for general update detection. Only to be used for debugging assertion. */
   uint64_t fingerprint_get();
@@ -595,6 +610,20 @@ inline void Manager::extract_all_object_attributes(ResourceHandleRange handle,
 
 inline void Manager::register_layer_attributes(GPUMaterial *material)
 {
+  /* NPR: Named light shader parameters requested by material nodes. */
+  for (const auto &request : GPU_material_light_shader_parameters(material)) {
+    bool found = false;
+    for (const auto &existing : light_shader_parameter_requests_) {
+      if (existing.object_uid == request.object_uid && STREQ(existing.name, request.name)) {
+        found = true;
+        break;
+      }
+    }
+    if (!found) {
+      light_shader_parameter_requests_.append(request);
+    }
+  }
+
   const ListBaseT<GPULayerAttr> *attr_list = GPU_material_layer_attributes(material);
 
   if (attr_list != nullptr) {
@@ -603,6 +632,17 @@ inline void Manager::register_layer_attributes(GPUMaterial *material)
        * this only collects a table of their names. */
       layer_attributes.add(attr.hash_code, *&attr);
     }
+  }
+
+  /* NPR: Objects referenced by data-sampling material nodes (Light Info, ...). */
+  const int referenced_object_count = GPU_material_referenced_object_count(material);
+  for (int index = 0; index < referenced_object_count; index++) {
+    const GPUReferencedObject *request = GPU_material_referenced_object_get(material, index);
+    if (request == nullptr || request->session_uid == 0) {
+      continue;
+    }
+    GPUReferencedObject &entry = referenced_objects_.lookup_or_add(request->session_uid, *request);
+    entry.flags |= request->flags;
   }
 }
 

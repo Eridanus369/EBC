@@ -3040,6 +3040,28 @@ struct NodeTexMagic {
   char _pad[4] = {};
 };
 
+/* NPR: dynamic named shader parameter bindings of the Light Info node. */
+struct NodeShaderLightInfoBinding {
+  NodeShaderLightInfoBinding *next = nullptr, *prev = nullptr;
+  char parameter_identifier[32] = "";
+  char name[64] = "";
+  int socket_identifier = 0;
+  int parameter_type = 1;
+  int available = 0;
+  int _pad = 0;
+};
+
+struct NodeShaderNPRLightInfo {
+  char parameter_name[64] = "";
+  int parameter_type = 1;
+  int _pad = 0;
+  ListBaseT<NodeShaderLightInfoBinding> bindings = {nullptr, nullptr};
+  /* Weak ID link used to distinguish a rename from switching to another Light data-block. */
+  struct Light *source_light = nullptr;
+  int next_socket_identifier = 0;
+  int has_legacy_layout = 0;
+};
+
 struct NodeShaderAttribute {
   DNA_DEFINE_CXX_METHODS(NodeShaderAttribute)
 

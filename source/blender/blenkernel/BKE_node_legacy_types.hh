@@ -162,6 +162,9 @@
 #define SH_NODE_LIGHT_PROBE_COLOR 743
 #define SH_NODE_WORLD_ENVIRONMENT 744
 #define SH_NODE_SCREENSPACE_INFO 745
+/* NPR Light Info (object-pointer + dynamic shader parameters), distinct from the upstream
+ * #SH_NODE_LIGHT_INFO (720) used by Light Accumulation. */
+#define SH_NODE_NPR_LIGHT_INFO 746
 
 enum {
   NODE_WATER_RIPPLES_DROPS = 0,

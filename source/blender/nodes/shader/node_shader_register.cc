@@ -144,6 +144,7 @@ void register_shader_nodes()
   register_node_type_sh_light_probe_color();
   register_node_type_sh_world_environment();
   register_node_type_sh_screenspace_info();
+  register_node_type_sh_npr_light_info();
 
   /* UPBGE */
   register_node_type_sh_sprites_animation();
