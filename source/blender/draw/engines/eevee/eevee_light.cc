@@ -418,7 +418,8 @@ void LightModule::add_world_sun_light(const ObjectKey &key, bool use_diffuse, bo
 
   Light &light = light_map_.lookup_or_add_default(key);
   light.used = true;
-  light.sync(inst_.shadows, float4x4::identity(), visibility_flag, &la, nullptr, 1.0f, light_threshold_);
+  light.sync(
+      inst_.shadows, float4x4::identity(), visibility_flag, &la, nullptr, 1.0f, light_threshold_, 0);
 
   sun_lights_len_ += 1;
 }
@@ -503,8 +504,55 @@ void LightModule::sync_light(const ObjectRef &ob_ref)
                &la,
                ob_ref.light_linking(),
                1.0f,
-               light_threshold_);
+               light_threshold_,
+               la.lightgroup_id);
   }
+
+  /* Light Shader (NPR): register this light's node tree for the current view mode. */
+  light.light_shader_index = -1;
+  light.shader_parameter_uid = ob_ref.object->id.orig_id ?
+                                   ob_ref.object->id.orig_id->session_uid :
+                                   ob_ref.object->id.session_uid;
+  light.front_light_shader_index = -1;
+  light.volume_light_shader_index = -1;
+  light.surfel_light_shader_index = -1;
+  light.uniform_light_shader_index = -1;
+
+  if (la.nodetree != nullptr) {
+    auto register_light_shader = [&](eLightShaderPipeline pipeline_type,
+                                     int &r_light_shader_index,
+                                     Vector<GPUMaterial *> &materials,
+                                     Vector<LightData> &lights) {
+      GPUMaterial *gpumat = inst_.shaders.light_shader_get(
+          const_cast<blender::Light *>(&la), la.nodetree, pipeline_type, false);
+      if (gpumat != nullptr && GPU_material_status(gpumat) == GPU_MAT_SUCCESS &&
+          GPU_material_has_light_shader_output(gpumat))
+      {
+        r_light_shader_index = materials.size();
+        materials.append(gpumat);
+        lights.append(static_cast<const LightData &>(light));
+        inst_.manager->register_layer_attributes(gpumat);
+      }
+    };
+    if (inst_.is_baking()) {
+      register_light_shader(eLightShaderPipeline::Surfel,
+                            light.surfel_light_shader_index,
+                            surfel_light_shader_materials_,
+                            surfel_light_shader_lights_);
+    }
+    else {
+      tag_front_light_shader_needed();
+      register_light_shader(eLightShaderPipeline::Front,
+                            light.front_light_shader_index,
+                            front_light_shader_materials_,
+                            front_light_shader_lights_);
+      register_light_shader(eLightShaderPipeline::Volume,
+                            light.volume_light_shader_index,
+                            volume_light_shader_materials_,
+                            volume_light_shader_lights_);
+    }
+  }
+
   sun_lights_len_ += int(is_sun_light(light.type));
   local_lights_len_ += int(!is_sun_light(light.type));
 }
