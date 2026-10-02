@@ -14,6 +14,8 @@
 #include "BKE_material.hh"
 #include "BKE_node_runtime.hh"
 
+#include "DNA_light_types.h"
+
 #include "DNA_world_types.h"
 
 #include "gpu_shader_create_info.hh"
@@ -956,6 +958,90 @@ static SlotAllocator add_pipeline_create_info(gpu::shader::ShaderCreateInfo &inf
   return available_slots;
 }
 
+struct LightShaderPipelineInfo {
+  eLightShaderPipeline pipeline_type;
+  const char *create_info_name;
+  const char *name_suffix;
+  const char *error_label;
+  uint64_t shader_uuid;
+};
+
+static const LightShaderPipelineInfo &light_shader_pipeline_info_get(
+    const eLightShaderPipeline pipeline_type)
+{
+  static constexpr LightShaderPipelineInfo infos[] = {
+      {eLightShaderPipeline::Surface,
+       "eevee_light_shader",
+       "_light_shader",
+       "Light shader",
+       0xEEAA0001u},
+      {eLightShaderPipeline::Front,
+       "eevee_light_shader_front",
+       "_light_shader_front",
+       "Front-layer light shader",
+       0xEEAA0005u},
+      {eLightShaderPipeline::Bake,
+       "eevee_light_shader_bake",
+       "_light_shader_bake",
+       "Bake light shader",
+       0xEEAA0006u},
+      {eLightShaderPipeline::Volume,
+       "eevee_light_shader_volume",
+       "_light_shader_volume",
+       "Volume light shader",
+       0xEEAA0002u},
+      {eLightShaderPipeline::Surfel,
+       "eevee_light_shader_surfel",
+       "_light_shader_surfel",
+       "Surfel light shader",
+       0xEEAA0003u},
+      {eLightShaderPipeline::Uniform,
+       "eevee_light_shader_uniform",
+       "_light_shader_uniform",
+       "Uniform light shader",
+       0xEEAA0004u},
+  };
+  const int index = int(pipeline_type);
+  BLI_assert(index >= 0 && index < int(ARRAY_SIZE(infos)));
+  return infos[index];
+}
+
+void ShaderModule::light_create_info_amend(GPUMaterial *gpumat,
+                                           GPUCodegenOutput *codegen_,
+                                           eLightShaderPipeline pipeline_type)
+{
+  using namespace blender::gpu::shader;
+  UNUSED_VARS(gpumat);
+
+  const LightShaderPipelineInfo &pipeline_info = light_shader_pipeline_info_get(pipeline_type);
+  GPUCodegenOutput &codegen = *codegen_;
+  ShaderCreateInfo &info = *reinterpret_cast<ShaderCreateInfo *>(codegen.create_info);
+
+  info.additional_info(pipeline_info.create_info_name);
+  info.additional_info("eevee_Uniform");
+
+  if (codegen.light_shader.has_value()) {
+    info.define("MAT_LIGHT_SHADER");
+  }
+
+  info.name_ += pipeline_info.name_suffix;
+
+  std::stringstream comp_gen;
+  comp_gen << "void attrib_load(WorldPoint domain) {}\n\n";
+  comp_gen << "float4 nodetree_light_shader()\n";
+  comp_gen << "{\n";
+  comp_gen << (codegen.light_shader.has_value() ?
+                   codegen.light_shader->serialized_or_default("return float4(1.0f);\n") :
+                   "return float4(1.0f);\n");
+  comp_gen << "}\n\n";
+
+  Vector<StringRefNull> deps;
+  if (codegen.light_shader.has_value()) {
+    deps.extend(codegen.light_shader->dependencies);
+  }
+  info.generated_sources.append({"eevee_nodetree_frag_lib.glsl", deps, comp_gen.str()});
+}
+
 void ShaderModule::material_create_info_amend(GPUMaterial *gpumat, GPUCodegenOutput *codegen_)
 {
   using namespace blender::gpu::shader;
@@ -1545,12 +1631,23 @@ struct CallbackThunk {
   blender::Material *default_mat;
 };
 
+struct LightCallbackThunk {
+  ShaderModule *shader_module;
+  eLightShaderPipeline pipeline_type;
+};
+
 /* WATCH: This can be called from another thread! Needs to not touch the shader module in any
  * thread unsafe manner. */
 static void codegen_callback(void *void_thunk, GPUMaterial *mat, GPUCodegenOutput *codegen)
 {
   CallbackThunk *thunk = static_cast<CallbackThunk *>(void_thunk);
   thunk->shader_module->material_create_info_amend(mat, codegen);
+}
+
+static void light_codegen_callback(void *void_thunk, GPUMaterial *mat, GPUCodegenOutput *codegen)
+{
+  LightCallbackThunk *thunk = static_cast<LightCallbackThunk *>(void_thunk);
+  thunk->shader_module->light_create_info_amend(mat, codegen, thunk->pipeline_type);
 }
 
 static GPUPass *pass_replacement_cb(void *void_thunk, GPUMaterial *mat)
@@ -1678,6 +1775,29 @@ GPUMaterial *ShaderModule::world_shader_get(blender::World *blender_world,
       shader_uuid,
       deferred_compilation,
       codegen_callback,
+      &thunk);
+  store_node_tree_errors(material_from_tree);
+  return material_from_tree.material;
+}
+
+GPUMaterial *ShaderModule::light_shader_get(blender::Light *blender_light,
+                                            bNodeTree *nodetree,
+                                            eLightShaderPipeline pipeline_type,
+                                            bool deferred_compilation)
+{
+  const LightShaderPipelineInfo &pipeline_info = light_shader_pipeline_info_get(pipeline_type);
+
+  LightCallbackThunk thunk = {this, pipeline_type};
+
+  GPUMaterialFromNodeTreeResult material_from_tree = GPU_material_from_nodetree(
+      nullptr,
+      nodetree,
+      &blender_light->gpumaterial,
+      blender_light->id.name,
+      GPU_MAT_EEVEE,
+      pipeline_info.shader_uuid,
+      deferred_compilation,
+      light_codegen_callback,
       &thunk);
   store_node_tree_errors(material_from_tree);
   return material_from_tree.material;

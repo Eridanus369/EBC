@@ -13,6 +13,7 @@
 
 #include "DNA_ID.h"
 #include "DNA_defs.h"
+#include "DNA_listBase.h"
 
 namespace blender {
 
@@ -203,6 +204,9 @@ struct Light {
 
   /* Nodes */
   struct bNodeTree *nodetree = nullptr;
+
+  /** Runtime cache for GLSL light shader materials. */
+  ListBaseT<LinkData> gpumaterial = {nullptr, nullptr};
 
   /* NPR Light Shader parameters (EEVEE Light Shader node tree). */
   ListBaseT<LightShaderParameter> shader_parameters = {nullptr, nullptr};

@@ -28,6 +28,15 @@ namespace blender::eevee {
 using StaticShader = gpu::StaticShader;
 
 /* Keep alphabetical order and clean prefix. */
+enum class eLightShaderPipeline {
+  Surface = 0,
+  Front,
+  Bake,
+  Volume,
+  Surfel,
+  Uniform,
+};
+
 enum eShaderType {
   AMBIENT_OCCLUSION_PASS = 0,
 
@@ -295,6 +304,15 @@ class ShaderModule {
                                 bNodeTree *nodetree,
                                 eMaterialPipeline pipeline_type,
                                 bool deferred_compilation);
+
+  GPUMaterial *light_shader_get(blender::Light *blender_light,
+                                bNodeTree *nodetree,
+                                eLightShaderPipeline pipeline_type,
+                                bool deferred_compilation);
+
+  void light_create_info_amend(GPUMaterial *mat,
+                               GPUCodegenOutput *codegen,
+                               eLightShaderPipeline pipeline_type);
 
   void material_create_info_amend(GPUMaterial *mat, GPUCodegenOutput *codegen);
 
