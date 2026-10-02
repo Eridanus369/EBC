@@ -642,6 +642,34 @@ void LightModule::end_sync()
   culling_tile_buf_.resize(total_word_count_);
 
   culling_pass_sync();
+
+  /* NPR: Material, volume and surfel passes bind the light shader resources unconditionally, so
+   * every index buffer must contain valid "no shader" entries and the front cache texture must
+   * exist (as a 1x1 white dummy) even when no custom light shader is registered. */
+  lights_allocated = ceil_to_multiple_u(max_ii(lights_len_, 1), LIGHT_CHUNK);
+  light_shader_index_buf_ensure_no_shader(light_shader_index_buf_, lights_allocated);
+  light_shader_index_buf_.push_update();
+  light_shader_index_buf_ensure_no_shader(front_light_shader_index_buf_, lights_allocated);
+  front_light_shader_index_buf_.push_update();
+  light_shader_index_buf_ensure_no_shader(volume_light_shader_index_buf_, lights_allocated);
+  volume_light_shader_index_buf_.push_update();
+  light_shader_index_buf_ensure_no_shader(surfel_light_shader_index_buf_, lights_allocated);
+  surfel_light_shader_index_buf_.push_update();
+
+  surfel_light_shader_buf_.resize(1);
+  surfel_light_shader_buf_.clear_to_zero();
+
+  uniform_light_shader_pass_sync();
+  light_shader_pass_sync(inst_.film.render_extent_get());
+
+  if (!front_light_shader_tx_.is_valid()) {
+    constexpr eGPUTextureUsage usage = GPU_TEXTURE_USAGE_ATTACHMENT |
+                                       GPU_TEXTURE_USAGE_SHADER_READ;
+    const float white[4] = {1.0f, 1.0f, 1.0f, 1.0f};
+    front_light_shader_tx_.ensure_2d_array(
+        gpu::TextureFormat::SFLOAT_16_16_16_16, int2(1), 1, usage, white);
+  }
+
   update_pass_sync();
   shape_display_pass_sync();
   debug_pass_sync();

@@ -287,8 +287,14 @@ void VolumeModule::end_sync()
   scatter_ps_.init();
   scatter_ps_.shader_set(
       inst_.shaders.static_shader_get(use_lights_ ? VOLUME_SCATTER_WITH_LIGHTS : VOLUME_SCATTER));
+  if (use_lights_) {
+    inst_.lights.sync_volume_light_shaders(data_.tex_size);
+  }
   scatter_ps_.bind_resources(inst_.hiz_buffer.front);
   scatter_ps_.bind_resources(inst_.lights);
+  if (use_lights_) {
+    inst_.lights.bind_volume_light_shader_resources(scatter_ps_);
+  }
   scatter_ps_.bind_resources(inst_.sphere_probes);
   scatter_ps_.bind_resources(inst_.volume_probes);
   scatter_ps_.bind_resources(inst_.shadows);
@@ -476,6 +482,9 @@ void VolumeModule::draw_compute(View &main_view, int2 extent)
     inst_.sphere_probes.set_view(main_view);
     inst_.shadows.render(main_view, extent);
   }
+
+  inst_.lights.eval_uniform_light_shaders(main_view);
+  inst_.lights.eval_volume_light_shaders(main_view, data_.tex_size);
 
   scatter_tx_.swap();
   extinction_tx_.swap();
