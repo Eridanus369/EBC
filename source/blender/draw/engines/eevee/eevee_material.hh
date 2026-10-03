@@ -370,6 +370,9 @@ struct Material {
    * Note that this also applies to the shading MaterialPass in the case of alpha-blended
    * materials. */
   MaterialPass overlap_masking;
+  /* NPR: depth-only variant (MAT_PIPE_PREPASS_OVERLAP) used to fill the outline occluder mask
+   * for transparent surfaces that do not write the main depth buffer. */
+  MaterialPass outline_occlusion;
   MaterialPass volume_occupancy;
   MaterialPass volume_material;
 };

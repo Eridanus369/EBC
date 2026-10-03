@@ -85,13 +85,12 @@ void OutlineModule::sync()
   resolve_ps_.shader_set(inst_.shaders.static_shader_get(OUTLINE_RESOLVE));
   resolve_ps_.bind_texture("depth_tx", &inst_.render_buffers.depth_tx);
   resolve_ps_.bind_texture("vector_tx", &inst_.render_buffers.vector_tx);
-  /* TODO(NPR slice B3): forward occluder depth mask. Until then, sample the scene depth itself so
-   * the occlusion test is a no-op. */
-  resolve_ps_.bind_texture("outline_occlusion_depth_tx", &inst_.render_buffers.depth_tx);
-  {
-    static const int use_outline_occlusion_depth = 0;
-    resolve_ps_.push_constant("use_outline_occlusion_depth", &use_outline_occlusion_depth, 1);
-  }
+  /* NPR: forward transparent occluder mask. Points at the scene depth when no occluder exists,
+   * in which case the push constant disables the test. The actual texture is selected during
+   * render(). */
+  outline_occlusion_depth_tx_ = inst_.render_buffers.depth_tx.gpu_texture();
+  resolve_ps_.bind_texture("outline_occlusion_depth_tx", &outline_occlusion_depth_tx_);
+  resolve_ps_.push_constant("use_outline_occlusion_depth", &use_outline_occlusion_depth_, 1);
   resolve_ps_.bind_texture("outline_seed_tx", &edge_seed_tx_.current());
   resolve_ps_.bind_texture("outline_color_tx", &inst_.render_buffers.outline_color_tx);
   resolve_ps_.bind_texture("outline_info_tx", &inst_.render_buffers.outline_info_tx);
@@ -114,6 +113,25 @@ void OutlineModule::render(View &view, int2 extent)
   auto &drw = *inst_.manager;
 
   GPU_memory_barrier(GPU_BARRIER_SHADER_IMAGE_ACCESS | GPU_BARRIER_TEXTURE_FETCH);
+
+  /* NPR: forward transparent surfaces do not write the main depth buffer. Render their depth
+   * into a dedicated texture so the resolve pass can mask strokes covered by them. */
+  use_outline_occlusion_depth_ = inst_.pipelines.forward.has_outline_occluders() ? 1 : 0;
+  outline_occlusion_depth_tx_ = inst_.render_buffers.depth_tx.gpu_texture();
+  if (use_outline_occlusion_depth_ != 0) {
+    occlusion_depth_tx_.acquire_2d(extent,
+                                   gpu::TextureFormat::SFLOAT_32_DEPTH_UINT_8,
+                                   GPU_TEXTURE_USAGE_ATTACHMENT | GPU_TEXTURE_USAGE_SHADER_READ);
+    occlusion_fb_.ensure(GPU_ATTACHMENT_TEXTURE(occlusion_depth_tx_));
+    occlusion_fb_.bind();
+    occlusion_fb_.clear_depth(inst_.film.depth.clear_value);
+    inst_.pipelines.forward.render_outline_occlusion(view, occlusion_fb_);
+    GPU_memory_barrier(GPU_BARRIER_FRAMEBUFFER | GPU_BARRIER_TEXTURE_FETCH);
+    outline_occlusion_depth_tx_ = occlusion_depth_tx_.gpu_texture();
+  }
+  else {
+    occlusion_depth_tx_.release();
+  }
 
   edge_seed_tx_.current().acquire_2d(
       extent, gpu::TextureFormat::SFLOAT_16_16_16_16, GPU_TEXTURE_USAGE_GENERAL);

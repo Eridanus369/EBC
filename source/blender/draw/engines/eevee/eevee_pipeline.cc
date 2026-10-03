@@ -412,6 +412,7 @@ void ForwardPipeline::sync()
   has_transparent_ = false;
   has_colored_transparency_ = false;
   has_holdout_ = false;
+  has_outline_occluders_ = false;
 
   prepass_.init({}, true, false);
 
@@ -483,6 +484,12 @@ void ForwardPipeline::sync()
     sub.bind_resources(inst_.sphere_probes);
     sub.bind_resources(inst_.planar_probes);
     inst_.lights.bind_front_light_shader_resources(sub);
+  }
+  {
+    outline_occlusion_ps_.init();
+    outline_occlusion_ps_.bind_texture(RBUFS_UTILITY_TEX_SLOT, inst_.pipelines.utility_tx);
+    outline_occlusion_ps_.bind_resources(inst_.uniform_data);
+    outline_occlusion_ps_.bind_resources(inst_.sampling);
   }
   {
     gpu::Shader *sh = inst_.shaders.static_shader_get(TRANSPARENCY_RESOLVE);
@@ -641,6 +648,43 @@ bool ForwardPipeline::use_colored_transparency() const
 {
   /* Holdout also enables transparency since it uses the 4th target. */
   return has_colored_transparency_ || has_holdout_;
+}
+
+PassMain::Sub *ForwardPipeline::outline_occlusion_add(blender::Material *blender_mat,
+                                                      GPUMaterial *gpumat)
+{
+  if (gpumat == nullptr) {
+    return nullptr;
+  }
+
+  DRWState state = DRW_STATE_WRITE_DEPTH | DRW_STATE_CLIP_CONTROL_UNIT_RANGE |
+                   inst_.film.depth.test_state;
+  if (blender_mat->blend_flag & MA_BL_CULL_BACKFACE) {
+    state |= DRW_STATE_CULL_BACK;
+  }
+
+  has_outline_occluders_ = true;
+  PassMain::Sub *pass = &outline_occlusion_ps_.sub(GPU_material_get_name(gpumat));
+  pass->state_set(state);
+  pass->material_set(*inst_.manager, gpumat, true, inst_.anisotropic_filtering);
+  return pass;
+}
+
+bool ForwardPipeline::has_outline_occluders() const
+{
+  return has_outline_occluders_;
+}
+
+void ForwardPipeline::render_outline_occlusion(View &view, Framebuffer &outline_occlusion_fb)
+{
+  if (!has_outline_occluders_) {
+    return;
+  }
+
+  GPU_debug_group_begin("Forward.OutlineOcclusion");
+  outline_occlusion_fb.bind();
+  inst_.manager->submit(outline_occlusion_ps_, view);
+  GPU_debug_group_end();
 }
 
 void ForwardPipeline::render(View &view,

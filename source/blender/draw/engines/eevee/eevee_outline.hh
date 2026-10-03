@@ -39,12 +39,19 @@ class OutlineModule {
   Framebuffer factor_blur_fb_ = {"Outline.FactorBlur.FB"};
   Framebuffer jfa_init_fb_ = {"Outline.JFA.Init.FB"};
   Framebuffer resolve_fb_ = {"Outline.Resolve.FB"};
+  /* NPR: depth-only framebuffer holding transparent forward surfaces, used to occlude strokes. */
+  Framebuffer occlusion_fb_ = {"Outline.Occlusion.FB"};
 
   SwapChain<TextureFromPool, 2> edge_seed_tx_;
   SwapChain<TextureFromPool, 2> jfa_tx_;
   TextureFromPool resolved_outline_tx_ = {"Outline.Resolved"};
   TextureFromPool resolved_depth_tx_ = {"Outline.ResolvedDepth"};
   TextureFromPool resolved_velocity_tx_ = {"Outline.ResolvedVelocity"};
+  TextureFromPool occlusion_depth_tx_ = {"Outline.OcclusionDepth"};
+  /* Depth texture bound to the resolve pass: the occluder mask when active, the scene depth
+   * otherwise. */
+  gpu::Texture *outline_occlusion_depth_tx_ = nullptr;
+  int use_outline_occlusion_depth_ = 0;
 
   int jfa_step_size_ = 1;
   int3 jfa_dispatch_size_ = int3(1);

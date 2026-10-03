@@ -454,6 +454,21 @@ Material &MaterialModule::material_sync(const ObjectHandle &ob_handle,
                                   GPU_material_flag_get(mat.shading.gpumat,
                                                         GPU_MATFLAG_TRANSPARENT);
 
+    /* NPR: screen-space refraction surfaces do not write the main depth buffer, so compile a
+     * depth-only variant used as an occluder mask when resolving the screen-space outline.
+     * Only refraction materials produce a solid (non-hashed) prepass depth; alpha-blend
+     * surfaces keep dithered depth and cannot be used as an occluder. Materials that produce
+     * an outline themselves are excluded so their own strokes are not masked. */
+    const bool needs_raytrace_transmission_depth = (blender_mat->blend_flag &
+                                                    MA_BL_SS_REFRACTION) != 0;
+    if (!hide_on_camera && (inst_.scene->eevee.use_outline != 0) &&
+        needs_raytrace_transmission_depth &&
+        !GPU_material_has_outline_output(mat.shading.gpumat))
+    {
+      mat.outline_occlusion = material_pass_get(
+          ob, blender_mat, MAT_PIPE_PREPASS_OVERLAP, geometry_type);
+    }
+
     return mat;
   });
 

@@ -243,12 +243,17 @@ class ForwardPipeline {
   PassSortable transparent_ps_ = {"Forward.Transparent"};
   float3 camera_forward_;
 
+  /* NPR: depth-only draws of transparent surfaces, used as an occluder mask for the screen-space
+   * outline (their depth is not in the main depth buffer). */
+  PassMain outline_occlusion_ps_ = {"Forward.OutlineOcclusion"};
+
   PassSimple resolve_ps_ = {"Forward.Resolve"};
 
   bool has_opaque_ = false;
   bool has_transparent_ = false;
   bool has_colored_transparency_ = false;
   bool has_holdout_ = false;
+  bool has_outline_occluders_ = false;
 
   struct TransparencyBuffer {
     /* Channels are packed separately for technical reason (see eevee_surf_forward_frag.glsl for
@@ -288,6 +293,11 @@ class ForwardPipeline {
                        PassMain::Sub *&r_material_subpass);
 
   bool use_colored_transparency() const;
+
+  /* NPR: register a transparent surface into the outline occluder depth-only pass. */
+  PassMain::Sub *outline_occlusion_add(blender::Material *blender_mat, GPUMaterial *gpumat);
+  bool has_outline_occluders() const;
+  void render_outline_occlusion(View &view, Framebuffer &outline_occlusion_fb);
 
   void render(View &view,
               gpu::Texture *depth_tx,
