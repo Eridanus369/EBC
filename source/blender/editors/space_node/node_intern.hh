@@ -593,6 +593,11 @@ void NODE_OT_clipboard_copy(wmOperatorType *ot);
 void NODE_OT_clipboard_paste(wmOperatorType *ot);
 
 void NODE_OT_shader_script_update(wmOperatorType *ot);
+void NODE_OT_glsl_function_refresh(wmOperatorType *ot);
+void NODE_OT_glsl_function_new_text(wmOperatorType *ot);
+void NODE_OT_glsl_function_reset_defaults(wmOperatorType *ot);
+void NODE_OT_glsl_function_toggle_code_mode(wmOperatorType *ot);
+void NODE_OT_glsl_function_make_internal(wmOperatorType *ot);
 
 void NODE_OT_viewer_border(wmOperatorType *ot);
 void NODE_OT_clear_viewer_border(wmOperatorType *ot);

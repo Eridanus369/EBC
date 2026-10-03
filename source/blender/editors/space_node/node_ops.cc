@@ -37,6 +37,12 @@ void node_operatortypes()
   WM_operatortype_append(NODE_OT_find_node);
   WM_operatortype_append(NODE_OT_jump_to_shader_portal_in);
 
+  WM_operatortype_append(NODE_OT_glsl_function_refresh);
+  WM_operatortype_append(NODE_OT_glsl_function_new_text);
+  WM_operatortype_append(NODE_OT_glsl_function_reset_defaults);
+  WM_operatortype_append(NODE_OT_glsl_function_toggle_code_mode);
+  WM_operatortype_append(NODE_OT_glsl_function_make_internal);
+
   WM_operatortype_append(NODE_OT_view_all);
   WM_operatortype_append(NODE_OT_view_selected);
 

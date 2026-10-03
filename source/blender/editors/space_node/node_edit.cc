@@ -40,6 +40,7 @@
 #include "BLI_string.hh"
 #include "BLI_string_utf8.hh"
 #include "BLI_utildefines.hh"
+#include "BLI_path_utils.hh"
 
 #include "BLT_translation.hh"
 
@@ -48,6 +49,7 @@
 #include "DEG_depsgraph_debug.hh"
 #include "DEG_depsgraph_query.hh"
 
+#include "BKE_text.h"
 #include "NOD_shader_nodes_inline.hh"
 #include "RE_compositor.hh"
 #include "RE_engine.h"
@@ -1904,6 +1906,345 @@ void NODE_OT_shader_script_update(wmOperatorType *ot)
   /* flags */
   ot->flag = OPTYPE_REGISTER | OPTYPE_UNDO;
 }
+
+/* -------------------------------------------------------------------- */
+/** \name GLSL Function Refresh
+ * \{ */
+
+static bool node_tree_contains_node(const bNodeTree &ntree, const bNode &node)
+{
+  for (const bNode *tree_node = ntree.nodes.first();
+       tree_node != nullptr;
+       tree_node = tree_node->next)
+  {
+    if (tree_node == &node) {
+      return true;
+    }
+  }
+  return false;
+}
+
+static std::string node_glsl_function_socket_signature(const bNode &node)
+{
+  std::string signature;
+  auto append_sockets = [&](const ListBase &sockets, const char direction) {
+    for (const bNodeSocket *socket = static_cast<const bNodeSocket *>(sockets.first_);
+         socket != nullptr;
+         socket = socket->next)
+    {
+      signature.push_back(direction);
+      signature.push_back(':');
+      signature.append(socket->identifier);
+      signature.push_back(':');
+      signature.append(socket->idname);
+      signature.push_back(':');
+      signature.append(socket->name);
+      signature.push_back(':');
+      signature.append(std::to_string(socket->type));
+      signature.push_back(':');
+      signature.append(std::to_string(socket->flag & SOCK_HIDE_VALUE));
+      signature.push_back(';');
+    }
+  };
+
+  append_sockets(node.inputs, 'I');
+  append_sockets(node.outputs, 'O');
+  return signature;
+}
+
+static bool node_glsl_function_context_get(bContext *C,
+                                           bNodeTree **r_ntree,
+                                           PointerRNA *r_nodeptr,
+                                           bNode **r_node)
+{
+  SpaceNode *snode = CTX_wm_space_node(C);
+  PointerRNA nodeptr = CTX_data_pointer_get_type(C, "node", RNA_ShaderNodeGLSLFunction);
+
+  bNodeTree *ntree = nullptr;
+  bNode *node = nullptr;
+  if (nodeptr.data) {
+    ntree = id_cast<bNodeTree *>(nodeptr.owner_id);
+    node = static_cast<bNode *>(nodeptr.data);
+    if (snode && snode->edittree && node_tree_contains_node(*snode->edittree, *node)) {
+      ntree = snode->edittree;
+    }
+  }
+  else if (snode && snode->edittree) {
+    ntree = snode->edittree;
+    node = bke::node_get_active(*snode->edittree);
+    if (node != nullptr && node->type_legacy == SH_NODE_GLSL_FUNCTION) {
+      nodeptr = RNA_pointer_create_discrete(&ntree->id, RNA_ShaderNodeGLSLFunction, node);
+    }
+  }
+
+  if (node == nullptr || ntree == nullptr || node->type_legacy != SH_NODE_GLSL_FUNCTION) {
+    return false;
+  }
+
+  *r_ntree = ntree;
+  *r_nodeptr = nodeptr;
+  *r_node = node;
+  return true;
+}
+
+static bool node_glsl_function_refresh_poll(bContext *C)
+{
+  bNodeTree *ntree = nullptr;
+  PointerRNA nodeptr = {};
+  bNode *node = nullptr;
+  return node_glsl_function_context_get(C, &ntree, &nodeptr, &node) && ED_operator_node_editable(C);
+}
+
+static void node_glsl_function_refresh_node(Main &bmain, bNodeTree &ntree, bNode &node)
+{
+  const std::string old_socket_signature = node_glsl_function_socket_signature(node);
+
+  if (NodeShaderGLSLFunction *data = static_cast<NodeShaderGLSLFunction *>(node.storage)) {
+    data->parse_status = SHD_GLSL_FUNCTION_PARSE_DIRTY;
+    data->signature_hash = 0;
+  }
+
+  BKE_ntree_update_tag_node_property(&ntree, &node);
+  nodes::update_node_declaration_and_sockets(ntree, node);
+  if (old_socket_signature != node_glsl_function_socket_signature(node) &&
+      GS(ntree.id.name) == ID_NT)
+  {
+    ntree.tree_interface.tag_items_changed_generic();
+  }
+  BKE_main_ensure_invariants(bmain, ntree.id);
+}
+
+static wmOperatorStatus node_glsl_function_refresh_exec(bContext *C, wmOperator *op)
+{
+  bNodeTree *ntree = nullptr;
+  PointerRNA nodeptr = {};
+  bNode *node = nullptr;
+  if (!node_glsl_function_context_get(C, &ntree, &nodeptr, &node)) {
+    return OPERATOR_CANCELLED;
+  }
+
+  bool source_changed = false;
+  std::string error;
+  if (!node_shader_glsl_function_code_source_ensure(
+        *CTX_data_main(C), *node, source_changed, error))
+  {
+    BKE_report(op->reports, RPT_ERROR, error.c_str());
+    return OPERATOR_CANCELLED;
+  }
+  if (!node_shader_glsl_function_refresh_text_users(*CTX_data_main(C), *ntree, *node, error))
+  {
+    if (!error.empty()) {
+      BKE_report(op->reports, RPT_ERROR, error.c_str());
+    }
+    return OPERATOR_CANCELLED;
+  }
+  if (source_changed) {
+    WM_event_add_notifier(C, NC_TEXT | NA_EDITED, node->id);
+  }
+  WM_event_add_notifier(C, NC_NODE | NA_EDITED, nullptr);
+
+  return OPERATOR_FINISHED;
+}
+
+static wmOperatorStatus node_glsl_function_new_text_exec(bContext *C, wmOperator *op)
+{
+  bNodeTree *ntree = nullptr;
+  PointerRNA nodeptr = {};
+  bNode *node = nullptr;
+  if (!node_glsl_function_context_get(C, &ntree, &nodeptr, &node)) {
+    return OPERATOR_CANCELLED;
+  }
+
+  if (node->id != nullptr) {
+    return OPERATOR_CANCELLED;
+  }
+
+  bool changed = false;
+  std::string error;
+  if (!node_shader_glsl_function_code_source_ensure(
+        *CTX_data_main(C), *node, changed, error))
+  {
+    BKE_report(op->reports, RPT_ERROR, error.c_str());
+    return OPERATOR_CANCELLED;
+  }
+  node_glsl_function_refresh_node(*CTX_data_main(C), *ntree, *node);
+
+  WM_event_add_notifier(C, NC_TEXT | NA_ADDED, node->id);
+  WM_event_add_notifier(C, NC_NODE | NA_EDITED, &ntree->id);
+  return OPERATOR_FINISHED;
+}
+
+static wmOperatorStatus node_glsl_function_toggle_code_mode_exec(bContext *C,
+                                                                  wmOperator *op)
+{
+  bNodeTree *ntree = nullptr;
+  PointerRNA nodeptr = {};
+  bNode *node = nullptr;
+  if (!node_glsl_function_context_get(C, &ntree, &nodeptr, &node)) {
+    return OPERATOR_CANCELLED;
+  }
+
+  NodeShaderGLSLFunction *data = static_cast<NodeShaderGLSLFunction *>(node->storage);
+  if (data == nullptr) {
+    return OPERATOR_CANCELLED;
+  }
+
+  const bool enter_code_mode = (data->flags & SHD_GLSL_FUNCTION_CODE_MODE) == 0;
+  if (enter_code_mode && data->source_mode == SHD_GLSL_FUNCTION_SOURCE_INTERNAL) {
+    const bool created_text = node->id == nullptr;
+    bool changed = false;
+    std::string error;
+    if (!node_shader_glsl_function_code_source_ensure(
+          *CTX_data_main(C), *node, changed, error))
+    {
+      BKE_report(op->reports, RPT_ERROR, error.c_str());
+      return OPERATOR_CANCELLED;
+    }
+    if (changed) {
+      node_glsl_function_refresh_node(*CTX_data_main(C), *ntree, *node);
+      WM_event_add_notifier(
+          C, NC_TEXT | (created_text ? NA_ADDED : NA_EDITED), node->id);
+    }
+  }
+
+  SET_FLAG_FROM_TEST(data->flags, enter_code_mode, SHD_GLSL_FUNCTION_CODE_MODE);
+  BKE_ntree_update_tag_node_property(ntree, node);
+  nodes::update_node_declaration_and_sockets(*ntree, *node);
+  BKE_main_ensure_invariants(*CTX_data_main(C), ntree->id);
+  WM_event_add_notifier(C, NC_NODE | NA_EDITED, &ntree->id);
+  return OPERATOR_FINISHED;
+}
+
+static wmOperatorStatus node_glsl_function_make_internal_exec(bContext *C, wmOperator *op)
+{
+  bNodeTree *ntree = nullptr;
+  PointerRNA nodeptr = {};
+  bNode *node = nullptr;
+  if (!node_glsl_function_context_get(C, &ntree, &nodeptr, &node)) {
+    return OPERATOR_CANCELLED;
+  }
+
+  NodeShaderGLSLFunction *data = static_cast<NodeShaderGLSLFunction *>(node->storage);
+  if (data == nullptr || data->source_mode != SHD_GLSL_FUNCTION_SOURCE_EXTERNAL) {
+    return OPERATOR_CANCELLED;
+  }
+
+  std::string source;
+  std::string error;
+  if (!node_shader_glsl_function_source_get(*node, source, error)) {
+    BKE_report(op->reports, RPT_ERROR, error.c_str());
+    return OPERATOR_CANCELLED;
+  }
+
+  char function_name[sizeof(data->function_name)];
+  STRNCPY(function_name, data->function_name);
+  const char *text_name = data->filepath[0] != '\0' ? BLI_path_basename(data->filepath) :
+                                                      DATA_("GLSL Function.glsl");
+  Text *text = BKE_text_add(CTX_data_main(C), text_name);
+  BKE_text_write(text, source.c_str(), int(source.size()));
+
+  PropertyRNA *source_mode_prop = RNA_struct_find_property(&nodeptr, "source_mode");
+  PropertyRNA *script_prop = RNA_struct_find_property(&nodeptr, "script");
+  PropertyRNA *function_prop = RNA_struct_find_property(&nodeptr, "function_name");
+  if (source_mode_prop == nullptr || script_prop == nullptr || function_prop == nullptr) {
+    return OPERATOR_CANCELLED;
+  }
+  RNA_property_enum_set(&nodeptr, source_mode_prop, SHD_GLSL_FUNCTION_SOURCE_INTERNAL);
+  RNA_property_update(C, &nodeptr, source_mode_prop);
+  RNA_property_pointer_set(&nodeptr, script_prop, RNA_id_pointer_create(&text->id), nullptr);
+  RNA_property_update(C, &nodeptr, script_prop);
+  RNA_property_string_set(&nodeptr, function_prop, function_name);
+  RNA_property_update(C, &nodeptr, function_prop);
+
+  node_glsl_function_refresh_node(*CTX_data_main(C), *ntree, *node);
+  WM_event_add_notifier(C, NC_TEXT | NA_ADDED, text);
+  WM_event_add_notifier(C, NC_NODE | NA_EDITED, &ntree->id);
+  return OPERATOR_FINISHED;
+}
+
+static wmOperatorStatus node_glsl_function_reset_defaults_exec(bContext *C, wmOperator *op)
+{
+  bNodeTree *ntree = nullptr;
+  PointerRNA nodeptr = {};
+  bNode *node = nullptr;
+  if (!node_glsl_function_context_get(C, &ntree, &nodeptr, &node)) {
+    return OPERATOR_CANCELLED;
+  }
+
+  std::string error;
+  if (!node_shader_glsl_function_reset_defaults(*node, error)) {
+    if (!error.empty()) {
+      BKE_report(op->reports, RPT_ERROR, error.c_str());
+    }
+    return OPERATOR_CANCELLED;
+  }
+
+  BKE_ntree_update_tag_node_property(ntree, node);
+  BKE_main_ensure_invariants(*CTX_data_main(C), ntree->id);
+  WM_event_add_notifier(C, NC_NODE | NA_EDITED, &ntree->id);
+
+  return OPERATOR_FINISHED;
+}
+
+void NODE_OT_glsl_function_new_text(wmOperatorType *ot)
+{
+  ot->name = "New GLSL Function Text";
+  ot->description = "Create a new Text datablock and assign it to the active GLSL Function node";
+  ot->idname = "NODE_OT_glsl_function_new_text";
+
+  ot->poll = node_glsl_function_refresh_poll;
+  ot->exec = node_glsl_function_new_text_exec;
+
+  ot->flag = OPTYPE_REGISTER | OPTYPE_UNDO;
+}
+
+void NODE_OT_glsl_function_toggle_code_mode(wmOperatorType *ot)
+{
+  ot->name = "Toggle GLSL Function Code Editor";
+  ot->description = "Switch between node controls and inline GLSL source editing";
+  ot->idname = "NODE_OT_glsl_function_toggle_code_mode";
+  ot->poll = node_glsl_function_refresh_poll;
+  ot->exec = node_glsl_function_toggle_code_mode_exec;
+  ot->flag = OPTYPE_REGISTER | OPTYPE_UNDO;
+}
+
+void NODE_OT_glsl_function_make_internal(wmOperatorType *ot)
+{
+  ot->name = "Convert GLSL Function Source to Internal";
+  ot->description = "Copy the external GLSL source into an internal Text data-block";
+  ot->idname = "NODE_OT_glsl_function_make_internal";
+  ot->poll = node_glsl_function_refresh_poll;
+  ot->exec = node_glsl_function_make_internal_exec;
+  ot->flag = OPTYPE_REGISTER | OPTYPE_UNDO;
+}
+
+void NODE_OT_glsl_function_refresh(wmOperatorType *ot)
+{
+  ot->name = "Refresh GLSL Function Node";
+  ot->description = "Refresh every GLSL Function node using this Text without changing their "
+                    "independent function selections";
+  ot->idname = "NODE_OT_glsl_function_refresh";
+
+  ot->exec = node_glsl_function_refresh_exec;
+  ot->poll = node_glsl_function_refresh_poll;
+
+  ot->flag = OPTYPE_REGISTER | OPTYPE_UNDO;
+}
+
+void NODE_OT_glsl_function_reset_defaults(wmOperatorType *ot)
+{
+  ot->name = "Reset GLSL Function Parameters";
+  ot->description = "Reset GLSL Function parameters and defines to their declared defaults";
+  ot->idname = "NODE_OT_glsl_function_reset_defaults";
+
+  ot->exec = node_glsl_function_reset_defaults_exec;
+  ot->poll = node_glsl_function_refresh_poll;
+
+  ot->flag = OPTYPE_REGISTER | OPTYPE_UNDO;
+}
+
+/** \} */
+
 
 /** \} */
 

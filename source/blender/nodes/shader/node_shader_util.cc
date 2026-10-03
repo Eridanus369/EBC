@@ -131,6 +131,12 @@ bool object_eevee_shader_nodes_poll(const bContext *C)
          STREQ(engine_type->idname, "BLENDER_EEVEE");
 }
 
+bool object_or_npr_eevee_shader_nodes_poll(const bContext *C)
+{
+  /* EBC does not have NPR shader editor context yet; fall back to the object poll. */
+  return object_eevee_shader_nodes_poll(C);
+}
+
 bool object_filter_or_npr_eevee_shader_nodes_poll(const bContext *C)
 {
   /* EBC does not have filter/NPR shader editor contexts yet; fall back to the object poll. */
