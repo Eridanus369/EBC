@@ -200,7 +200,8 @@ ShaderGroups ShaderModule::static_shaders_load(const ShaderGroups request_bits,
                                        OUTLINE_JFA_INIT,
                                        OUTLINE_JFA_STEP,
                                        OUTLINE_RESOLVE,
-                                       OUTLINE_COMPOSITE};
+                                       OUTLINE_COMPOSITE,
+                                       OUTLINE_FREESTYLE};
     request(OUTLINE_SHADERS, AS_SPAN(shader_list));
   }
   {
@@ -593,6 +594,8 @@ const char *ShaderModule::static_shader_create_info_name_get(eShaderType shader_
       return "eevee_outline_resolve";
     case OUTLINE_COMPOSITE:
       return "eevee_outline_composite";
+    case OUTLINE_FREESTYLE:
+      return "eevee_outline_freestyle";
     case VERTEX_COPY:
       return "eevee_vertex_copy";
     case VOLUME_INTEGRATION:

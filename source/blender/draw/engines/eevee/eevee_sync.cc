@@ -296,6 +296,7 @@ void SyncModule::sync_mesh(const ObjectRef &ob_ref)
   for (GPUMaterial *gpumat : material_array.gpu_materials) {
     if (gpumat != nullptr && GPU_material_has_outline_output(gpumat)) {
       inst_.outline.sync_object_marker();
+      inst_.outline.sync_object(ob_handle.object, ob_handle.res_handle);
       break;
     }
   }

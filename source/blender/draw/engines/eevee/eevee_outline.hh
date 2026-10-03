@@ -7,6 +7,8 @@
 #include "DRW_gpu_wrapper.hh"
 #include "draw_pass.hh"
 
+struct Object;
+
 namespace blender::eevee {
 
 class Instance;
@@ -29,6 +31,7 @@ class OutlineModule {
   bool has_visible_outline_materials_ = false;
 
   PassSimple detect_ps_ = {"Outline.Detect"};
+  PassMain freestyle_edge_ps_ = {"Outline.FreestyleEdge"};
   PassSimple factor_blur_ps_ = {"Outline.FactorBlur"};
   PassSimple jfa_init_ps_ = {"Outline.JFA.Init"};
   PassSimple jfa_step_ps_ = {"Outline.JFA.Step"};
@@ -63,6 +66,8 @@ class OutlineModule {
   void begin_sync();
   /** Called from the mesh sync path for objects that have outline materials. */
   void sync_object_marker();
+  /** Draws the object's freestyle edge batch into the seed pass, if any. */
+  void sync_object(Object *ob, ResourceHandleRange res_handle);
 
   void sync();
   void render(View &view, int2 extent);

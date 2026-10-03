@@ -4,8 +4,13 @@
 
 #include "BLI_math_base.hh"
 
+#include "DNA_layer_types.h"
+#include "DNA_object_types.h"
+
 #include "GPU_capabilities.hh"
 #include "GPU_texture.hh"
+
+#include "draw_cache.hh"
 
 #include "eevee_instance.hh"
 #include "eevee_outline.hh"
@@ -15,11 +20,33 @@ namespace blender::eevee {
 void OutlineModule::begin_sync()
 {
   has_visible_outline_materials_ = false;
+
+  freestyle_edge_ps_.init();
+  freestyle_edge_ps_.state_set(DRW_STATE_WRITE_COLOR | DRW_STATE_CLIP_CONTROL_UNIT_RANGE);
+  freestyle_edge_ps_.shader_set(inst_.shaders.static_shader_get(OUTLINE_FREESTYLE));
+  freestyle_edge_ps_.bind_texture("depth_tx", &inst_.render_buffers.depth_tx);
+  freestyle_edge_ps_.bind_texture("outline_color_tx", &inst_.render_buffers.outline_color_tx);
+  freestyle_edge_ps_.bind_texture("outline_info_tx", &inst_.render_buffers.outline_info_tx);
 }
 
 void OutlineModule::sync_object_marker()
 {
   has_visible_outline_materials_ = true;
+}
+
+void OutlineModule::sync_object(Object *ob, ResourceHandleRange res_handle)
+{
+  if (inst_.scene->eevee.use_outline == 0) {
+    return;
+  }
+  if ((ob->base_flag & BASE_HOLDOUT) || (ob->visibility_flag & OB_HOLDOUT)) {
+    return;
+  }
+
+  gpu::Batch *geom = DRW_cache_mesh_freestyle_edges_get(ob);
+  if (geom != nullptr) {
+    freestyle_edge_ps_.draw(geom, res_handle);
+  }
 }
 
 void OutlineModule::sync()
@@ -148,6 +175,12 @@ void OutlineModule::render(View &view, int2 extent)
   GPU_memory_barrier(GPU_BARRIER_SHADER_IMAGE_ACCESS | GPU_BARRIER_TEXTURE_FETCH);
   drw.submit(detect_ps_, view);
   GPU_memory_barrier(GPU_BARRIER_FRAMEBUFFER);
+
+  /* Freestyle edge pass: render marked edges into the seed buffer. */
+  freestyle_edge_ps_.framebuffer_set(&detect_fb_);
+  GPU_framebuffer_bind(detect_fb_);
+  drw.submit(freestyle_edge_ps_, view);
+  GPU_memory_barrier(GPU_BARRIER_FRAMEBUFFER | GPU_BARRIER_TEXTURE_FETCH);
 
   /* Factor blur ping-pong: smooth the width-variation factor along the contour. An even
    * iteration count returns the result to the original current(). */

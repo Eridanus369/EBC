@@ -89,8 +89,8 @@ struct MeshRenderData {
   int edge_crease_ofs;
   int vert_crease_ofs;
   int bweight_ofs;
-  int freestyle_edge_ofs;
-  int freestyle_face_ofs;
+  int freestyle_edge_ofs = -1;
+  int freestyle_face_ofs = -1;
   /** Mesh */
   const Mesh *mesh;
   Span<float3> vert_positions;
@@ -340,6 +340,10 @@ gpu::IndexBufPtr extract_lines_paint_mask_subdiv(const MeshRenderData &mr,
 gpu::IndexBufPtr extract_lines_adjacency(const MeshRenderData &mr, bool &r_is_manifold);
 gpu::IndexBufPtr extract_lines_adjacency_subdiv(const DRWSubdivCache &subdiv_cache,
                                                 bool &r_is_manifold);
+
+gpu::IndexBufPtr extract_freestyle_lines(const MeshRenderData &mr);
+gpu::IndexBufPtr extract_freestyle_lines_subdiv(const DRWSubdivCache &subdiv_cache,
+                                                const MeshRenderData &mr);
 
 gpu::VertBufPtr extract_uv_maps(const MeshRenderData &mr, const MeshBatchCache &cache);
 gpu::VertBufPtr extract_uv_maps_subdiv(const DRWSubdivCache &subdiv_cache,

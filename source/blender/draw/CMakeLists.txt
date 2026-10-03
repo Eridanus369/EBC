@@ -32,6 +32,7 @@ set(SRC
   intern/mesh_extractors/extract_mesh.cc
   intern/mesh_extractors/extract_mesh_ibo_edituv.cc
   intern/mesh_extractors/extract_mesh_ibo_fdots.cc
+  intern/mesh_extractors/extract_mesh_ibo_freestyle_lines.cc
   intern/mesh_extractors/extract_mesh_ibo_lines.cc
   intern/mesh_extractors/extract_mesh_ibo_lines_adjacency.cc
   intern/mesh_extractors/extract_mesh_ibo_lines_paint_mask.cc
@@ -465,6 +466,7 @@ set(GLSL_SRC
   engines/eevee/shaders/eevee_occupancy_lib.bsl.hh
   engines/eevee/shaders/eevee_octahedron_lib.bsl.hh
   engines/eevee/shaders/eevee_outline.bsl.hh
+  engines/eevee/shaders/eevee_outline_freestyle.bsl.hh
   engines/eevee/shaders/eevee_outline_post.bsl.hh
   engines/eevee/shaders/eevee_pipeline.bsl.hh
   engines/eevee/shaders/eevee_ray_denoise.bsl.hh
