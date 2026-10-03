@@ -68,6 +68,8 @@ enum GPUNodeTag {
   GPU_NODE_TAG_FUNCTION = (1 << 5),
   GPU_NODE_TAG_COMPOSITOR = (1 << 6),
   GPU_NODE_TAG_LIGHT_SHADER = (1 << 7),
+  /* NPR: Outline Control node side-outputs (screen-space outline pass). */
+  GPU_NODE_TAG_OUTLINE = (1 << 8),
 };
 
 ENUM_OPERATORS(GPUNodeTag)
@@ -222,6 +224,8 @@ struct GPUNodeGraph {
   GPUNodeLink *outlink_light_shader;
   /* List of GPUNodeGraphOutputLink */
   ListBaseT<GPUNodeGraphOutputLink> outlink_aovs;
+  /* NPR: List of GPUNodeGraphOutputLink (Outline Control nodes). */
+  ListBaseT<GPUNodeGraphOutputLink> outlink_outlines;
   /* List of GPUNodeGraphFunctionLink */
   ListBaseT<GPUNodeGraphFunctionLink> material_functions;
   /* List of GPUNodeGraphOutputLink */

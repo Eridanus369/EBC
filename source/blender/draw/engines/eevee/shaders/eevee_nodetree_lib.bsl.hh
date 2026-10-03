@@ -18,6 +18,7 @@
 #include "eevee_light_data.bsl.hh"
 #include "eevee_light_iter.bsl.hh"
 #include "eevee_nodetree_closures_lib.glsl"
+#include "eevee_outline.bsl.hh"
 #include "eevee_pipeline.bsl.hh"
 #include "eevee_ray_trace_screen_lib.bsl.hh"
 #include "eevee_renderpass.bsl.hh"

@@ -2924,7 +2924,10 @@ struct SceneEEVEE {
   float light_threshold = 0.01f;
 
   float time_limit = 0.0f;
-  char _pad50[12] = {};
+  /** NPR: built-in screen-space outline pass (Outline Control / Freestyle edges). */
+  char use_outline = true;
+  char _pad_outline[3] = {};
+  char _pad50[8] = {};
 };
 
 struct SceneGpencil {

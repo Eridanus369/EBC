@@ -126,6 +126,17 @@ void RenderBuffers::acquire(int2 extent, gpu::TextureFormat raycast_depth_format
                                         EEVEE_RENDER_PASS_CRYPTOMATTE_MATERIAL),
                             cryptomatte_format,
                             GPU_TEXTURE_USAGE_SHADER_READ | GPU_TEXTURE_USAGE_SHADER_WRITE);
+
+  /* NPR: outline gbuffers. Allocated at a dummy extent when the pass is disabled, since material
+   * passes can't conditionally bind the image slots. */
+  const bool use_outline_buffers = inst_.scene->eevee.use_outline != 0;
+  const int2 outline_extent = use_outline_buffers ? extent : int2(1);
+  eGPUTextureUsage outline_usage = GPU_TEXTURE_USAGE_SHADER_READ | GPU_TEXTURE_USAGE_SHADER_WRITE;
+  outline_color_tx.acquire_2d(
+      outline_extent, gpu::TextureFormat::SFLOAT_16_16_16_16, outline_usage);
+  outline_info_tx.acquire_2d(outline_extent, gpu::TextureFormat::UINT_32_32_32_32, outline_usage);
+  outline_color_tx.clear(float4(0.0f));
+  outline_info_tx.clear(uint4(0u));
 }
 
 void RenderBuffers::release()
@@ -146,6 +157,9 @@ void RenderBuffers::release()
   prepass_normal_tx.release();
 
   cryptomatte_tx.release();
+
+  outline_color_tx.release();
+  outline_info_tx.release();
 }
 
 gpu::TextureFormat RenderBuffers::vector_tx_format()

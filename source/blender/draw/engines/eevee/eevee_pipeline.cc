@@ -422,6 +422,10 @@ void ForwardPipeline::sync()
       /* Common resources. */
       opaque_ps_.bind_texture(RBUFS_UTILITY_TEX_SLOT, inst_.pipelines.utility_tx);
 
+      /* NPR: screen-space outline gbuffers. */
+      opaque_ps_.bind_image(OUTLINE_COLOR_SLOT, &inst_.render_buffers.outline_color_tx);
+      opaque_ps_.bind_image(OUTLINE_INFO_SLOT, &inst_.render_buffers.outline_info_tx);
+
       opaque_ps_.bind_resources(inst_.uniform_data);
       opaque_ps_.bind_resources(inst_.lights);
       opaque_ps_.bind_resources(inst_.shadows);
@@ -464,6 +468,10 @@ void ForwardPipeline::sync()
 
     /* Textures. */
     sub.bind_texture(RBUFS_UTILITY_TEX_SLOT, inst_.pipelines.utility_tx);
+
+    /* NPR: screen-space outline gbuffers. */
+    sub.bind_image(OUTLINE_COLOR_SLOT, &inst_.render_buffers.outline_color_tx);
+    sub.bind_image(OUTLINE_INFO_SLOT, &inst_.render_buffers.outline_info_tx);
 
     sub.bind_resources(inst_.uniform_data);
     sub.bind_resources(inst_.lights);
@@ -736,6 +744,9 @@ void DeferredLayerBase::gbuffer_pass_sync(Instance &inst)
   gbuffer_ps_.bind_image(RBUFS_VALUE_SLOT, &inst.render_buffers.rp_value_tx);
   /* Cryptomatte. */
   gbuffer_ps_.bind_image(RBUFS_CRYPTOMATTE_SLOT, &inst.render_buffers.cryptomatte_tx);
+  /* NPR: screen-space outline gbuffers. */
+  gbuffer_ps_.bind_image(OUTLINE_COLOR_SLOT, &inst.render_buffers.outline_color_tx);
+  gbuffer_ps_.bind_image(OUTLINE_INFO_SLOT, &inst.render_buffers.outline_info_tx);
   /* Storage Buffer. */
   /* Textures. */
   gbuffer_ps_.bind_texture(RBUFS_UTILITY_TEX_SLOT, inst.pipelines.utility_tx);

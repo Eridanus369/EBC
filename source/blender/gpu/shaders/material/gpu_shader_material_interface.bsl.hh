@@ -331,6 +331,23 @@ void output_aov(int2 /*texel*/,
 {
 }
 
+/* NPR: screen-space outline output. No-op outside of EEVEE material evaluation. */
+
+void output_outline(float4 /*line_color*/,
+                    float /*line_width*/,
+                    float /*depth_threshold*/,
+                    float /*depth_threshold_range*/,
+                    float /*depth_edge_width*/,
+                    float /*normal_threshold*/,
+                    float /*normal_threshold_range*/,
+                    float /*normal_edge_width*/,
+                    float /*outline_id*/,
+                    bool /*id_edge*/,
+                    float /*id_edge_width*/,
+                    bool /*freestyle_edge*/)
+{
+}
+
 /* Matrices. */
 
 struct ObjectMatrices {

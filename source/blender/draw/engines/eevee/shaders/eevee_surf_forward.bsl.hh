@@ -139,11 +139,19 @@ void surf_forward([[resource_table]] PipelineConstants &pipe,
 
   g_thickness_forward = Thickness::from(nodetree_thickness(), thickness_mode);
 
+  /* NPR: stage outline parameters before the surface tree writes them. No-op unless the material
+   * participates in the outline pass. */
+  outline_output_reset();
   nodetree_surface(closure_rand);
 
   float3 radiance, transmittance;
   eevee::forward_lighting_eval(
       view, resource_id, g_thickness_forward, gl_FragCoord.xy, radiance, transmittance);
+
+  /* NPR: blended forward fragments attenuate outline stored by closer opaque geometry and flush
+   * their own staged outline. */
+  attenuate_outline(saturate(average(transmittance)));
+  outline_output_flush();
 
   if (pipe.use_lighting_nodes) [[static_branch]] {
     radiance += g_diffuse_light;

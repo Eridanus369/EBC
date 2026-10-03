@@ -39,6 +39,9 @@ class RenderBuffers {
   TextureFromPool object_id_tx;
   TextureFromPool prepass_normal_tx;
   TextureFromPool cryptomatte_tx;
+  /* NPR: gbuffers written by material shaders for the screen-space outline pass. */
+  TextureFromPool outline_color_tx;
+  TextureFromPool outline_info_tx;
   /* TODO(fclem): Use texture from pool once they support texture array. */
   Texture rp_color_tx;
   Texture rp_value_tx;

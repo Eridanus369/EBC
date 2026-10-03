@@ -240,6 +240,14 @@
 #define GBUF_NORMAL_TEX_SLOT 18
 #define GBUF_HEADER_TEX_SLOT 19
 #define LIGHT_SHADER_TEX_SLOT 20
+/* NPR: screen-space outline post-process shaders are isolated from material evaluation. */
+#define OUTLINE_DEPTH_TEX_SLOT 21
+#define OUTLINE_COLOR_TEX_SLOT 22
+#define OUTLINE_INFO_TEX_SLOT 23
+#define OUTLINE_SEED_TEX_SLOT 24
+#define OUTLINE_JFA_TEX_SLOT 25
+#define OUTLINE_VECTOR_TEX_SLOT 26
+#define OUTLINE_OCCLUSION_DEPTH_TEX_SLOT 27
 
 /* Images. */
 #define RBUFS_COLOR_SLOT 0
@@ -248,6 +256,12 @@
 #define GBUF_CLOSURE_SLOT 3
 #define GBUF_NORMAL_SLOT 4
 #define GBUF_HEADER_SLOT 5
+/* NPR: screen-space outline gbuffers written by material shaders. */
+#define OUTLINE_COLOR_SLOT 6
+#define OUTLINE_INFO_SLOT 7
+#define OUTLINE_JFA_IN_IMG_SLOT 0
+#define OUTLINE_JFA_OUT_IMG_SLOT 1
+#define OUTLINE_JFA_STEP_GROUP_SIZE 16
 /* Volume properties pass do not write to `rbufs`. Reuse the same bind points. */
 #define VOLUME_PROP_SCATTERING_IMG_SLOT 0
 #define VOLUME_PROP_EXTINCTION_IMG_SLOT 1
@@ -311,6 +325,9 @@
 #define CLOSURE_WEIGHT_CUTOFF 1e-5f
 /* Treat closure as singular if the roughness is below this threshold. */
 #define BSDF_ROUGHNESS_THRESHOLD 2e-2f
+
+/* NPR: maximum line width (in pixels) supported by the screen-space outline pass. */
+#define OUTLINE_MAX_WIDTH 20.0f
 
 /* Cannot use math libraries in shared headers yet. */
 #define EEVEE_PI 3.14159265358979323846f /* pi */

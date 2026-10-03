@@ -1374,6 +1374,32 @@ void ShaderModule::material_create_info_amend(GPUMaterial *gpumat, GPUCodegenOut
     info.define("MAT_CLEARCOAT");
   }
 
+  /* NPR: screen-space outline gbuffer output.
+   * Deferred materials directly store the outline parameters. Forward (and screen-space
+   * refraction deferred) materials can execute multiple times per pixel due to blending, so they
+   * stage the parameters and clear/attenuate/flush them around the surface node tree. */
+  if (!outline_shell) {
+    const blender::Material *outline_blender_mat = GPU_material_get_material(gpumat);
+    const Scene *scene = DRW_context_get()->scene;
+    const bool use_outline = scene != nullptr && scene->eevee.use_outline != 0;
+    const bool has_outline_output = GPU_material_has_outline_output(gpumat);
+    const bool clears_outline_output =
+        (pipeline_type == MAT_PIPE_FORWARD) ||
+        (pipeline_type == MAT_PIPE_DEFERRED && outline_blender_mat != nullptr &&
+         (outline_blender_mat->blend_flag & MA_BL_SS_REFRACTION) != 0);
+    if (use_outline && (has_outline_output || clears_outline_output) &&
+        ELEM(pipeline_type, MAT_PIPE_DEFERRED, MAT_PIPE_FORWARD))
+    {
+      info.define("MAT_OUTLINE_OUTPUT");
+      if (clears_outline_output) {
+        info.define("MAT_OUTLINE_CLEAR");
+      }
+      if (has_outline_output) {
+        info.define("MAT_OUTLINE_SUPPORT");
+      }
+    }
+  }
+
   info.compilation_constant(
       gpu::shader::Type::bool_t, "use_sss", GPU_material_flag_get(gpumat, GPU_MATFLAG_SUBSURFACE));
 

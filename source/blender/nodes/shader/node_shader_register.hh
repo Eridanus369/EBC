@@ -145,6 +145,7 @@ void register_node_type_sh_world_environment();
 void register_node_type_sh_screenspace_info();
 void register_node_type_sh_npr_light_info();
 void register_node_type_sh_output_outline_shell();
+void register_node_type_sh_outline_control();
 
 /* UPBGE */
 void register_node_type_sh_sprites_animation();

@@ -959,7 +959,7 @@ static void ntree_shader_pruned_unused(bNodeTree *ntree,
 
   if (keep_side_outputs) {
     for (bNode &node : ntree->nodes) {
-      if (node.type_legacy == SH_NODE_OUTPUT_AOV) {
+      if (ELEM(node.type_legacy, SH_NODE_OUTPUT_AOV, SH_NODE_OUTLINE_CONTROL)) {
         node.runtime->tmp_flag = 1;
         bke::node_chain_iterator_backwards(ntree, &node, ntree_branch_node_tag, nullptr, 0);
       }
@@ -1154,7 +1154,7 @@ void ntreeGPUMaterialNodes(bNodeTree *localtree, GPUMaterial *mat)
   }
   if (!is_outline_shell) {
     for (bNode &node : localtree->nodes) {
-      if (node.type_legacy == SH_NODE_OUTPUT_AOV) {
+      if (ELEM(node.type_legacy, SH_NODE_OUTPUT_AOV, SH_NODE_OUTLINE_CONTROL)) {
         iter_shader_to_rgba_depth_count(localtree, &node, max_depth);
       }
     }
@@ -1163,7 +1163,7 @@ void ntreeGPUMaterialNodes(bNodeTree *localtree, GPUMaterial *mat)
     ntreeExecGPUNodes(exec, mat, output, &depth);
     if (!is_outline_shell) {
       for (bNode &node : localtree->nodes) {
-        if (node.type_legacy == SH_NODE_OUTPUT_AOV) {
+        if (ELEM(node.type_legacy, SH_NODE_OUTPUT_AOV, SH_NODE_OUTLINE_CONTROL)) {
           ntreeExecGPUNodes(exec, mat, &node, &depth);
         }
       }

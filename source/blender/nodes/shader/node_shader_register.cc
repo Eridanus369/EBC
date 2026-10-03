@@ -146,6 +146,7 @@ void register_shader_nodes()
   register_node_type_sh_screenspace_info();
   register_node_type_sh_npr_light_info();
   register_node_type_sh_output_outline_shell();
+  register_node_type_sh_outline_control();
 
   /* UPBGE */
   register_node_type_sh_sprites_animation();

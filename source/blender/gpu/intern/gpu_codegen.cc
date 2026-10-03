@@ -644,7 +644,9 @@ void GPUCodegen::generate_graphs()
   set_unique_ids();
 
   output.surface = graph_serialize(
-      GPU_NODE_TAG_SURFACE | GPU_NODE_TAG_AOV, graph.outlink_surface, "CLOSURE_DEFAULT");
+      GPU_NODE_TAG_SURFACE | GPU_NODE_TAG_AOV | GPU_NODE_TAG_OUTLINE,
+      graph.outlink_surface,
+      "CLOSURE_DEFAULT");
   output.volume = graph_serialize(GPU_NODE_TAG_VOLUME, graph.outlink_volume, "CLOSURE_DEFAULT");
   output.displacement = graph_serialize(
       GPU_NODE_TAG_DISPLACEMENT, graph.outlink_displacement, nullptr);
