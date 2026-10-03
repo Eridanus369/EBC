@@ -89,6 +89,7 @@ static inline void material_type_from_shader_uuid(uint64_t shader_uuid,
                                                   eMaterialDisplacement &displacement_type,
                                                   eMaterialThickness &thickness_type,
                                                   bool &transparent_shadows,
+                                                  bool &use_outline,
                                                   bool &outline_shell)
 {
   const uint64_t geometry_mask = ((1u << 4u) - 1u);
@@ -101,6 +102,7 @@ static inline void material_type_from_shader_uuid(uint64_t shader_uuid,
   thickness_type = static_cast<eMaterialThickness>((shader_uuid >> 9u) & thickness_mask);
   transparent_shadows = (shader_uuid >> 10u) & 1u;
   outline_shell = (shader_uuid >> 11u) & 1u;
+  use_outline = (shader_uuid >> 12u) & 1u;
 }
 
 static inline uint64_t shader_uuid_from_material_type(
@@ -109,7 +111,8 @@ static inline uint64_t shader_uuid_from_material_type(
     eMaterialDisplacement displacement_type = MAT_DISPLACEMENT_BUMP,
     eMaterialThickness thickness_type = MAT_THICKNESS_SPHERE,
     char blend_flags = 0,
-    bool outline_shell = false)
+    bool outline_shell = false,
+    bool use_outline = false)
 {
   BLI_assert(int64_t(displacement_type) < (1 << 1));
   BLI_assert(int64_t(thickness_type) < (1 << 1));
@@ -124,6 +127,7 @@ static inline uint64_t shader_uuid_from_material_type(
   uuid |= thickness_type << 9;
   uuid |= transparent_shadows << 10;
   uuid |= uint64_t(outline_shell) << 11;
+  uuid |= uint64_t(use_outline) << 12;
   return uuid;
 }
 

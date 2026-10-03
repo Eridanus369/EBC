@@ -1272,6 +1272,7 @@ void ShaderModule::material_create_info_amend(GPUMaterial *gpumat, GPUCodegenOut
   eMaterialDisplacement displacement_type;
   eMaterialThickness thickness_type;
   bool transparent_shadows;
+  bool use_outline;
   bool outline_shell;
   material_type_from_shader_uuid(shader_uuid,
                                  pipeline_type,
@@ -1279,6 +1280,7 @@ void ShaderModule::material_create_info_amend(GPUMaterial *gpumat, GPUCodegenOut
                                  displacement_type,
                                  thickness_type,
                                  transparent_shadows,
+                                 use_outline,
                                  outline_shell);
 
   GPUCodegenOutput &codegen = *codegen_;
@@ -1404,8 +1406,8 @@ void ShaderModule::material_create_info_amend(GPUMaterial *gpumat, GPUCodegenOut
    * stage the parameters and clear/attenuate/flush them around the surface node tree. */
   if (!outline_shell) {
     const blender::Material *outline_blender_mat = GPU_material_get_material(gpumat);
-    const Scene *scene = DRW_context_get()->scene;
-    const bool use_outline = scene != nullptr && scene->eevee.use_outline != 0;
+    /* NPR: use_outline comes from the shader uuid (encoded at material_shader_get time) so
+     * deferred compilation cannot pick up a stale scene state. */
     const bool has_outline_output = GPU_material_has_outline_output(gpumat);
     const bool clears_outline_output =
         (pipeline_type == MAT_PIPE_FORWARD) ||
@@ -1930,6 +1932,7 @@ static GPUPass *pass_replacement_cb(void *void_thunk, GPUMaterial *mat)
   eMaterialDisplacement displacement_type;
   eMaterialThickness thickness_type;
   bool transparent_shadows;
+  bool use_outline;
   bool outline_shell;
   material_type_from_shader_uuid(shader_uuid,
                                  pipeline_type,
@@ -1937,6 +1940,7 @@ static GPUPass *pass_replacement_cb(void *void_thunk, GPUMaterial *mat)
                                  displacement_type,
                                  thickness_type,
                                  transparent_shadows,
+                                 use_outline,
                                  outline_shell);
 
   bool is_shadow_pass = pipeline_type == eMaterialPipeline::MAT_PIPE_SHADOW;
@@ -2007,12 +2011,18 @@ GPUMaterial *ShaderModule::material_shader_get(blender::Material *blender_mat,
                                                     blender_mat->displacement_method);
   eMaterialThickness thickness_type = to_thickness_type(blender_mat->thickness_mode);
 
+  /* NPR: encode the scene outline toggle in the cache key so toggling it forces a distinct
+   * shader variant with MAT_OUTLINE_* defines instead of reusing the cached one. */
+  const bool use_outline = !outline_shell && DRW_context_get()->scene != nullptr &&
+                           DRW_context_get()->scene->eevee.use_outline != 0;
+
   uint64_t shader_uuid = shader_uuid_from_material_type(pipeline_type,
                                                         geometry_type,
                                                         displacement_type,
                                                         thickness_type,
                                                         blender_mat->blend_flag,
-                                                        outline_shell);
+                                                        outline_shell,
+                                                        use_outline);
 
   bool is_default_material = default_mat == nullptr;
   BLI_assert(blender_mat != default_mat);
