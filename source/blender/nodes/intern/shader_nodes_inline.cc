@@ -381,6 +381,9 @@ class ShaderNodesInliner {
         add_output_type("ShaderNodeOutputMaterial"_ustr);
         add_output_type("ShaderNodeOutputLight"_ustr);
         add_output_type("ShaderNodeOutputAOV"_ustr);
+        /* NPR: the Outline Shell Output node has no output sockets; it must be an explicit
+         * inlining root like the AOV output, otherwise it is dropped from the GPU tree. */
+        add_output_type("ShaderNodeOutputOutlineShell"_ustr);
         break;
       case ID_WO:
         add_output_type("ShaderNodeOutputWorld"_ustr);

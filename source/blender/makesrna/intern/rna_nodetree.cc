@@ -12197,6 +12197,7 @@ static void rna_def_nodes(BlenderRNA *brna)
   define("ShaderNode", "ShaderNodeOutputLight", def_sh_output);
   define("ShaderNode", "ShaderNodeOutputLineStyle", def_sh_output_linestyle);
   define("ShaderNode", "ShaderNodeOutputMaterial", def_sh_output);
+  define("ShaderNode", "ShaderNodeOutputOutlineShell", def_sh_output);
   define("ShaderNode", "ShaderNodeOutputWorld", def_sh_output);
   define("ShaderNode", "ShaderNodeParticleInfo");
   define("ShaderNode", "ShaderNodePointInfo");

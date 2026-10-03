@@ -176,6 +176,9 @@ enum {
 #define SH_NODE_SPRITES_ANIMATION 800
 #define SH_NODE_EEVEE_LIGHT_SHADER_OUTPUT 801
 #define SH_NODE_EEVEE_LIGHT_SHADER_INFO 802 //UPBGE
+/* NPR Outline (compatible with NPR branch ids). */
+#define SH_NODE_OUTLINE_CONTROL 813
+#define SH_NODE_OUTPUT_OUTLINE_SHELL 822
 
 /** \} */
 

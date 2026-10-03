@@ -13,6 +13,7 @@
 #include "BKE_material.hh"
 #include "BKE_node.hh"
 #include "BKE_node_legacy_types.hh"
+#include "BKE_node_runtime.hh"
 #include "BKE_node_tree_update.hh"
 #include "BKE_scene.hh"
 
@@ -110,6 +111,39 @@ MaterialModule::~MaterialModule()
   BKE_id_free(nullptr, error_mat_);
 }
 
+static bNode *material_outline_shell_node_get(const blender::Material *blender_mat)
+{
+  if (blender_mat == nullptr || blender_mat->nodetree == nullptr) {
+    return nullptr;
+  }
+  bNode *output = nullptr;
+  for (bNode &node : blender_mat->nodetree->nodes) {
+    if (node.type_legacy != SH_NODE_OUTPUT_OUTLINE_SHELL || node.is_muted()) {
+      continue;
+    }
+    if (output == nullptr) {
+      output = &node;
+    }
+    else if ((node.flag & NODE_DO_OUTPUT) && !(output->flag & NODE_DO_OUTPUT)) {
+      output = &node;
+    }
+  }
+  return output;
+}
+
+static float material_outline_shell_bounds_inflation(const bNode *node)
+{
+  if (node == nullptr) {
+    return 0.0f;
+  }
+  const bNodeSocket *strength_socket = node->input_by_identifier("Strength"_ustr);
+  if (strength_socket == nullptr || strength_socket->is_directly_linked()) {
+    return 0.0f;
+  }
+  return math::abs(
+      static_cast<const bNodeSocketValueFloat *>(strength_socket->default_value)->value);
+}
+
 void MaterialModule::begin_sync()
 {
   float frame = BKE_scene_frame_get(inst_.scene);
@@ -141,8 +175,13 @@ MaterialPass MaterialModule::material_pass_get(Object *ob,
                                                blender::Material *blender_mat,
                                                eMaterialPipeline pipeline_type,
                                                eMaterialGeometry geometry_type,
-                                               eMaterialProbe probe_capture)
+                                               eMaterialProbe probe_capture,
+                                               const SurfaceDrawState *state_override,
+                                               bool outline_shell)
 {
+  const SurfaceDrawState body_state = surface_draw_state_body(*blender_mat);
+  const SurfaceDrawState &state = (state_override != nullptr) ? *state_override : body_state;
+
   bNodeTree *ntree = (blender_mat->nodetree != nullptr) ? blender_mat->nodetree :
                                                           default_surface->nodetree;
 
@@ -153,8 +192,13 @@ MaterialPass MaterialModule::material_pass_get(Object *ob,
   blender::Material *default_mat = is_volume ? default_volume : default_surface;
 
   MaterialPass matpass = MaterialPass();
-  matpass.gpumat = inst_.shaders.material_shader_get(
-      blender_mat, ntree, pipeline_type, geometry_type, use_deferred_compilation, default_mat);
+  matpass.gpumat = inst_.shaders.material_shader_get(blender_mat,
+                                                     ntree,
+                                                     pipeline_type,
+                                                     geometry_type,
+                                                     use_deferred_compilation,
+                                                     default_mat,
+                                                     outline_shell);
 
   const bool is_forward = ELEM(pipeline_type,
                                MAT_PIPE_FORWARD,
@@ -173,11 +217,18 @@ MaterialPass MaterialModule::material_pass_get(Object *ob,
     }
     case GPU_MAT_QUEUED:
       queued_shaders_count++;
+      if (outline_shell) {
+        /* Shell passes have no default-material fallback; skip drawing until compiled. */
+        return MaterialPass();
+      }
       matpass.gpumat = inst_.shaders.material_shader_get(
           default_mat, default_mat->nodetree, pipeline_type, geometry_type, false, nullptr);
       break;
     case GPU_MAT_FAILED:
     default:
+      if (outline_shell) {
+        return MaterialPass();
+      }
       matpass.gpumat = inst_.shaders.material_shader_get(
           error_mat_, error_mat_->nodetree, pipeline_type, geometry_type, false, nullptr);
       break;
@@ -194,8 +245,9 @@ MaterialPass MaterialModule::material_pass_get(Object *ob,
   if (inst_.is_viewport() && use_deferred_compilation && pass_updated) {
     inst_.sampling.reset();
 
-    const bool has_displacement = GPU_material_has_displacement_output(matpass.gpumat) &&
-                                  (blender_mat->displacement_method != MA_DISPLACEMENT_BUMP);
+    const bool has_displacement = outline_shell ||
+                                  (GPU_material_has_displacement_output(matpass.gpumat) &&
+                                   (blender_mat->displacement_method != MA_DISPLACEMENT_BUMP));
     const bool has_volume = GPU_material_has_volume_output(matpass.gpumat);
 
     if (((pipeline_type == MAT_PIPE_SHADOW) && (is_transparent || has_displacement)) || has_volume)
@@ -213,12 +265,12 @@ MaterialPass MaterialModule::material_pass_get(Object *ob,
   }
   else {
     const bool hide_from_raycast = ob->visibility_flag & OB_HIDE_RAYCAST;
-    ShaderKey shader_key(matpass.gpumat, blender_mat, probe_capture, hide_from_raycast);
+    ShaderKey shader_key(matpass.gpumat, blender_mat, probe_capture, hide_from_raycast, state);
 
     PassMain::Sub *shader_sub = shader_map_.lookup_or_add_cb(shader_key, [&]() {
       /* First time encountering this shader. Create a sub that will contain materials using it. */
       return inst_.pipelines.material_add(
-          ob, blender_mat, matpass.gpumat, pipeline_type, probe_capture);
+          ob, blender_mat, matpass.gpumat, pipeline_type, probe_capture, state);
     });
 
     if (shader_sub != nullptr) {
@@ -340,6 +392,61 @@ Material &MaterialModule::material_sync(const ObjectHandle &ob_handle,
       mat.shadow = material_pass_get(ob, blender_mat, MAT_PIPE_SHADOW, geometry_type);
     }
 
+    if (!inst_.is_baking() && geometry_type == MAT_GEOM_MESH) {
+      bNode *shell_node = material_outline_shell_node_get(blender_mat);
+      if (shell_node != nullptr) {
+        mat.outline_shell_bounds_inflation = material_outline_shell_bounds_inflation(shell_node);
+        const SurfaceDrawState shell_state = surface_draw_state_outline_shell(*blender_mat);
+        /* Depth write and z-test are fixed (write on, less-equal); render method alone selects
+         * the shading route. */
+        const bool use_deferred = blender_mat->outline_shell_render_method ==
+                                  MA_OUTLINE_SHELL_DEFERRED;
+        const eMaterialPipeline shell_prepass_pipe =
+            use_deferred ? (has_motion ? MAT_PIPE_PREPASS_DEFERRED_VELOCITY :
+                                         MAT_PIPE_PREPASS_DEFERRED) :
+                           (has_motion ? MAT_PIPE_PREPASS_FORWARD_VELOCITY :
+                                         MAT_PIPE_PREPASS_FORWARD);
+        const eMaterialPipeline shell_shading_pipe = use_deferred ? MAT_PIPE_DEFERRED :
+                                                                    MAT_PIPE_FORWARD;
+        if (!hide_on_camera) {
+          mat.outline_shell_prepass = material_pass_get(ob,
+                                                        blender_mat,
+                                                        shell_prepass_pipe,
+                                                        geometry_type,
+                                                        MAT_PROBE_NONE,
+                                                        &shell_state,
+                                                        true);
+          mat.outline_shell_shading = material_pass_get(ob,
+                                                        blender_mat,
+                                                        shell_shading_pipe,
+                                                        geometry_type,
+                                                        MAT_PROBE_NONE,
+                                                        &shell_state,
+                                                        true);
+        }
+        /* Draw only when every pass required by the chosen route is available, otherwise the
+         * surface would punch holes or depth-test against a missing prepass while compiling. */
+        if (!hide_on_camera && (mat.outline_shell_shading.gpumat == nullptr ||
+                                mat.outline_shell_prepass.gpumat == nullptr))
+        {
+          mat.outline_shell_prepass = MaterialPass();
+          mat.outline_shell_shading = MaterialPass();
+        }
+        /* Camera visibility must not disable independently enabled shadow casting. */
+        if (!(ob->visibility_flag & OB_HIDE_SHADOW) &&
+            (blender_mat->outline_shell_flag & MA_OUTLINE_SHELL_CAST_SHADOW))
+        {
+          mat.outline_shell_shadow = material_pass_get(ob,
+                                                       blender_mat,
+                                                       MAT_PIPE_SHADOW,
+                                                       geometry_type,
+                                                       MAT_PROBE_NONE,
+                                                       &shell_state,
+                                                       true);
+        }
+      }
+    }
+
     mat.is_alpha_blend_transparent = use_forward_pipeline &&
                                      GPU_material_flag_get(mat.shading.gpumat,
                                                            GPU_MATFLAG_TRANSPARENT);
@@ -371,6 +478,7 @@ MaterialArray &MaterialModule::material_array_get(const ObjectHandle &ob_handle,
 
   material_array_.materials.clear();
   material_array_.gpu_materials.clear();
+  material_array_.gpu_materials_outline_shell.clear();
 
   const int materials_len = BKE_object_material_used_with_fallback_eval(*ob);
 
@@ -383,6 +491,15 @@ MaterialArray &MaterialModule::material_array_get(const ObjectHandle &ob_handle,
      * (i.e: because of its container growing) */
     material_array_.materials.append(mat);
     material_array_.gpu_materials.append(mat.shading.gpumat);
+    GPUMaterial *shell_gpumat = mat.outline_shell_shading.gpumat;
+    if (shell_gpumat == nullptr) {
+      shell_gpumat = mat.outline_shell_prepass.gpumat;
+    }
+    if (shell_gpumat == nullptr) {
+      /* Shadow-only shells still need a mesh batch with their displacement attributes. */
+      shell_gpumat = mat.outline_shell_shadow.gpumat;
+    }
+    material_array_.gpu_materials_outline_shell.append(shell_gpumat);
   }
   return material_array_;
 }

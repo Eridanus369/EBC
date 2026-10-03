@@ -116,6 +116,28 @@ class WorldVolumePipeline {
  *
  * \{ */
 
+/* Resolve an optional cull override (-1) against the material's backface-cull flag. */
+static inline eMaterialCullMethod material_cull_method_resolve(const blender::Material &mat,
+                                                               int cull_method = -1)
+{
+  if (cull_method >= 0) {
+    return eMaterialCullMethod(cull_method);
+  }
+  return (mat.blend_flag & MA_BL_CULL_BACKFACE) ? MA_SURFACE_CULL_BACK : MA_SURFACE_CULL_NONE;
+}
+
+static inline DRWState material_cull_drw_state(eMaterialCullMethod cull_method)
+{
+  switch (cull_method) {
+    case MA_SURFACE_CULL_BACK:
+      return DRW_STATE_CULL_BACK;
+    case MA_SURFACE_CULL_FRONT:
+      return DRW_STATE_CULL_FRONT;
+    default:
+      return DRWState(0);
+  }
+}
+
 class ShadowPipeline {
  private:
   Instance &inst_;
@@ -129,7 +151,9 @@ class ShadowPipeline {
  public:
   ShadowPipeline(Instance &inst) : inst_(inst) {};
 
-  PassMain::Sub *surface_material_add(blender::Material *material, GPUMaterial *gpumat);
+  PassMain::Sub *surface_material_add(blender::Material *material,
+                                      GPUMaterial *gpumat,
+                                      bool force_double_sided = false);
 
   void sync();
 
@@ -148,9 +172,9 @@ class Prepass {
   Instance &inst_;
 
   PassMain pass_{"Prepass"};
-  PassMain::Sub *subs_[2 /*hide from raycast*/][2 /*double sided*/][2 /*moving*/][2 /*write id*/] =
+  PassMain::Sub *subs_[2 /*hide from raycast*/][3 /*cull method*/][2 /*moving*/][2 /*write id*/] =
       {{{{nullptr}}}};
-  PassMain::Sub *setup_subs_[2 /*hide from raycast*/][2 /*double sided*/][2 /*moving*/]
+  PassMain::Sub *setup_subs_[2 /*hide from raycast*/][3 /*cull method*/][2 /*moving*/]
                             [2 /*write id*/] = {{{{nullptr}}}};
 
   DRWState common_state_{};
@@ -181,7 +205,8 @@ class Prepass {
   PassMain::Sub *add(blender::Material *blender_mat,
                      GPUMaterial *gpumat,
                      bool has_motion,
-                     bool hide_from_raycast);
+                     bool hide_from_raycast,
+                     int cull_method = -1);
 
   void end_sync();
 
@@ -203,14 +228,16 @@ class ForwardPipeline {
   Prepass prepass_{inst_};
 
   PassMain opaque_ps_ = {"Shading"};
-  PassMain::Sub *opaque_subpasses_[2 /*Raycast*/][2 /*Double-Sided*/] = {{nullptr}};
+  PassMain::Sub *opaque_subpasses_[2 /*Raycast*/][3 /*Cull Method*/] = {{nullptr}};
 
-  PassMain::Sub *get_opaque_subpass(blender::Material *blender_mat, GPUMaterial *gpumat)
+  PassMain::Sub *get_opaque_subpass(blender::Material *blender_mat,
+                                    GPUMaterial *gpumat,
+                                    int cull_method = -1)
   {
     const bool has_raycast = GPU_material_flag_get(gpumat, GPU_MATFLAG_RAYCAST);
-    const bool double_sided = !(blender_mat->blend_flag & MA_BL_CULL_BACKFACE);
+    const eMaterialCullMethod cull = material_cull_method_resolve(*blender_mat, cull_method);
 
-    return opaque_subpasses_[has_raycast][double_sided];
+    return opaque_subpasses_[has_raycast][cull];
   }
 
   PassSortable transparent_ps_ = {"Forward.Transparent"};
@@ -246,10 +273,12 @@ class ForwardPipeline {
 
   PassMain::Sub *prepass_opaque_add(blender::Material *blender_mat,
                                     GPUMaterial *gpumat,
-                                    bool has_motion);
+                                    bool has_motion,
+                                    int cull_method = -1);
   PassMain::Sub *material_opaque_add(const Object *ob,
                                      blender::Material *blender_mat,
-                                     GPUMaterial *gpumat);
+                                     GPUMaterial *gpumat,
+                                     int cull_method = -1);
 
   void transparent_add(const Object *ob,
                        const float3 &ob_location,
@@ -280,12 +309,14 @@ struct DeferredLayerBase {
   PassSimple clear_aovs_ps_{"Clear AOVs"};
 
   PassMain gbuffer_ps_ = {"Shading"};
-  PassMain::Sub *gbuffer_subpasses_[2 /*Hybrid*/][2 /*Raycast*/][2 /*Double-Sided*/] = {
+  PassMain::Sub *gbuffer_subpasses_[2 /*Hybrid*/][2 /*Raycast*/][3 /*Cull Method*/] = {
       {{nullptr}}};
 
   DeferredLayerBase(Instance &inst) : prepass_(inst) {};
 
-  PassMain::Sub *get_gbuffer_subpass(blender::Material *blender_mat, GPUMaterial *gpumat)
+  PassMain::Sub *get_gbuffer_subpass(blender::Material *blender_mat,
+                                     GPUMaterial *gpumat,
+                                     int cull_method = -1)
   {
     const bool is_hybrid = GPU_material_flag_get(gpumat, GPU_MATFLAG_SHADER_TO_RGBA) ||
                            GPU_material_flag_get(gpumat, GPU_MATFLAG_LIGHTING) ||
@@ -293,9 +324,9 @@ struct DeferredLayerBase {
                             * bound on the hybrid sub-passes. */
                            GPU_material_flag_get(gpumat, GPU_MATFLAG_SCREENSPACE_INFO);
     const bool has_raycast = GPU_material_flag_get(gpumat, GPU_MATFLAG_RAYCAST);
-    const bool double_sided = !(blender_mat->blend_flag & MA_BL_CULL_BACKFACE);
+    const eMaterialCullMethod cull = material_cull_method_resolve(*blender_mat, cull_method);
 
-    return gbuffer_subpasses_[is_hybrid][has_raycast][double_sided];
+    return gbuffer_subpasses_[is_hybrid][has_raycast][cull];
   }
 
   gpu::Texture *radiance_behind_tx_ = nullptr;
@@ -429,8 +460,11 @@ class DeferredLayer : DeferredLayerBase {
   PassMain::Sub *prepass_add(blender::Material *blender_mat,
                              GPUMaterial *gpumat,
                              bool has_motion,
-                             bool hide_from_raycast);
-  PassMain::Sub *material_add(blender::Material *blender_mat, GPUMaterial *gpumat);
+                             bool hide_from_raycast,
+                             int cull_method = -1);
+  PassMain::Sub *material_add(blender::Material *blender_mat,
+                              GPUMaterial *gpumat,
+                              int cull_method = -1);
 
   bool is_empty() const
   {
@@ -480,8 +514,13 @@ class DeferredPipeline {
   PassMain::Sub *prepass_add(blender::Material *blender_mat,
                              GPUMaterial *gpumat,
                              bool has_motion,
-                             bool hide_from_raycast);
-  PassMain::Sub *material_add(blender::Material *blender_mat, GPUMaterial *gpumat);
+                             bool hide_from_raycast,
+                             int cull_method = -1,
+                             bool force_opaque_layer = false);
+  PassMain::Sub *material_add(blender::Material *blender_mat,
+                              GPUMaterial *gpumat,
+                              int cull_method = -1,
+                              bool force_opaque_layer = false);
 
   void render(View &main_view,
               View &render_view,
@@ -897,12 +936,14 @@ class PipelineModule {
                               blender::Material *blender_mat,
                               GPUMaterial *gpumat,
                               eMaterialPipeline pipeline_type,
-                              eMaterialProbe probe_capture)
+                              eMaterialProbe probe_capture,
+                              const SurfaceDrawState &state)
   {
     if (GPU_material_flag_get(gpumat, GPU_MATFLAG_RAYCAST)) {
       has_raycast = true;
     }
     const bool hide_from_raycast = ob->visibility_flag & OB_HIDE_RAYCAST;
+    const int cull_method = int(state.cull_method);
 
     if (probe_capture == MAT_PROBE_REFLECTION) {
       switch (pipeline_type) {
@@ -929,24 +970,26 @@ class PipelineModule {
 
     switch (pipeline_type) {
       case MAT_PIPE_PREPASS_DEFERRED:
-        return deferred.prepass_add(blender_mat, gpumat, false, hide_from_raycast);
+        return deferred.prepass_add(
+            blender_mat, gpumat, false, hide_from_raycast, cull_method, state.is_outline_shell);
       case MAT_PIPE_PREPASS_FORWARD:
-        return forward.prepass_opaque_add(blender_mat, gpumat, false);
+        return forward.prepass_opaque_add(blender_mat, gpumat, false, cull_method);
       case MAT_PIPE_PREPASS_OVERLAP:
         BLI_assert_msg(0, "Overlap prepass should register to the forward pipeline directly.");
         return nullptr;
 
       case MAT_PIPE_PREPASS_DEFERRED_VELOCITY:
-        return deferred.prepass_add(blender_mat, gpumat, true, hide_from_raycast);
+        return deferred.prepass_add(
+            blender_mat, gpumat, true, hide_from_raycast, cull_method, state.is_outline_shell);
       case MAT_PIPE_PREPASS_FORWARD_VELOCITY:
-        return forward.prepass_opaque_add(blender_mat, gpumat, true);
+        return forward.prepass_opaque_add(blender_mat, gpumat, true, cull_method);
 
       case MAT_PIPE_DEFERRED:
-        return deferred.material_add(blender_mat, gpumat);
+        return deferred.material_add(blender_mat, gpumat, cull_method, state.is_outline_shell);
       case MAT_PIPE_FORWARD:
-        return forward.material_opaque_add(ob, blender_mat, gpumat);
+        return forward.material_opaque_add(ob, blender_mat, gpumat, cull_method);
       case MAT_PIPE_SHADOW:
-        return shadow.surface_material_add(blender_mat, gpumat);
+        return shadow.surface_material_add(blender_mat, gpumat, state.is_outline_shell);
       case MAT_PIPE_CAPTURE:
         return capture.surface_material_add(blender_mat, gpumat);
 

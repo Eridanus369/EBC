@@ -135,6 +135,8 @@ struct GPUMaterial {
   bool has_displacement_output = false;
   bool has_light_shader_output = false;
   bool has_glsl_light_shader_eval = false;
+  /* NPR: graph is rooted at an Outline Shell Output node instead of the material output. */
+  bool is_outline_shell = false;
 
   std::string name;
 
@@ -178,7 +180,8 @@ GPUMaterialFromNodeTreeResult GPU_material_from_nodetree(
     bool deferred_compilation,
     GPUCodegenCallbackFn callback,
     void *thunk,
-    GPUMaterialPassReplacementCallbackFn pass_replacement_cb)
+    GPUMaterialPassReplacementCallbackFn pass_replacement_cb,
+    bool outline_shell)
 {
   /* Search if this material is not already compiled. */
   for (LinkData &link : *gpumaterials) {
@@ -197,6 +200,7 @@ GPUMaterialFromNodeTreeResult GPU_material_from_nodetree(
   mat->source_material = ma;
   mat->uuid = shader_uuid;
   mat->name = name;
+  mat->is_outline_shell = outline_shell;
   result.material = mat;
 
   /* Localize tree to create links for reroute and mute. */
@@ -870,6 +874,11 @@ void GPU_material_output_light_shader(GPUMaterial *material, GPUNodeLink *link)
 bool GPU_material_has_light_shader_output(const GPUMaterial *mat)
 {
   return mat != nullptr && mat->has_light_shader_output;
+}
+
+bool GPU_material_is_outline_shell(const GPUMaterial *mat)
+{
+  return mat != nullptr && mat->is_outline_shell;
 }
 
 void GPU_material_glsl_light_shader_eval_set(GPUMaterial *material)

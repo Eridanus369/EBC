@@ -142,6 +142,7 @@ set(SRC
   nodes/node_shader_world_environment.cc
   nodes/node_shader_screenspace_info.cc
   nodes/node_shader_npr_light_info.cc
+  nodes/node_shader_output_outline_shell.cc
 
   node_shader_register.cc
   node_shader_tree.cc

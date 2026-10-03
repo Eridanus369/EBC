@@ -202,6 +202,36 @@ enum eMaterial_BlendFlag : char {
 };
 ENUM_OPERATORS(eMaterial_BlendFlag)
 
+/** #Material::outline_shell_render_method */
+enum eMaterial_OutlineShellRenderMethod : char {
+  MA_OUTLINE_SHELL_DEFERRED = 0,
+  MA_OUTLINE_SHELL_FORWARD = 1,
+};
+
+/** #Material::outline_shell_flag */
+enum eMaterial_OutlineShellFlag : char {
+  MA_OUTLINE_SHELL_CAST_SHADOW = 1 << 0,
+};
+
+/** #Material::outline_shell_cull_method */
+enum eMaterialCullMethod {
+  MA_SURFACE_CULL_NONE = 0,
+  MA_SURFACE_CULL_BACK = 1,
+  MA_SURFACE_CULL_FRONT = 2,
+};
+
+/** #Material::outline_shell_ztest_mode */
+enum eMaterialZTestMode {
+  MA_ZTEST_LESS_EQUAL = 0,
+  MA_ZTEST_LESS = 1,
+  MA_ZTEST_GREATER = 2,
+  MA_ZTEST_GREATER_EQUAL = 3,
+  MA_ZTEST_EQUAL = 4,
+  MA_ZTEST_NOT_EQUAL = 5,
+  MA_ZTEST_ALWAYS = 6,
+  MA_ZTEST_NEVER = 7,
+};
+
 /** #Material::blend_shadow */
 enum eMaterial_BlendShadow : char {
   MA_BS_NONE = 0,
@@ -479,6 +509,50 @@ struct Material {
   /** Grease pencil color. */
   struct MaterialGPencilStyle *gp_style = nullptr;
   struct MaterialLineArt lineart;
+
+  /* Outline shell surface. */
+  eMaterial_OutlineShellRenderMethod outline_shell_render_method = MA_OUTLINE_SHELL_DEFERRED;
+  char outline_shell_cull_method = MA_SURFACE_CULL_FRONT;
+  char outline_shell_ztest_mode = MA_ZTEST_LESS_EQUAL;
+  char outline_shell_depth_write = true;
+  char outline_shell_flag = 0;
+
+  char _pad4[11] = {};
 };
 
 }  // namespace blender
+
+#ifdef __cplusplus
+namespace blender {
+
+inline eMaterialCullMethod material_outline_shell_cull_method_get(const Material &material)
+{
+  switch (eMaterialCullMethod(material.outline_shell_cull_method)) {
+    case MA_SURFACE_CULL_NONE:
+    case MA_SURFACE_CULL_BACK:
+    case MA_SURFACE_CULL_FRONT:
+      return eMaterialCullMethod(material.outline_shell_cull_method);
+    default:
+      return MA_SURFACE_CULL_FRONT;
+  }
+}
+
+inline eMaterialZTestMode material_outline_shell_ztest_mode_get(const Material &material)
+{
+  switch (eMaterialZTestMode(material.outline_shell_ztest_mode)) {
+    case MA_ZTEST_LESS:
+    case MA_ZTEST_GREATER:
+    case MA_ZTEST_LESS_EQUAL:
+    case MA_ZTEST_GREATER_EQUAL:
+    case MA_ZTEST_EQUAL:
+    case MA_ZTEST_NOT_EQUAL:
+    case MA_ZTEST_ALWAYS:
+    case MA_ZTEST_NEVER:
+      return eMaterialZTestMode(material.outline_shell_ztest_mode);
+    default:
+      return MA_ZTEST_LESS_EQUAL;
+  }
+}
+
+}  // namespace blender
+#endif

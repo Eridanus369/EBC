@@ -214,7 +214,8 @@ GPUMaterialFromNodeTreeResult GPU_material_from_nodetree(
     bool deferred_compilation,
     GPUCodegenCallbackFn callback,
     void *thunk,
-    GPUMaterialPassReplacementCallbackFn pass_replacement_cb = nullptr);
+    GPUMaterialPassReplacementCallbackFn pass_replacement_cb = nullptr,
+    bool outline_shell = false);
 
 /* A callback passed to GPU_material_from_callbacks to construct the material graph by adding and
  * linking the necessary GPU material nodes. */
@@ -828,6 +829,8 @@ void GPU_material_output_thickness(GPUMaterial *material, GPUNodeLink *link);
 
 void GPU_material_output_light_shader(GPUMaterial *material, GPUNodeLink *link);
 bool GPU_material_has_light_shader_output(const GPUMaterial *mat);
+/* NPR: true when the graph is rooted at an Outline Shell Output node. */
+bool GPU_material_is_outline_shell(const GPUMaterial *mat);
 void GPU_material_glsl_light_shader_eval_set(GPUMaterial *material);
 bool GPU_material_has_glsl_light_shader_eval(const GPUMaterial *mat);
 void GPU_material_add_output_link_aov(GPUMaterial *material, GPUNodeLink *link, int hash);

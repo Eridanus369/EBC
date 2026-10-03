@@ -189,9 +189,19 @@ void SyncModule::sync_common(const ObjectHandle &ob_handle,
     has_shadow_offset |= mat_has_shadow_offset;
     has_time_dependent_shadows |= has_time_node && (material->has_transparent_shadows ||
                                                     has_displacement || mat_has_shadow_offset);
+    has_time_dependent_shadows |= material->outline_shell_shadow.gpumat != nullptr &&
+                                  GPU_material_flag_get(material->outline_shell_shadow.gpumat,
+                                                        GPU_MATFLAG_SCENE_TIME);
 
     if (has_displacement || mat_has_shadow_offset) {
       inflate_bounds = math::max(inflate_bounds, bl_material->inflate_bounds);
+    }
+    if (material->outline_shell_shading.gpumat != nullptr ||
+        material->outline_shell_shadow.gpumat != nullptr)
+    {
+      inflate_bounds = math::max(
+          inflate_bounds,
+          math::max(material->outline_shell_bounds_inflation, bl_material->inflate_bounds));
     }
 
     inst_.cryptomatte.sync_material(bl_material);
@@ -213,7 +223,27 @@ void SyncModule::sync_common(const ObjectHandle &ob_handle,
     inst_.manager->update_handle_bounds(ob_handle.res_handle, ob_handle, inflate_bounds);
   }
 
-  inst_.manager->extract_object_attributes(ob_handle.res_handle, ob_handle, gpu_materials);
+  /* Register attribute requests for the shell GPUMaterials as well, so the outline shell batches
+   * get the normals/attributes their vertex displacement reads. */
+  Vector<GPUMaterial *> attribute_materials;
+  attribute_materials.reserve(gpu_materials.size() + materials.size());
+  for (GPUMaterial *gpu_material : gpu_materials) {
+    attribute_materials.append(gpu_material);
+  }
+  for (const Material *material : materials) {
+    GPUMaterial *shell_gpumat = material->outline_shell_shading.gpumat;
+    if (shell_gpumat == nullptr) {
+      shell_gpumat = material->outline_shell_prepass.gpumat;
+    }
+    if (shell_gpumat == nullptr) {
+      shell_gpumat = material->outline_shell_shadow.gpumat;
+    }
+    if (shell_gpumat != nullptr) {
+      attribute_materials.append(shell_gpumat);
+    }
+  }
+
+  inst_.manager->extract_object_attributes(ob_handle.res_handle, ob_handle, attribute_materials);
 }
 
 /** \} */
@@ -243,6 +273,8 @@ void SyncModule::sync_mesh(const ObjectRef &ob_ref)
 
   Span<gpu::Batch *> mat_geom = DRW_cache_object_surface_material_get(
       ob_handle.object, material_array.gpu_materials);
+  Span<gpu::Batch *> mat_geom_shell = DRW_cache_object_surface_material_get(
+      ob_handle.object, material_array.gpu_materials_outline_shell);
   if (mat_geom.is_empty()) {
     return;
   }
@@ -278,6 +310,11 @@ void SyncModule::sync_mesh(const ObjectRef &ob_ref)
     sync_common_passes(material, [&](const MaterialPass &pass) {
       geometry_call(pass.sub_pass, geom, ob_handle.res_handle);
     });
+
+    gpu::Batch *geom_shell = (i < mat_geom_shell.size()) ? mat_geom_shell[i] : nullptr;
+    geometry_call(material.outline_shell_prepass.sub_pass, geom_shell, ob_handle.res_handle);
+    geometry_call(material.outline_shell_shading.sub_pass, geom_shell, ob_handle.res_handle);
+    geometry_call(material.outline_shell_shadow.sub_pass, geom_shell, ob_handle.res_handle);
 
     sync_alpha_blended_passes(ob_handle, material, [&](const MaterialPass &pass, int instance) {
       geometry_call(pass.sub_pass, geom, ob_handle.res_handle.sub_handle(instance));

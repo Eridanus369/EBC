@@ -1248,12 +1248,14 @@ void ShaderModule::material_create_info_amend(GPUMaterial *gpumat, GPUCodegenOut
   eMaterialDisplacement displacement_type;
   eMaterialThickness thickness_type;
   bool transparent_shadows;
+  bool outline_shell;
   material_type_from_shader_uuid(shader_uuid,
                                  pipeline_type,
                                  geometry_type,
                                  displacement_type,
                                  thickness_type,
-                                 transparent_shadows);
+                                 transparent_shadows,
+                                 outline_shell);
 
   GPUCodegenOutput &codegen = *codegen_;
   ShaderCreateInfo &info = *reinterpret_cast<ShaderCreateInfo *>(codegen.create_info);
@@ -1751,7 +1753,7 @@ void ShaderModule::material_create_info_amend(GPUMaterial *gpumat, GPUCodegenOut
       frag_gen << graph.serialized;
     }
 
-    if (!codegen.displacement.empty()) {
+    if (!codegen.displacement.empty() && !outline_shell) {
       /* Bump displacement. Needed to recompute normals after displacement. */
       info.define("MAT_DISPLACEMENT_BUMP");
 
@@ -1878,12 +1880,14 @@ static GPUPass *pass_replacement_cb(void *void_thunk, GPUMaterial *mat)
   eMaterialDisplacement displacement_type;
   eMaterialThickness thickness_type;
   bool transparent_shadows;
+  bool outline_shell;
   material_type_from_shader_uuid(shader_uuid,
                                  pipeline_type,
                                  geometry_type,
                                  displacement_type,
                                  thickness_type,
-                                 transparent_shadows);
+                                 transparent_shadows,
+                                 outline_shell);
 
   bool is_shadow_pass = pipeline_type == eMaterialPipeline::MAT_PIPE_SHADOW;
   bool is_prepass = ELEM(pipeline_type,
@@ -1901,10 +1905,11 @@ static GPUPass *pass_replacement_cb(void *void_thunk, GPUMaterial *mat)
   bool has_raytraced_transmission = blender_mat && (blender_mat->blend_flag & MA_BL_SS_REFRACTION);
   bool has_raycast = GPU_material_flag_get(mat, GPU_MATFLAG_RAYCAST);
 
-  bool can_use_default = (is_shadow_pass &&
-                          (!has_vertex_displacement && !has_shadow_transparency)) ||
-                         (is_prepass && (!has_vertex_displacement && !has_transparency &&
-                                         !has_raytraced_transmission && !has_raycast));
+  bool can_use_default = !outline_shell &&
+                         ((is_shadow_pass &&
+                           (!has_vertex_displacement && !has_shadow_transparency)) ||
+                          (is_prepass && (!has_vertex_displacement && !has_transparency &&
+                                          !has_raytraced_transmission && !has_raycast)));
   if (can_use_default) {
     GPUMaterial *mat = thunk->shader_module->material_shader_get(thunk->default_mat,
                                                                  thunk->default_mat->nodetree,
@@ -1942,13 +1947,22 @@ GPUMaterial *ShaderModule::material_shader_get(blender::Material *blender_mat,
                                                eMaterialPipeline pipeline_type,
                                                eMaterialGeometry geometry_type,
                                                bool deferred_compilation,
-                                               blender::Material *default_mat)
+                                               blender::Material *default_mat,
+                                               bool outline_shell)
 {
-  eMaterialDisplacement displacement_type = to_displacement_type(blender_mat->displacement_method);
+  /* Outline shells always displace along vertex normals in the vertex shader. */
+  eMaterialDisplacement displacement_type = outline_shell ?
+                                                MAT_DISPLACEMENT_VERTEX_WITH_BUMP :
+                                                to_displacement_type(
+                                                    blender_mat->displacement_method);
   eMaterialThickness thickness_type = to_thickness_type(blender_mat->thickness_mode);
 
-  uint64_t shader_uuid = shader_uuid_from_material_type(
-      pipeline_type, geometry_type, displacement_type, thickness_type, blender_mat->blend_flag);
+  uint64_t shader_uuid = shader_uuid_from_material_type(pipeline_type,
+                                                        geometry_type,
+                                                        displacement_type,
+                                                        thickness_type,
+                                                        blender_mat->blend_flag,
+                                                        outline_shell);
 
   bool is_default_material = default_mat == nullptr;
   BLI_assert(blender_mat != default_mat);
@@ -1966,7 +1980,8 @@ GPUMaterial *ShaderModule::material_shader_get(blender::Material *blender_mat,
       deferred_compilation,
       codegen_callback,
       &thunk,
-      is_default_material ? nullptr : pass_replacement_cb);
+      is_default_material ? nullptr : pass_replacement_cb,
+      outline_shell);
   store_node_tree_errors(material_from_tree);
   return material_from_tree.material;
 }

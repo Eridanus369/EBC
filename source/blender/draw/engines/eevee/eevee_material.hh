@@ -88,7 +88,8 @@ static inline void material_type_from_shader_uuid(uint64_t shader_uuid,
                                                   eMaterialGeometry &geometry_type,
                                                   eMaterialDisplacement &displacement_type,
                                                   eMaterialThickness &thickness_type,
-                                                  bool &transparent_shadows)
+                                                  bool &transparent_shadows,
+                                                  bool &outline_shell)
 {
   const uint64_t geometry_mask = ((1u << 4u) - 1u);
   const uint64_t pipeline_mask = ((1u << 4u) - 1u);
@@ -99,6 +100,7 @@ static inline void material_type_from_shader_uuid(uint64_t shader_uuid,
   displacement_type = static_cast<eMaterialDisplacement>((shader_uuid >> 8u) & displacement_mask);
   thickness_type = static_cast<eMaterialThickness>((shader_uuid >> 9u) & thickness_mask);
   transparent_shadows = (shader_uuid >> 10u) & 1u;
+  outline_shell = (shader_uuid >> 11u) & 1u;
 }
 
 static inline uint64_t shader_uuid_from_material_type(
@@ -106,7 +108,8 @@ static inline uint64_t shader_uuid_from_material_type(
     eMaterialGeometry geometry_type,
     eMaterialDisplacement displacement_type = MAT_DISPLACEMENT_BUMP,
     eMaterialThickness thickness_type = MAT_THICKNESS_SPHERE,
-    char blend_flags = 0)
+    char blend_flags = 0,
+    bool outline_shell = false)
 {
   BLI_assert(int64_t(displacement_type) < (1 << 1));
   BLI_assert(int64_t(thickness_type) < (1 << 1));
@@ -120,6 +123,7 @@ static inline uint64_t shader_uuid_from_material_type(
   uuid |= displacement_type << 8;
   uuid |= thickness_type << 9;
   uuid |= transparent_shadows << 10;
+  uuid |= uint64_t(outline_shell) << 11;
   return uuid;
 }
 
@@ -228,6 +232,29 @@ static inline eMaterialGeometry to_material_geometry(const Object *ob)
 }
 
 /**
+ * Explicit render state used to configure a surface pass, decoupled from which
+ * Material DNA fields it originates from (regular surface or outline shell).
+ * NOTE: depth write and z-test are currently fixed (write on, less-equal).
+ */
+struct SurfaceDrawState {
+  eMaterialCullMethod cull_method;
+  /* Skips the refraction layer and forces double-sided shadow casting. */
+  bool is_outline_shell;
+};
+
+static inline SurfaceDrawState surface_draw_state_body(const blender::Material &mat)
+{
+  return {(mat.blend_flag & MA_BL_CULL_BACKFACE) != 0 ? MA_SURFACE_CULL_BACK :
+                                                        MA_SURFACE_CULL_NONE,
+          false};
+}
+
+static inline SurfaceDrawState surface_draw_state_outline_shell(const blender::Material &mat)
+{
+  return {material_outline_shell_cull_method_get(mat), true};
+}
+
+/**
  * Unique key to identify each material in the hash-map.
  * This is above the shader binning.
  */
@@ -284,13 +311,16 @@ struct ShaderKey {
   ShaderKey(GPUMaterial *gpumat,
             blender::Material *blender_mat,
             eMaterialProbe probe_capture,
-            bool hide_from_raycast)
+            bool hide_from_raycast,
+            const SurfaceDrawState &state)
   {
     shader = GPU_material_get_shader(gpumat);
     options = uint64_t(shader_closure_bits_from_flag(gpumat));
     options = (options << 8) | blender_mat->blend_flag;
     options = (options << 2) | uint64_t(probe_capture);
     options = (options << 1) | (hide_from_raycast ? 1 : 0);
+    options = (options << 2) | uint64_t(state.cull_method);
+    options = (options << 1) | (state.is_outline_shell ? 1 : 0);
   }
 
   uint64_t hash() const
@@ -325,6 +355,12 @@ struct Material {
   MaterialPass shading;
   MaterialPass prepass;
   MaterialPass capture;
+  MaterialPass outline_shell_prepass;
+  MaterialPass outline_shell_shading;
+  MaterialPass outline_shell_shadow;
+  /* Absolute unlinked Strength value of the Outline Shell Output node.
+   * Used to inflate the object bounds for vertex offsets. */
+  float outline_shell_bounds_inflation = 0.0f;
   MaterialPass lightprobe_sphere_prepass;
   MaterialPass lightprobe_sphere_shading;
   MaterialPass planar_probe_prepass;
@@ -341,6 +377,8 @@ struct Material {
 struct MaterialArray {
   Vector<Material> materials;
   Vector<GPUMaterial *> gpu_materials;
+  /* Aligned with gpu_materials; nullptr for slots without an Outline Shell Output node. */
+  Vector<GPUMaterial *> gpu_materials_outline_shell;
 };
 
 class MaterialModule {
@@ -414,7 +452,9 @@ class MaterialModule {
                                  blender::Material *blender_mat,
                                  eMaterialPipeline pipeline_type,
                                  eMaterialGeometry geometry_type,
-                                 eMaterialProbe probe_capture = MAT_PROBE_NONE);
+                                 eMaterialProbe probe_capture = MAT_PROBE_NONE,
+                                 const SurfaceDrawState *state_override = nullptr,
+                                 bool outline_shell = false);
 
   ShaderGroups default_materials_load(bool block_until_ready = false);
 };
