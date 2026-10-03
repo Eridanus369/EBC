@@ -55,9 +55,11 @@ void OutlineModule::sync()
   const bool previous_use_in_combined = use_in_combined_;
   const bool scene_outline_enabled = inst_.scene->eevee.use_outline != 0;
   const bool has_outline_materials = scene_outline_enabled && has_visible_outline_materials_;
-  /* TODO(NPR slice C): public Outline render pass / AOV switch. For now the result is only used
-   * for the combined image. */
-  const bool public_pass_enabled = false;
+  /* The outline is delivered in its own render pass when the public pass is requested, and is
+   * left out of the combined image in that case. */
+  const bool public_pass_enabled =
+      ((inst_.view_layer->eevee.render_passes & EEVEE_RENDER_PASS_OUTLINE) != 0) ||
+      inst_.render_buffers.data.outline_id != -1;
   const bool use_in_combined = !public_pass_enabled;
   enabled_ = scene_outline_enabled && has_outline_materials &&
              (GPU_max_images() > OUTLINE_INFO_SLOT) && (use_in_combined || public_pass_enabled);
@@ -261,14 +263,17 @@ void OutlineModule::render(View &view, int2 extent)
   drw.submit(resolve_ps_, view);
   GPU_memory_barrier(GPU_BARRIER_FRAMEBUFFER | GPU_BARRIER_TEXTURE_FETCH);
 
-  /* Composite the resolved outline onto the combined color buffer. */
-  composite_dispatch_size_ = int3((extent.x + OUTLINE_JFA_STEP_GROUP_SIZE - 1) /
-                                      OUTLINE_JFA_STEP_GROUP_SIZE,
-                                  (extent.y + OUTLINE_JFA_STEP_GROUP_SIZE - 1) /
-                                      OUTLINE_JFA_STEP_GROUP_SIZE,
-                                  1);
-  drw.submit(composite_ps_);
-  GPU_memory_barrier(GPU_BARRIER_SHADER_IMAGE_ACCESS | GPU_BARRIER_TEXTURE_FETCH);
+  /* Composite the resolved outline onto the combined color buffer, unless the outline is
+   * delivered in its own public render pass. */
+  if (use_in_combined_) {
+    composite_dispatch_size_ = int3((extent.x + OUTLINE_JFA_STEP_GROUP_SIZE - 1) /
+                                        OUTLINE_JFA_STEP_GROUP_SIZE,
+                                    (extent.y + OUTLINE_JFA_STEP_GROUP_SIZE - 1) /
+                                        OUTLINE_JFA_STEP_GROUP_SIZE,
+                                    1);
+    drw.submit(composite_ps_);
+    GPU_memory_barrier(GPU_BARRIER_SHADER_IMAGE_ACCESS | GPU_BARRIER_TEXTURE_FETCH);
+  }
 
   edge_seed_tx_.current().release();
   edge_seed_tx_.previous().release();

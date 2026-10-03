@@ -363,6 +363,10 @@ void Film::init(const int2 &extent, const rcti *output_rect)
     /* Filter obsolete passes. */
     enabled_passes_ &= ~(EEVEE_RENDER_PASS_UNUSED_8 | EEVEE_RENDER_PASS_UNUSED_14);
 
+    if (!scene.eevee.use_outline) {
+      enabled_passes_ &= ~EEVEE_RENDER_PASS_OUTLINE;
+    }
+
     if (scene.r.mode & R_MBLUR) {
       /* Disable motion vector pass if motion blur is enabled. */
       enabled_passes_ &= ~EEVEE_RENDER_PASS_VECTOR;
@@ -535,6 +539,7 @@ void Film::init(const int2 &extent, const rcti *output_rect)
     data_.shadow_id = pass_index_get(EEVEE_RENDER_PASS_SHADOW);
     data_.ambient_occlusion_id = pass_index_get(EEVEE_RENDER_PASS_AO);
     data_.transparent_id = pass_index_get(EEVEE_RENDER_PASS_TRANSPARENT);
+    outline_id_ = pass_index_get(EEVEE_RENDER_PASS_OUTLINE);
 
     data_.denoising_depth_id = pass_index_get(EEVEE_RENDER_PASS_DENOISING_DEPTH);
     data_.denoising_normal_id = pass_index_get(EEVEE_RENDER_PASS_DENOISING_NORMAL);
@@ -571,6 +576,7 @@ void Film::init(const int2 &extent, const rcti *output_rect)
     reset += depth_tx_.ensure_2d(depth_format, data_.extent);
     reset += combined_tx_.current().ensure_2d(color_format, data_.extent);
     reset += combined_tx_.next().ensure_2d(color_format, data_.extent);
+    reset += dummy_outline_tx_.ensure_2d(color_format, int2(1));
     /* Two layers, one for nearest sample weight and one for weight accumulation. */
     reset += weight_tx_.current().ensure_2d_array(weight_format, weight_extent, 2);
     reset += weight_tx_.next().ensure_2d_array(weight_format, weight_extent, 2);
@@ -599,6 +605,7 @@ void Film::init(const int2 &extent, const rcti *output_rect)
       color_accum_tx_.clear(float4(0.0f));
       value_accum_tx_.clear(float4(0.0f));
       combined_tx_.current().clear(float4(0.0f));
+      dummy_outline_tx_.clear(float4(0.0f));
       weight_tx_.current().clear(float4(0.0f));
       depth_tx_.clear(float4(0.0f));
       cryptomatte_tx_.clear(float4(0.0f));
@@ -683,6 +690,7 @@ void Film::init_pass(PassSimple &pass, gpu::Shader *sh)
   pass.specialize_constant(sh, "combined_id", &data_.combined_id);
   pass.specialize_constant(sh, "display_id", &data_.display_id);
   pass.specialize_constant(sh, "normal_id", &data_.normal_id);
+  pass.specialize_constant(sh, "outline_id", &outline_id_);
   pass.state_set(DRW_STATE_WRITE_COLOR | DRW_STATE_WRITE_DEPTH | DRW_STATE_DEPTH_ALWAYS);
   pass.shader_set(sh);
   /* For viewport, only previous motion is supported.
@@ -699,6 +707,7 @@ void Film::init_pass(PassSimple &pass, gpu::Shader *sh)
   pass.bind_texture("rp_color_tx", &rbuffers.rp_color_tx);
   pass.bind_texture("rp_value_tx", &rbuffers.rp_value_tx);
   pass.bind_texture("cryptomatte_tx", &rbuffers.cryptomatte_tx);
+  pass.bind_texture("outline_resolved_tx", &outline_resolved_input_tx_);
   /* NOTE(@fclem): 16 is the max number of sampled texture in many implementations.
    * If we need more, we need to pack more of the similar passes in the same textures as arrays or
    * use image binding instead. */
@@ -944,6 +953,10 @@ void Film::accumulate(View &view, gpu::Texture *combined_final_tx)
 
   combined_final_tx_ = combined_final_tx;
 
+  /* Refresh the outline input binding: the resolved texture is transient and may have been
+   * released when the module is disabled. The dummy keeps the fetch well-defined. */
+  outline_resolved_input_tx_ = inst_.outline.resolved_texture_or(dummy_outline_tx_.gpu_texture());
+
   display_only_ = false;
   inst_.manager->submit(accumulate_ps_, view);
 
@@ -971,6 +984,9 @@ void Film::display()
   GPU_framebuffer_viewport_set(dfbl->default_fb, UNPACK2(data_.offset), UNPACK2(data_.extent));
 
   combined_final_tx_ = inst_.render_buffers.combined_tx;
+  /* The outline result is transient; refresh the optional binding so the display-only pass never
+   * reads a dangling texture pointer. */
+  outline_resolved_input_tx_ = inst_.outline.resolved_texture_or(dummy_outline_tx_.gpu_texture());
 
   draw::View &drw_view = draw::View::default_get();
 

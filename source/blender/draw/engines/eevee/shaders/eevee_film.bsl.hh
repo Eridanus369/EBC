@@ -169,6 +169,7 @@ struct Film {
   [[specialization_constant(0)]] int combined_id;
   [[specialization_constant(-1)]] int display_id;
   [[specialization_constant(-1)]] int normal_id;
+  [[specialization_constant(-1)]] int outline_id;
 
   [[compilation_constant]] bool use_panoramic;
 
@@ -179,6 +180,7 @@ struct Film {
   [[sampler(3)]] sampler2DArray rp_color_tx;
   [[sampler(4)]] sampler2DArray rp_value_tx;
   [[sampler(6)]] sampler2D cryptomatte_tx;
+  [[sampler(7)]] sampler2D outline_resolved_tx;
 
   /* Color History for TAA needs to be sampler to leverage bilinear sampling. */
   [[sampler(5)]] sampler2D in_combined_tx;
@@ -1093,6 +1095,19 @@ struct Film {
       }
       /* NOTE: src.texel is center texel in incoming data buffer. */
       store_combined(dst, src.texel, combined_accum, weight_accum, out_color);
+    }
+
+    if (outline_id != -1) {
+      /* Accumulate the resolved screen-space outline with the same filter weights. The bound
+       * texture is a cleared dummy when the outline module produced no result. */
+      float4 outline_accum = float4(0.0f);
+
+      FilmSample src;
+      for (int i = samples_len - 1; i >= 0; i--) {
+        src = sample_get(i, texel_film, panoramic_sample);
+        outline_accum += texelFetch(outline_resolved_tx, src.texel, 0) * src.weight;
+      }
+      store_color(dst, outline_id, outline_accum, out_color, false);
     }
 
     if (flag_test(enabled_categories, PASS_CATEGORY_DATA)) {

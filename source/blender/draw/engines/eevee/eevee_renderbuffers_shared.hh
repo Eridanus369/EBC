@@ -48,6 +48,7 @@ struct [[host_shared]] RenderBuffersInfoData {
   int emission_id;
   int environment_id;
   int transparent_id;
+  int outline_id;
   int denoising_normal_id;
   int denoising_diffuse_albedo_id;
   int denoising_specular_albedo_id;
@@ -57,7 +58,6 @@ struct [[host_shared]] RenderBuffersInfoData {
   int ambient_occlusion_id;
   int denoising_depth_id;
   int denoising_roughness_id;
-  int _pad0;
 };
 
 #ifndef GPU_SHADER

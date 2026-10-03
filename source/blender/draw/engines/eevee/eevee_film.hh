@@ -99,6 +99,12 @@ class Film {
   SwapChain<Texture, 2> weight_tx_;
   /** Denoising depth accumulation texture. Separated because using a different format. */
   Texture denoising_depth_tx_;
+  /** Dummy texture bound when no outline input is available. */
+  Texture dummy_outline_tx_ = {"dummy_outline_tx"};
+  /** Resolved outline texture bound to the accumulation pass (dummy when unavailable). */
+  gpu::Texture *outline_resolved_input_tx_ = nullptr;
+  /** Layer offset of the outline pass in the color accumulation texture. -1 if disabled. */
+  int outline_id_ = -1;
 
   PassSimple accumulate_ps_ = {"Film.Accumulate"};
   PassSimple copy_ps_ = {"Film.Copy"};
@@ -238,7 +244,8 @@ class Film {
            !ELEM(pass_type,
                  EEVEE_RENDER_PASS_COMBINED,
                  EEVEE_RENDER_PASS_VECTOR,
-                 EEVEE_RENDER_PASS_TRANSPARENT);
+                 EEVEE_RENDER_PASS_TRANSPARENT,
+                 EEVEE_RENDER_PASS_OUTLINE);
   }
 
   /* Returns layer offset in the accumulation texture. -1 if the pass is not enabled. */
@@ -277,6 +284,8 @@ class Film {
         return data_.ambient_occlusion_id;
       case EEVEE_RENDER_PASS_TRANSPARENT:
         return data_.transparent_id;
+      case EEVEE_RENDER_PASS_OUTLINE:
+        return outline_id_;
       case EEVEE_RENDER_PASS_CRYPTOMATTE_OBJECT:
         return data_.cryptomatte_object_id;
       case EEVEE_RENDER_PASS_CRYPTOMATTE_ASSET:
@@ -363,6 +372,9 @@ class Film {
         break;
       case EEVEE_RENDER_PASS_TRANSPARENT:
         result.append(RE_PASSNAME_TRANSPARENT);
+        break;
+      case EEVEE_RENDER_PASS_OUTLINE:
+        result.append(RE_PASSNAME_OUTLINE);
         break;
       case EEVEE_RENDER_PASS_CRYPTOMATTE_OBJECT:
         build_cryptomatte_passes(RE_PASSNAME_CRYPTOMATTE_OBJECT);
