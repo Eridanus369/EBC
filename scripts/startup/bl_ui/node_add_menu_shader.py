@@ -66,6 +66,13 @@ def object_or_npr_eevee_shader_nodes_poll(context):
     return object_eevee_shader_nodes_poll(context)
 
 
+def glsl_eevee_shader_nodes_poll(context):
+    snode = context.space_data
+    return (eevee_shader_nodes_poll(context) and
+            snode.tree_type == 'ShaderNodeTree' and
+            snode.shader_type in {'OBJECT', 'WORLD'})
+
+
 class NODE_MT_shader_node_input_base(node_add_menu.NodeMenu):
     bl_label = "Input"
 
@@ -79,10 +86,11 @@ class NODE_MT_shader_node_input_base(node_add_menu.NodeMenu):
         self.node_operator(layout, "ShaderNodeBevel", poll=object_material_shader_nodes_poll(context))
         self.node_operator(layout, "ShaderNodeCurvature", poll=object_material_shader_nodes_poll(context))
         self.node_operator(layout, "ShaderNodeRenderInfo", poll=object_material_shader_nodes_poll(context))
-        self.node_operator(layout, "ShaderNodeGLSLFunction", poll=object_or_npr_eevee_shader_nodes_poll(context))
-        self.node_operator(layout, "ShaderNodeScriptExpression", poll=object_or_npr_eevee_shader_nodes_poll(context))
+        self.node_operator(layout, "ShaderNodeGLSLFunction", poll=glsl_eevee_shader_nodes_poll(context))
+        self.node_operator(layout, "ShaderNodeScriptExpression", poll=glsl_eevee_shader_nodes_poll(context))
         self.node_operator(layout, "ShaderNodeLightProbeColor", poll=object_or_npr_eevee_shader_nodes_poll(context))
         self.node_operator(layout, "ShaderNodeWorldEnvironment", poll=object_or_npr_eevee_shader_nodes_poll(context))
+        self.node_operator(layout, "ShaderNodeEeveeLightShaderInfo", label="Light Shader Info", poll=object_light_shader_nodes_poll(context))
         self.node_operator(layout, "ShaderNodeScreenspaceInfo", poll=object_material_shader_nodes_poll(context))
         self.node_operator(layout, "ShaderNodeNPRLightInfo", poll=object_material_shader_nodes_poll(context))
         self.node_operator_with_outputs(
@@ -198,8 +206,12 @@ class NODE_MT_shader_node_output_base(node_add_menu.NodeMenu):
     def draw(self, context):
         layout = self.layout
 
-        # EBC 没有 light shader editor 切换，暂时不显示 Light Shader Output
-        # （Light shader 目前通过 Light 数据块的 node_tree 独立编辑）
+        self.node_operator(
+            layout,
+            "ShaderNodeEeveeLightShaderOutput",
+            label="Light Shader Output",
+            poll=object_light_shader_nodes_poll(context),
+        )
         self.node_operator(
             layout,
             "ShaderNodeOutputAOV",
