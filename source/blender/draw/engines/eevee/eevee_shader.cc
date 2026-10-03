@@ -195,6 +195,14 @@ ShaderGroups ShaderModule::static_shaders_load(const ShaderGroups request_bits,
     request(IRRADIANCE_BAKE_SHADERS, AS_SPAN(shader_list));
   }
   {
+    const eShaderType shader_list[] = {OUTLINE_DETECT,
+                                       OUTLINE_FACTOR_BLUR,
+                                       OUTLINE_JFA_INIT,
+                                       OUTLINE_JFA_STEP,
+                                       OUTLINE_RESOLVE};
+    request(OUTLINE_SHADERS, AS_SPAN(shader_list));
+  }
+  {
     const eShaderType shader_list[] = {MOTION_BLUR_GATHER,
                                        MOTION_BLUR_TILE_DILATE,
                                        MOTION_BLUR_TILE_FLATTEN_RGBA,
@@ -572,6 +580,16 @@ const char *ShaderModule::static_shader_create_info_name_get(eShaderType shader_
       return "eevee_surfel_ray";
     case TRANSPARENCY_RESOLVE:
       return "eevee_forward_resolve";
+    case OUTLINE_DETECT:
+      return "eevee_outline_detect";
+    case OUTLINE_FACTOR_BLUR:
+      return "eevee_outline_factor_blur";
+    case OUTLINE_JFA_INIT:
+      return "eevee_outline_jfa_init";
+    case OUTLINE_JFA_STEP:
+      return "eevee_outline_jfa_step";
+    case OUTLINE_RESOLVE:
+      return "eevee_outline_resolve";
     case VERTEX_COPY:
       return "eevee_vertex_copy";
     case VOLUME_INTEGRATION:

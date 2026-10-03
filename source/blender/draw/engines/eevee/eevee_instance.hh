@@ -46,6 +46,7 @@
 #include "eevee_motion_blur.hh"
 #include "eevee_pipeline.hh"
 #include "eevee_raytrace.hh"
+#include "eevee_outline.hh"
 #include "eevee_renderbuffers.hh"
 #include "eevee_sampling.hh"
 #include "eevee_shader.hh"
@@ -129,6 +130,7 @@ class Instance : public DrawEngine {
   Camera camera;
   Film film;
   RenderBuffers render_buffers;
+  OutlineModule outline;
   MainView main_view;
   CaptureView capture_view;
   World world;
@@ -216,6 +218,7 @@ class Instance : public DrawEngine {
         camera(*this, uniform_data.data.camera),
         film(*this, uniform_data.data.film),
         render_buffers(*this, uniform_data.data.render_pass),
+        outline(*this),
         main_view(*this),
         capture_view(*this),
         world(*this),

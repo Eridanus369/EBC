@@ -271,6 +271,14 @@ void SyncModule::sync_mesh(const ObjectRef &ob_ref)
 
   MaterialArray &material_array = inst_.materials.material_array_get(ob_handle, has_motion);
 
+  /* NPR: mark presence of a visible material with an Outline Control node. */
+  for (GPUMaterial *gpumat : material_array.gpu_materials) {
+    if (gpumat != nullptr && GPU_material_has_outline_output(gpumat)) {
+      inst_.outline.sync_object_marker();
+      break;
+    }
+  }
+
   Span<gpu::Batch *> mat_geom = DRW_cache_object_surface_material_get(
       ob_handle.object, material_array.gpu_materials);
   Span<gpu::Batch *> mat_geom_shell = DRW_cache_object_surface_material_get(

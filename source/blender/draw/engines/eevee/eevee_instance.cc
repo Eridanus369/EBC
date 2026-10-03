@@ -260,6 +260,7 @@ void Instance::init(const int2 &output_res,
   SET_FLAG_FROM_TEST(shader_request, motion_blur.postfx_enabled(), MOTION_BLUR_SHADERS);
   SET_FLAG_FROM_TEST(shader_request, raytracing.use_fast_gi(), FAST_GI_SHADERS);
   SET_FLAG_FROM_TEST(shader_request, raytracing.use_raytracing(), RAYTRACING_SHADERS);
+  SET_FLAG_FROM_TEST(shader_request, scene->eevee.use_outline != 0, OUTLINE_SHADERS);
 
   loaded_shaders = ShaderGroups::NONE;
   loaded_shaders |= shaders.static_shaders_load_async(shader_request);
@@ -376,6 +377,7 @@ void Instance::begin_sync()
   }
 
   materials.begin_sync();
+  outline.begin_sync();
   velocity.begin_sync(); /* NOTE: Also syncs camera. */
   lights.begin_sync();
   shadows.begin_sync();
@@ -503,6 +505,7 @@ void Instance::end_sync()
   film.end_sync();
   cryptomatte.end_sync();
   pipelines.end_sync();
+  outline.sync();
   light_probes.end_sync();
   sphere_probes.end_sync();
   planar_probes.end_sync();

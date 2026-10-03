@@ -152,7 +152,12 @@ void ShadingView::render()
     inst_.pipelines.background.render(render_view_, combined_fb_);
   }
 
-  inst_.gbuffer.release();
+  /* NPR: the outline detect pass reads the deferred GBuffer (surface normals). Keep it alive
+   * until after the outline pass when outline is enabled; release it right away otherwise. */
+  const bool defer_gbuffer_release_for_outline = inst_.outline.enabled();
+  if (!defer_gbuffer_release_for_outline) {
+    inst_.gbuffer.release();
+  }
 
   inst_.volume.draw_compute(main_view_, extent_);
 
@@ -162,6 +167,12 @@ void ShadingView::render()
 
   inst_.pipelines.forward.render(
       render_view_, rbufs.depth_tx, prepass_fb_, transparent_fb_, combined_fb_, extent_);
+
+  /* NPR: screen-space outline post-process (detect -> blur -> JFA -> resolve). */
+  inst_.outline.render(render_view_, extent_);
+  if (defer_gbuffer_release_for_outline) {
+    inst_.gbuffer.release();
+  }
 
   inst_.lights.shape_display_draw(render_view_, combined_fb_);
 
@@ -174,6 +185,8 @@ void ShadingView::render()
 
   gpu::Texture *combined_final_tx = render_postfx(rbufs.combined_tx);
   inst_.film.accumulate(jitter_view_, combined_final_tx);
+
+  inst_.outline.release_result();
 
   rbufs.release();
   postfx_tx_.release();

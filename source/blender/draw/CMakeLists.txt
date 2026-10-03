@@ -122,6 +122,7 @@ set(SRC
   engines/eevee/eevee_lut.cc
   engines/eevee/eevee_material.cc
   engines/eevee/eevee_motion_blur.cc
+  engines/eevee/eevee_outline.cc
   engines/eevee/eevee_pipeline.cc
   engines/eevee/eevee_precompute.cc
   engines/eevee/eevee_raytrace.cc
@@ -464,6 +465,7 @@ set(GLSL_SRC
   engines/eevee/shaders/eevee_occupancy_lib.bsl.hh
   engines/eevee/shaders/eevee_octahedron_lib.bsl.hh
   engines/eevee/shaders/eevee_outline.bsl.hh
+  engines/eevee/shaders/eevee_outline_post.bsl.hh
   engines/eevee/shaders/eevee_pipeline.bsl.hh
   engines/eevee/shaders/eevee_ray_denoise.bsl.hh
   engines/eevee/shaders/eevee_ray_generate.bsl.hh
