@@ -97,6 +97,12 @@ void OutlineModule::sync()
   resolve_ps_.bind_texture("outline_info_tx", &inst_.render_buffers.outline_info_tx);
   resolve_ps_.bind_texture("jfa_tx", &jfa_tx_.previous());
   resolve_ps_.draw_procedural(GPU_PRIM_TRIS, 1, 3);
+
+  composite_ps_.init();
+  composite_ps_.shader_set(inst_.shaders.static_shader_get(OUTLINE_COMPOSITE));
+  composite_ps_.bind_texture("outline_resolved_tx", &resolved_outline_tx_);
+  composite_ps_.bind_image("combined_img", &inst_.render_buffers.combined_tx);
+  composite_ps_.dispatch(&composite_dispatch_size_);
 }
 
 void OutlineModule::render(View &view, int2 extent)
@@ -203,6 +209,15 @@ void OutlineModule::render(View &view, int2 extent)
   GPU_framebuffer_bind(resolve_fb_);
   drw.submit(resolve_ps_, view);
   GPU_memory_barrier(GPU_BARRIER_FRAMEBUFFER | GPU_BARRIER_TEXTURE_FETCH);
+
+  /* Composite the resolved outline onto the combined color buffer. */
+  composite_dispatch_size_ = int3((extent.x + OUTLINE_JFA_STEP_GROUP_SIZE - 1) /
+                                      OUTLINE_JFA_STEP_GROUP_SIZE,
+                                  (extent.y + OUTLINE_JFA_STEP_GROUP_SIZE - 1) /
+                                      OUTLINE_JFA_STEP_GROUP_SIZE,
+                                  1);
+  drw.submit(composite_ps_);
+  GPU_memory_barrier(GPU_BARRIER_SHADER_IMAGE_ACCESS | GPU_BARRIER_TEXTURE_FETCH);
 
   edge_seed_tx_.current().release();
   edge_seed_tx_.previous().release();

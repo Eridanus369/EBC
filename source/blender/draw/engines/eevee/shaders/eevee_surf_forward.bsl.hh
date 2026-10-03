@@ -111,6 +111,9 @@ void surf_forward([[resource_table]] PipelineConstants &pipe,
                   [[resource_table]] LightEvalIterator & /*lights*/,
                   [[resource_table]] LightprobeRenderData & /*lightprobes*/,
                   [[resource_table]] LightprobePlaneRenderData & /*lightprobe_planes*/,
+#  if defined(MAT_OUTLINE_OUTPUT)
+                  [[resource_table]] eevee::OutlineOutput & /*outline*/,
+#  endif
                   [[resource_table]] const draw::View &views,
                   [[resource_table]] const draw::Model & /*models*/,
                   [[resource_table]] const draw::Infos & /*infos*/,

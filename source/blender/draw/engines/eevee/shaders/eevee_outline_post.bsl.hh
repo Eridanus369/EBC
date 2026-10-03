@@ -585,6 +585,40 @@ void resolve_frag([[resource_table]] const ResolveResources &srt,
 
 /** \} */
 
+/* -------------------------------------------------------------------- */
+/** \name Composite pass (compute)
+ *
+ * Alpha-over the resolved outline onto the combined color buffer. Runs before film accumulation
+ * so temporal accumulation / scaling still applies to the composited result. \{ */
+
+struct CompositeResources {
+  [[sampler(0)]] sampler2D outline_resolved_tx;
+  [[image(0, read_write, SFLOAT_16_16_16_16)]] image2D combined_img;
+};
+
+[[compute, local_size(OUTLINE_JFA_STEP_GROUP_SIZE, OUTLINE_JFA_STEP_GROUP_SIZE)]]
+void composite_comp([[resource_table]] const CompositeResources &srt,
+                    [[global_invocation_id]] const uint3 global_id)
+{
+  const int2 texel = int2(global_id.xy);
+  const int2 extent = imageSize(srt.combined_img);
+  if (any(greaterThanEqual(texel, extent))) {
+    return;
+  }
+
+  const float4 outline_color = texelFetch(srt.outline_resolved_tx, texel, 0);
+  const float alpha = saturate(outline_color.a);
+  if (alpha <= 0.0f) {
+    return;
+  }
+
+  float4 combined = imageLoadFast(srt.combined_img, texel);
+  combined.rgb = outline_color.rgb * alpha + combined.rgb * (1.0f - alpha);
+  imageStoreFast(srt.combined_img, texel, combined);
+}
+
+/** \} */
+
 }  // namespace eevee::outline
 
 PipelineGraphic eevee_outline_detect(eevee::outline::fullscreen_vert,
@@ -596,3 +630,4 @@ PipelineGraphic eevee_outline_jfa_init(eevee::outline::fullscreen_vert,
 PipelineCompute eevee_outline_jfa_step(eevee::outline::jfa_step_comp);
 PipelineGraphic eevee_outline_resolve(eevee::outline::fullscreen_vert,
                                       eevee::outline::resolve_frag);
+PipelineCompute eevee_outline_composite(eevee::outline::composite_comp);

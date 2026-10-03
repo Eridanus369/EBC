@@ -132,6 +132,9 @@ void surf_hybrid([[resource_table]] PipelineConstants &pipe,
                  [[resource_table]] LightprobeRenderData & /*lightprobes*/,
                  [[resource_table]] LightprobePlaneRenderData & /*lightprobe_planes*/,
                  [[resource_table]] CryptomatteOutput &cryptomatte,
+#  if defined(MAT_OUTLINE_OUTPUT)
+                 [[resource_table]] eevee::OutlineOutput & /*outline*/,
+#  endif
                  [[resource_table]] RenderPassOutput &render_passes,
                  [[resource_table]] const draw::View &views,
                  [[resource_table]] const draw::Infos & /*infos*/,

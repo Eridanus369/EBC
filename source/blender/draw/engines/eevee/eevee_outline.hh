@@ -33,6 +33,7 @@ class OutlineModule {
   PassSimple jfa_init_ps_ = {"Outline.JFA.Init"};
   PassSimple jfa_step_ps_ = {"Outline.JFA.Step"};
   PassSimple resolve_ps_ = {"Outline.Resolve"};
+  PassSimple composite_ps_ = {"Outline.Composite"};
 
   Framebuffer detect_fb_ = {"Outline.Detect.FB"};
   Framebuffer factor_blur_fb_ = {"Outline.FactorBlur.FB"};
@@ -47,6 +48,7 @@ class OutlineModule {
 
   int jfa_step_size_ = 1;
   int3 jfa_dispatch_size_ = int3(1);
+  int3 composite_dispatch_size_ = int3(1);
 
  public:
   OutlineModule(Instance &inst) : inst_(inst) {}

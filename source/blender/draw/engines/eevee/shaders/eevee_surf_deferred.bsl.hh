@@ -96,6 +96,9 @@ DeferredFragOut surf_deferred_impl([[resource_table]] PipelineConstants &pipe,
                                    [[resource_table]] gbuffer::PackParameters &gbuf_params,
                                    [[resource_table]] RenderPassOutput &render_passes,
                                    [[resource_table]] CryptomatteOutput &cryptomatte,
+#  if defined(MAT_OUTLINE_OUTPUT)
+                                   [[resource_table]] eevee::OutlineOutput & /*outline*/,
+#  endif
                                    [[resource_table]] const draw::Infos &infos,
                                    [[resource_table]] const draw::View &views,
                                    [[resource_table]] const Uniform &uni,
@@ -248,6 +251,9 @@ void surf_deferred([[resource_table]] PipelineConstants &pipe,
                    [[resource_table]] gbuffer::PackParameters &gbuf_params,
                    [[resource_table]] RenderPassOutput &render_passes,
                    [[resource_table]] CryptomatteOutput &cryptomatte,
+#  if defined(MAT_OUTLINE_OUTPUT)
+                   [[resource_table]] eevee::OutlineOutput &outline,
+#  endif
                    [[resource_table]] const draw::Infos &infos,
                    [[resource_table]] const draw::View &views,
                    [[resource_table]] const Uniform &uni,
@@ -262,6 +268,9 @@ void surf_deferred([[resource_table]] PipelineConstants &pipe,
                                               gbuf_params,
                                               render_passes,
                                               cryptomatte,
+#  if defined(MAT_OUTLINE_OUTPUT)
+                                              outline,
+#  endif
                                               infos,
                                               views,
                                               uni,
@@ -283,6 +292,9 @@ void surf_deferred_lightprobe([[resource_table]] PipelineConstants &pipe,
                               [[resource_table]] eevee::LightprobeRenderData & /*lightprobes*/,
                               [[resource_table]] RenderPassOutput &render_passes,
                               [[resource_table]] CryptomatteOutput &cryptomatte,
+#  if defined(MAT_OUTLINE_OUTPUT)
+                              [[resource_table]] eevee::OutlineOutput & /*outline*/,
+#  endif
                               [[resource_table]] const draw::Infos &infos,
                               [[resource_table]] const draw::View &views,
                               [[resource_table]] const Uniform &uni,
@@ -297,6 +309,9 @@ void surf_deferred_lightprobe([[resource_table]] PipelineConstants &pipe,
                                               gbuf_params,
                                               render_passes,
                                               cryptomatte,
+#  if defined(MAT_OUTLINE_OUTPUT)
+                                              outline,
+#  endif
                                               infos,
                                               views,
                                               uni,
