@@ -70,6 +70,8 @@ enum GPUNodeTag {
   GPU_NODE_TAG_LIGHT_SHADER = (1 << 7),
   /* NPR: Outline Control node side-outputs (screen-space outline pass). */
   GPU_NODE_TAG_OUTLINE = (1 << 8),
+  /* NPR: Eevee fullscreen filter material outputs. */
+  GPU_NODE_TAG_FILTER = (1 << 9),
 };
 
 ENUM_OPERATORS(GPUNodeTag)
@@ -222,6 +224,10 @@ struct GPUNodeGraph {
   GPUNodeLink *outlink_displacement;
   GPUNodeLink *outlink_thickness;
   GPUNodeLink *outlink_light_shader;
+  /* NPR: Single output link of the active Filter Output node of a filter material. */
+  GPUNodeLink *outlink_filter;
+  /* NPR: All outputs of Filter Output nodes (hash is the output item identifier). */
+  ListBaseT<GPUNodeGraphOutputLink> outlink_filters;
   /* List of GPUNodeGraphOutputLink */
   ListBaseT<GPUNodeGraphOutputLink> outlink_aovs;
   /* NPR: List of GPUNodeGraphOutputLink (Outline Control nodes). */

@@ -1280,12 +1280,14 @@ void gpu_node_graph_free_nodes(GPUNodeGraph *graph)
   graph->outlink_displacement = nullptr;
   graph->outlink_thickness = nullptr;
   graph->outlink_light_shader = nullptr;
+  graph->outlink_filter = nullptr;
 }
 
 void gpu_node_graph_free(GPUNodeGraph *graph)
 {
   graph->outlink_aovs.free_no_destruct();
   graph->outlink_outlines.free_no_destruct();
+  graph->outlink_filters.free_no_destruct();
   while (GPUNodeGraphFunctionLink *func_link = static_cast<GPUNodeGraphFunctionLink *>(
              BLI_pophead(&graph->material_functions)))
   {
@@ -1361,6 +1363,10 @@ void gpu_node_graph_prune_unused(GPUNodeGraph *graph)
   }
   for (GPUNodeGraphOutputLink &outline_link : graph->outlink_outlines) {
     gpu_nodes_tag(graph, outline_link.outlink, GPU_NODE_TAG_OUTLINE);
+  }
+  gpu_nodes_tag(graph, graph->outlink_filter, GPU_NODE_TAG_FILTER);
+  for (GPUNodeGraphOutputLink &filter_link : graph->outlink_filters) {
+    gpu_nodes_tag(graph, filter_link.outlink, GPU_NODE_TAG_FILTER);
   }
   for (GPUNodeGraphFunctionLink &funclink : graph->material_functions) {
     if (funclink.mode == GPU_NODE_GRAPH_FUNCTION_LEGACY) {

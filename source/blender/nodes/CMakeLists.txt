@@ -77,6 +77,7 @@ set(SRC
   intern/compositor_nodes_srna.cc
   intern/dependencies.cc
   intern/eval_log.cc
+  intern/filter_graph.cc
   intern/geometry_nodes_bundle.cc
   intern/geometry_nodes_caller_ui.cc
   intern/geometry_nodes_closure.cc

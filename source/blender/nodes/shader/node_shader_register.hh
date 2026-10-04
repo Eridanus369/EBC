@@ -147,6 +147,16 @@ void register_node_type_sh_npr_light_info();
 void register_node_type_sh_output_outline_shell();
 void register_node_type_sh_outline_control();
 
+/* NPR: Eevee filter graph */
+void register_node_tree_type_eevee_filter_graph();
+void register_node_type_eevee_filter_graph_scene_color();
+void register_node_type_eevee_filter_graph_aov_input();
+void register_node_type_eevee_filter_graph_filter_material();
+void register_node_type_eevee_filter_graph_stage_output();
+void register_node_type_eevee_filter_graph_aov_output();
+void register_node_type_sh_filter_graph_input();
+void register_node_type_sh_output_filter();
+
 /* UPBGE */
 void register_node_type_sh_sprites_animation();
 

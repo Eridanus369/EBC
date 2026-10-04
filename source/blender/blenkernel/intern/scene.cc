@@ -887,6 +887,7 @@ static void scene_foreach_id(ID *id, LibraryForeachIDData *data)
   BKE_LIB_FOREACHID_PROCESS_IDSUPER(data, scene->gpd, IDWALK_CB_USER);
   BKE_LIB_FOREACHID_PROCESS_IDSUPER(data, scene->r.bake.cage_object, IDWALK_CB_NOP);
   BKE_LIB_FOREACHID_PROCESS_IDSUPER(data, scene->compositing_node_group, IDWALK_CB_USER);
+  BKE_LIB_FOREACHID_PROCESS_IDSUPER(data, scene->eevee.filter_graph, IDWALK_CB_USER);
 
   bke::compositor::for_each_id_in_effects(*scene, *data);
 

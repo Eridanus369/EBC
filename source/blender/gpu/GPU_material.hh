@@ -125,6 +125,9 @@ enum eGPUMaterialFlag {
   /* Signals scene time use. */
   GPU_MATFLAG_SCENE_TIME = (1 << 25),
 
+  /* NPR: Material is an Eevee fullscreen filter material. */
+  GPU_MATFLAG_FILTER_MATERIAL = (1 << 26),
+
   /* Tells the render engine the material was just compiled or updated. */
   GPU_MATFLAG_UPDATED = (1 << 29),
   GPU_MATFLAG_LIGHTPROBE_ACCESS = (1 << 28),
@@ -838,6 +841,11 @@ void GPU_material_add_output_link_aov(GPUMaterial *material, GPUNodeLink *link, 
 /* NPR: Screen-space outline (Outline Control node side output). */
 void GPU_material_add_output_link_outline(GPUMaterial *material, GPUNodeLink *link);
 bool GPU_material_has_outline_output(const GPUMaterial *material);
+
+/* NPR: Eevee fullscreen filter material outputs (Filter Output node). */
+void GPU_material_output_filter(GPUMaterial *material, GPUNodeLink *link);
+void GPU_material_output_filter_item(GPUMaterial *material, int identifier, GPUNodeLink *link);
+bool GPU_material_has_filter_output(const GPUMaterial *material);
 
 void GPU_material_add_output_link_composite(GPUMaterial *material, GPUNodeLink *link);
 

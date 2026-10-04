@@ -913,6 +913,30 @@ bool GPU_material_has_outline_output(const GPUMaterial *material)
   return material != nullptr && !BLI_listbase_is_empty(&material->graph.outlink_outlines);
 }
 
+void GPU_material_output_filter(GPUMaterial *material, GPUNodeLink *link)
+{
+  GPU_material_output_filter_item(material, 0, link);
+}
+
+void GPU_material_output_filter_item(GPUMaterial *material, int identifier, GPUNodeLink *link)
+{
+  if (link != nullptr && material->graph.outlink_filter == nullptr) {
+    material->graph.outlink_filter = link;
+  }
+  if (link == nullptr) {
+    return;
+  }
+  GPUNodeGraphOutputLink *filter_link = MEM_new_zeroed<GPUNodeGraphOutputLink>(__func__);
+  filter_link->hash = identifier;
+  filter_link->outlink = link;
+  BLI_addtail(&material->graph.outlink_filters, filter_link);
+}
+
+bool GPU_material_has_filter_output(const GPUMaterial *material)
+{
+  return material != nullptr && !BLI_listbase_is_empty(&material->graph.outlink_filters);
+}
+
 void GPU_material_add_output_link_composite(GPUMaterial *material, GPUNodeLink *link)
 {
   GPUNodeGraphOutputLink *compositor_link = MEM_new_zeroed<GPUNodeGraphOutputLink>(__func__);

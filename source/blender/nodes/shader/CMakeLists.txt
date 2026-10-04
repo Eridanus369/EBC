@@ -45,8 +45,11 @@ set(SRC
   nodes/node_shader_common.cc
   nodes/node_shader_curves.cc
   nodes/node_shader_displacement.cc
+  nodes/node_filter_graph_nodes.cc
+  node_filter_graph_tree.cc
   nodes/node_shader_eevee_specular.cc
   nodes/node_shader_emission.cc
+  nodes/node_shader_filter_graph_input.cc
   nodes/node_shader_fresnel.cc
   nodes/node_shader_gamma.cc
   nodes/node_shader_geometry.cc
@@ -72,6 +75,7 @@ set(SRC
   nodes/node_shader_normal_map.cc
   nodes/node_shader_object_info.cc
   nodes/node_shader_output_aov.cc
+  nodes/node_shader_output_filter.cc
   nodes/node_shader_output_light.cc
   nodes/node_shader_output_linestyle.cc
   nodes/node_shader_output_material.cc

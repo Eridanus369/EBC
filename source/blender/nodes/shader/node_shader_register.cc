@@ -15,6 +15,7 @@ namespace blender {
 void register_shader_nodes()
 {
   register_node_tree_type_sh();
+  register_node_tree_type_eevee_filter_graph();
 
   register_node_type_sh_group();
 
@@ -147,6 +148,15 @@ void register_shader_nodes()
   register_node_type_sh_npr_light_info();
   register_node_type_sh_output_outline_shell();
   register_node_type_sh_outline_control();
+
+  /* NPR: Eevee filter graph */
+  register_node_type_eevee_filter_graph_scene_color();
+  register_node_type_eevee_filter_graph_aov_input();
+  register_node_type_eevee_filter_graph_filter_material();
+  register_node_type_eevee_filter_graph_stage_output();
+  register_node_type_eevee_filter_graph_aov_output();
+  register_node_type_sh_filter_graph_input();
+  register_node_type_sh_output_filter();
 
   /* UPBGE */
   register_node_type_sh_sprites_animation();

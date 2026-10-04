@@ -21,6 +21,7 @@
 #include "BLT_translation.hh"
 
 #include "DNA_node_types.h"
+#include "DNA_material_types.h"
 #include "DNA_object_types.h"
 #include "DNA_text_types.h"
 #include "DNA_texture_types.h"
@@ -38,12 +39,15 @@
 #include "BKE_node_runtime.hh"
 #include "BKE_node_tree_update.hh"
 
+#include "DEG_depsgraph_build.hh"
+
 #include "RNA_define.hh"
 #include "RNA_enum_types.hh"
 #include "RNA_path.hh"
 
 #include "NOD_common.hh"
 #include "NOD_shader.h"
+#include "../../nodes/shader/include/NOD_filter_graph.hh"
 
 #include "rna_internal.hh"
 #include "rna_internal_types.hh"
@@ -963,6 +967,7 @@ using nodes::CombineBundleItemsAccessor;
 using nodes::CombineListItemsAccessor;
 using nodes::EvaluateClosureInputItemsAccessor;
 using nodes::EvaluateClosureOutputItemsAccessor;
+using nodes::EeveeFilterGraphMaterialItemsAccessor;
 using nodes::FieldToGridItemsAccessor;
 using nodes::FieldToListItemsAccessor;
 using nodes::FileOutputItemsAccessor;
@@ -977,6 +982,8 @@ using nodes::RasterizePointsItemsAccessor;
 using nodes::RaycastSampleAttributeItemsAccessor;
 using nodes::RepeatItemsAccessor;
 using nodes::SeparateBundleItemsAccessor;
+using nodes::ShaderFilterGraphInputItemsAccessor;
+using nodes::ShaderFilterOutputItemsAccessor;
 using nodes::ShScriptExpressionVariablesAccessor;
 using nodes::SimulationItemsAccessor;
 
@@ -4165,6 +4172,23 @@ typename Accessor::ItemT *rna_Node_ItemArray_new_with_socket_and_name(
 }
 
 template<typename Accessor>
+typename Accessor::ItemT *rna_Node_ItemArray_new_with_name(ID *id,
+                                                           bNode *node,
+                                                           Main *bmain,
+                                                           const char *name)
+{
+  bNodeTree *ntree = reinterpret_cast<bNodeTree *>(id);
+  typename Accessor::ItemT *new_item = nodes::socket_items::add_item_with_name<Accessor>(*node,
+                                                                                         name);
+
+  BKE_ntree_update_tag_node_property(ntree, node);
+  BKE_main_ensure_invariants(*bmain, ntree->id);
+  WM_main_add_notifier(NC_NODE | NA_EDITED, ntree);
+
+  return new_item;
+}
+
+template<typename Accessor>
 static const EnumPropertyItem *rna_Node_ItemArray_structure_type_itemf(bContext * /*C*/,
                                                                        PointerRNA *ptr,
                                                                        PropertyRNA * /*prop*/,
@@ -5227,6 +5251,192 @@ static const EnumPropertyItem *rna_ShaderNodeGLSLDefineValue_choice_itemf(bConte
   RNA_enum_item_end(&result, &totitem);
   *r_free = true;
   return result;
+}
+
+/* ****** Eevee Filter Graph ****** */
+
+static bool rna_EeveeFilterGraphNode_material_poll(PointerRNA * /*ptr*/, PointerRNA value)
+{
+  Material *material = static_cast<Material *>(value.data);
+  return material == nullptr || material->eevee_domain == MA_EEVEE_DOMAIN_FILTER;
+}
+
+static void rna_EeveeFilterGraphNode_material_update(Main *bmain,
+                                                     Scene * /*scene*/,
+                                                     PointerRNA *ptr)
+{
+  bNodeTree &ntree = *reinterpret_cast<bNodeTree *>(ptr->owner_id);
+  bNode &node = *ptr->data_as<bNode>();
+  nodes::filter_graph_filter_pass_material_changed(*bmain, ntree, node);
+  /* A new filter material may introduce image animation and other ID dependencies. */
+  DEG_relations_tag_update(bmain);
+}
+
+static int rna_EeveeFilterGraphNode_execution_resolution_get(PointerRNA *ptr)
+{
+  bNode &node = *ptr->data_as<bNode>();
+  const NodeEeveeFilterGraphFilterMaterial *storage =
+      static_cast<const NodeEeveeFilterGraphFilterMaterial *>(node.storage);
+  const float scale = storage ? storage->resolution_scale : 1.0f;
+  if (scale <= 0.07f) {
+    return 4;
+  }
+  if (scale <= 0.14f) {
+    return 3;
+  }
+  if (scale <= 0.30f) {
+    return 2;
+  }
+  if (scale <= 0.75f) {
+    return 1;
+  }
+  return 0;
+}
+
+static void rna_EeveeFilterGraphNode_execution_resolution_set(PointerRNA *ptr, int value)
+{
+  bNode &node = *ptr->data_as<bNode>();
+  NodeEeveeFilterGraphFilterMaterial *storage =
+      static_cast<NodeEeveeFilterGraphFilterMaterial *>(node.storage);
+  if (storage == nullptr) {
+    return;
+  }
+  switch (value) {
+    case 4:
+      storage->resolution_scale = 1.0f / 16.0f;
+      break;
+    case 3:
+      storage->resolution_scale = 1.0f / 8.0f;
+      break;
+    case 2:
+      storage->resolution_scale = 1.0f / 4.0f;
+      break;
+    case 1:
+      storage->resolution_scale = 1.0f / 2.0f;
+      break;
+    default:
+      storage->resolution_scale = 1.0f;
+      break;
+  }
+}
+
+static void rna_EeveeFilterGraphNode_execution_resolution_update(Main *bmain,
+                                                                 Scene * /*scene*/,
+                                                                 PointerRNA *ptr)
+{
+  bNodeTree &ntree = *reinterpret_cast<bNodeTree *>(ptr->owner_id);
+  nodes::filter_graph_tag_tree_changed(*bmain, ntree);
+}
+
+static void rna_EeveeFilterGraphStageOutput_execution_stage_set(PointerRNA *ptr, int value)
+{
+  bNodeTree &ntree = *reinterpret_cast<bNodeTree *>(ptr->owner_id);
+  bNode &node = *ptr->data_as<bNode>();
+  node.custom1 = value;
+  nodes::filter_graph_stage_output_activate(ntree, node);
+  BKE_ntree_update_tag_active_output_changed(&ntree);
+}
+
+static void rna_EeveeFilterGraphStageOutput_is_active_output_set(PointerRNA *ptr, bool value)
+{
+  bNodeTree &ntree = *reinterpret_cast<bNodeTree *>(ptr->owner_id);
+  bNode &node = *ptr->data_as<bNode>();
+  if (value) {
+    nodes::filter_graph_stage_output_activate(ntree, node);
+  }
+  else {
+    node.flag &= ~NODE_DO_OUTPUT;
+  }
+  BKE_ntree_update_tag_active_output_changed(&ntree);
+}
+
+static void rna_EeveeFilterGraphStageOutput_update(Main *bmain,
+                                                   Scene * /*scene*/,
+                                                   PointerRNA *ptr)
+{
+  bNodeTree &ntree = *reinterpret_cast<bNodeTree *>(ptr->owner_id);
+  nodes::filter_graph_tag_tree_changed(*bmain, ntree);
+}
+
+static bNode *rna_EeveeFilterGraphSocketItem_find_node(bNodeTree &ntree,
+                                                       NodeEeveeFilterGraphSocketItem &item)
+{
+  for (bNode *node = ntree.nodes.first(); node != nullptr; node = node->next) {
+    if (node->storage == nullptr) {
+      continue;
+    }
+    if (node->type_legacy == SH_NODE_FILTER_GRAPH_INPUT) {
+      NodeShaderFilterGraphInput *storage = static_cast<NodeShaderFilterGraphInput *>(
+          node->storage);
+      if (&item >= storage->items && &item < storage->items + storage->items_num) {
+        return node;
+      }
+    }
+    if (node->type_legacy == SH_NODE_OUTPUT_FILTER) {
+      NodeShaderFilterOutput *storage = static_cast<NodeShaderFilterOutput *>(node->storage);
+      if (&item >= storage->items && &item < storage->items + storage->items_num) {
+        return node;
+      }
+    }
+    if (node->type_legacy == EEVEE_FILTER_GRAPH_NODE_FILTER_MATERIAL) {
+      NodeEeveeFilterGraphFilterMaterial *storage =
+          static_cast<NodeEeveeFilterGraphFilterMaterial *>(node->storage);
+      if (&item >= storage->items && &item < storage->items + storage->items_num) {
+        return node;
+      }
+    }
+  }
+  return nullptr;
+}
+
+static void rna_EeveeFilterGraphSocketItem_name_set(PointerRNA *ptr, const char *value)
+{
+  bNodeTree &ntree = *reinterpret_cast<bNodeTree *>(ptr->owner_id);
+  NodeEeveeFilterGraphSocketItem &item =
+      *static_cast<NodeEeveeFilterGraphSocketItem *>(ptr->data);
+  bNode *node = rna_EeveeFilterGraphSocketItem_find_node(ntree, item);
+  BLI_assert(node != nullptr);
+  if (node == nullptr) {
+    return;
+  }
+  if (node->type_legacy == SH_NODE_FILTER_GRAPH_INPUT) {
+    nodes::socket_items::set_item_name_and_make_unique<ShaderFilterGraphInputItemsAccessor>(
+        *node, item, value);
+  }
+  else if (node->type_legacy == SH_NODE_OUTPUT_FILTER) {
+    nodes::socket_items::set_item_name_and_make_unique<ShaderFilterOutputItemsAccessor>(
+        *node, item, value);
+  }
+  else {
+    nodes::socket_items::set_item_name_and_make_unique<EeveeFilterGraphMaterialItemsAccessor>(
+        *node, item, value);
+  }
+}
+
+static void rna_EeveeFilterGraphSocketItem_update(Main *bmain,
+                                                  Scene * /*scene*/,
+                                                  PointerRNA *ptr)
+{
+  bNodeTree &ntree = *reinterpret_cast<bNodeTree *>(ptr->owner_id);
+  NodeEeveeFilterGraphSocketItem &item =
+      *static_cast<NodeEeveeFilterGraphSocketItem *>(ptr->data);
+  bNode *node = rna_EeveeFilterGraphSocketItem_find_node(ntree, item);
+  if (node == nullptr) {
+    return;
+  }
+  if (node->type_legacy == SH_NODE_FILTER_GRAPH_INPUT) {
+    nodes::filter_graph_pass_input_interface_changed(*bmain, ntree, *node);
+  }
+  else if (node->type_legacy == SH_NODE_OUTPUT_FILTER) {
+    nodes::filter_graph_filter_output_interface_changed(*bmain, ntree, *node);
+  }
+  else if (node->type_legacy == EEVEE_FILTER_GRAPH_NODE_FILTER_MATERIAL) {
+    nodes::filter_graph_filter_pass_interface_changed(*bmain, ntree, *node);
+  }
+  else {
+    BKE_ntree_update_tag_node_property(&ntree, node);
+    BKE_main_ensure_invariants(*bmain, ntree.id);
+  }
 }
 
 }  // namespace blender
@@ -11871,6 +12081,304 @@ static void rna_def_composite_nodetree(BlenderRNA *brna)
   RNA_def_property_update(prop, NC_NODE | ND_DISPLAY, "rna_NodeTree_update_asset");
 }
 
+static const EnumPropertyItem eevee_filter_execution_stage_items[] = {
+    {SCE_EEVEE_FILTER_STAGE_BEFORE_VOLUME_FOG,
+     "BEFORE_VOLUME_FOG",
+     0,
+     "Before Volume Fog",
+     "Run after deferred/background rendering and before Eevee volume fog is resolved"},
+    {SCE_EEVEE_FILTER_STAGE_BEFORE_POSTFX,
+     "BEFORE_POSTFX",
+     0,
+     "Before PostFX",
+     "Run after forward rendering and before Eevee post-processing"},
+    {SCE_EEVEE_FILTER_STAGE_BEFORE_DEPTH_OF_FIELD,
+     "BEFORE_DEPTH_OF_FIELD",
+     0,
+     "Before Depth of Field",
+     "Run after motion blur and before depth of field"},
+    {SCE_EEVEE_FILTER_STAGE_BEFORE_COMPOSITE,
+     "BEFORE_COMPOSITE",
+     0,
+     "Before Composite",
+     "Run after Eevee depth of field and before final film compositing"},
+    {0, nullptr, 0, nullptr, nullptr},
+};
+
+static const EnumPropertyItem eevee_filter_graph_execution_resolution_items[] = {
+    {0, "FULL", 0, "Full", "Execute this filter pass at full stage resolution"},
+    {1, "HALF", 0, "1/2", "Execute this filter pass at half stage resolution"},
+    {2, "QUARTER", 0, "1/4", "Execute this filter pass at quarter stage resolution"},
+    {3, "EIGHTH", 0, "1/8", "Execute this filter pass at one eighth stage resolution"},
+    {4, "SIXTEENTH", 0, "1/16", "Execute this filter pass at one sixteenth stage resolution"},
+    {0, nullptr, 0, nullptr, nullptr},
+};
+
+static void rna_def_filter_graph_item_array(StructRNA *srna,
+                                            const char *item_name,
+                                            const char *accessor_name)
+{
+  static LinearAllocator<> allocator;
+  PropertyRNA *parm;
+  FunctionRNA *func;
+  char new_call[128];
+
+  SNPRINTF(new_call, "rna_Node_ItemArray_new_with_name<%s>", accessor_name);
+  func = RNA_def_function(srna, "new", allocator.copy_string(new_call).c_str());
+  RNA_def_function_ui_description(func, "Add an item at the end");
+  RNA_def_function_flag(func, FUNC_USE_SELF_ID | FUNC_USE_MAIN);
+  parm = RNA_def_string(func, "name", nullptr, MAX_NAME, "Name", "");
+  RNA_def_parameter_flags(parm, PropertyFlag(0), PARM_REQUIRED);
+  parm = RNA_def_pointer(func, "item", item_name, "Item", "New item");
+  RNA_def_parameter_flags(parm, PROP_NEVER_NULL, ParameterFlag(0));
+  RNA_def_function_return(func, parm);
+
+  rna_def_node_item_array_common_functions(srna, item_name, accessor_name);
+}
+
+static void rna_def_eevee_filter_graph_socket_item(BlenderRNA *brna)
+{
+  StructRNA *srna = RNA_def_struct(brna, "EeveeFilterGraphSocketItem", nullptr);
+  RNA_def_struct_ui_text(srna, "Filter Graph Socket Item", "");
+  RNA_def_struct_sdna(srna, "NodeEeveeFilterGraphSocketItem");
+
+  PropertyRNA *prop = RNA_def_property(srna, "name", PROP_STRING, PROP_NONE);
+  RNA_def_property_string_funcs(prop, nullptr, nullptr, "rna_EeveeFilterGraphSocketItem_name_set");
+  RNA_def_property_ui_text(prop, "Name", "Socket name");
+  RNA_def_property_update(prop, NC_NODE | NA_EDITED, "rna_EeveeFilterGraphSocketItem_update");
+}
+
+static void rna_def_sh_filter_graph_input_items(BlenderRNA *brna)
+{
+  StructRNA *srna = RNA_def_struct(brna, "NodeShaderFilterGraphInputItems", nullptr);
+  RNA_def_struct_ui_text(srna, "Filter Graph Input Items", "");
+  RNA_def_struct_sdna(srna, "bNode");
+
+  rna_def_filter_graph_item_array(
+      srna, "EeveeFilterGraphSocketItem", "ShaderFilterGraphInputItemsAccessor");
+}
+
+static void rna_def_sh_filter_output_items(BlenderRNA *brna)
+{
+  StructRNA *srna = RNA_def_struct(brna, "NodeShaderFilterOutputItems", nullptr);
+  RNA_def_struct_ui_text(srna, "Filter Output Items", "");
+  RNA_def_struct_sdna(srna, "bNode");
+
+  rna_def_filter_graph_item_array(
+      srna, "EeveeFilterGraphSocketItem", "ShaderFilterOutputItemsAccessor");
+}
+
+static void rna_def_eevee_filter_graph_material_items(BlenderRNA *brna)
+{
+  StructRNA *srna = RNA_def_struct(brna, "NodeEeveeFilterGraphMaterialInputs", nullptr);
+  RNA_def_struct_ui_text(srna, "Filter Graph Material Inputs", "");
+  RNA_def_struct_sdna(srna, "bNode");
+
+  rna_def_filter_graph_item_array(
+      srna, "EeveeFilterGraphSocketItem", "EeveeFilterGraphMaterialItemsAccessor");
+}
+
+static void def_sh_filter_graph_input(BlenderRNA *brna, StructRNA *srna)
+{
+  PropertyRNA *prop;
+
+  rna_def_eevee_filter_graph_socket_item(brna);
+  rna_def_sh_filter_graph_input_items(brna);
+
+  RNA_def_struct_sdna_from(srna, "NodeShaderFilterGraphInput", "storage");
+
+  prop = RNA_def_property(srna, "interface_items", PROP_COLLECTION, PROP_NONE);
+  RNA_def_property_collection_sdna(prop, nullptr, "items", "items_num");
+  RNA_def_property_struct_type(prop, "EeveeFilterGraphSocketItem");
+  RNA_def_property_ui_text(prop, "Interface Items", "Image inputs requested from the filter graph");
+  RNA_def_property_srna(prop, "NodeShaderFilterGraphInputItems");
+
+  prop = RNA_def_property(srna, "active_index", PROP_INT, PROP_UNSIGNED);
+  RNA_def_property_int_sdna(prop, nullptr, "active_index");
+  RNA_def_property_ui_text(prop, "Active Item Index", "Index of the active item");
+  RNA_def_property_clear_flag(prop, PROP_ANIMATABLE);
+  RNA_def_property_flag(prop, PROP_NO_DEG_UPDATE);
+  RNA_def_property_update(prop, NC_NODE, nullptr);
+
+  prop = RNA_def_property(srna, "active_item", PROP_POINTER, PROP_NONE);
+  RNA_def_property_struct_type(prop, "EeveeFilterGraphSocketItem");
+  RNA_def_property_pointer_funcs(prop,
+                                 "rna_Node_ItemArray_active_get<ShaderFilterGraphInputItemsAccessor>",
+                                 "rna_Node_ItemArray_active_set<ShaderFilterGraphInputItemsAccessor>",
+                                 nullptr,
+                                 nullptr);
+  RNA_def_property_flag(prop, PROP_EDITABLE | PROP_NO_DEG_UPDATE);
+  RNA_def_property_ui_text(prop, "Active Item", "Active filter graph input item");
+  RNA_def_property_update(prop, NC_NODE, nullptr);
+
+  RNA_def_struct_sdna_from(srna, "bNode", nullptr);
+}
+
+static void def_sh_output_filter(BlenderRNA *brna, StructRNA *srna)
+{
+  PropertyRNA *prop;
+
+  def_sh_output(brna, srna);
+  rna_def_sh_filter_output_items(brna);
+
+  RNA_def_struct_sdna_from(srna, "NodeShaderFilterOutput", "storage");
+
+  prop = RNA_def_property(srna, "interface_items", PROP_COLLECTION, PROP_NONE);
+  RNA_def_property_collection_sdna(prop, nullptr, "items", "items_num");
+  RNA_def_property_struct_type(prop, "EeveeFilterGraphSocketItem");
+  RNA_def_property_ui_text(prop, "Interface Items", "Named image outputs exported by this filter");
+  RNA_def_property_srna(prop, "NodeShaderFilterOutputItems");
+
+  prop = RNA_def_property(srna, "active_index", PROP_INT, PROP_UNSIGNED);
+  RNA_def_property_int_sdna(prop, nullptr, "active_index");
+  RNA_def_property_ui_text(prop, "Active Item Index", "Index of the active output item");
+  RNA_def_property_clear_flag(prop, PROP_ANIMATABLE);
+  RNA_def_property_flag(prop, PROP_NO_DEG_UPDATE);
+  RNA_def_property_update(prop, NC_NODE, nullptr);
+
+  prop = RNA_def_property(srna, "active_item", PROP_POINTER, PROP_NONE);
+  RNA_def_property_struct_type(prop, "EeveeFilterGraphSocketItem");
+  RNA_def_property_pointer_funcs(prop,
+                                 "rna_Node_ItemArray_active_get<ShaderFilterOutputItemsAccessor>",
+                                 "rna_Node_ItemArray_active_set<ShaderFilterOutputItemsAccessor>",
+                                 nullptr,
+                                 nullptr);
+  RNA_def_property_flag(prop, PROP_EDITABLE | PROP_NO_DEG_UPDATE);
+  RNA_def_property_ui_text(prop, "Active Item", "Active filter output item");
+  RNA_def_property_update(prop, NC_NODE, nullptr);
+
+  RNA_def_struct_sdna_from(srna, "bNode", nullptr);
+}
+
+static void def_eevee_filter_graph_aov_input(BlenderRNA * /*brna*/, StructRNA *srna)
+{
+  PropertyRNA *prop;
+
+  RNA_def_struct_sdna_from(srna, "NodeEeveeFilterGraphAOVInput", "storage");
+
+  prop = RNA_def_property(srna, "aov_name", PROP_STRING, PROP_NONE);
+  RNA_def_property_string_sdna(prop, nullptr, "name");
+  RNA_def_property_ui_text(prop, "Name", "Name of the AOV that this graph input reads from");
+  RNA_def_property_update(prop, NC_NODE | NA_EDITED, "rna_Node_update");
+
+  RNA_def_struct_sdna_from(srna, "bNode", nullptr);
+}
+
+static void def_eevee_filter_graph_aov_output(BlenderRNA * /*brna*/, StructRNA *srna)
+{
+  PropertyRNA *prop;
+
+  prop = RNA_def_property(srna, "execution_stage", PROP_ENUM, PROP_NONE);
+  RNA_def_property_enum_sdna(prop, nullptr, "custom1");
+  RNA_def_property_enum_items(prop, eevee_filter_execution_stage_items);
+  RNA_def_property_ui_text(
+      prop, "Execution Stage", "Where this AOV output runs in Eevee. The image it reads is the "
+                               "stage input at that point in the render pipeline");
+  RNA_def_property_update(prop, NC_NODE | NA_EDITED, "rna_Node_update");
+
+  RNA_def_struct_sdna_from(srna, "NodeEeveeFilterGraphAOVInput", "storage");
+
+  prop = RNA_def_property(srna, "aov_name", PROP_STRING, PROP_NONE);
+  RNA_def_property_string_sdna(prop, nullptr, "name");
+  RNA_def_property_ui_text(prop, "Name", "Name of the AOV that this graph output writes to");
+  RNA_def_property_update(prop, NC_NODE | NA_EDITED, "rna_Node_update");
+
+  RNA_def_struct_sdna_from(srna, "bNode", nullptr);
+}
+
+static void def_eevee_filter_graph_filter_material(BlenderRNA *brna, StructRNA *srna)
+{
+  PropertyRNA *prop;
+
+  rna_def_eevee_filter_graph_material_items(brna);
+
+  prop = RNA_def_property(srna, "material", PROP_POINTER, PROP_NONE);
+  RNA_def_property_pointer_sdna(prop, nullptr, "id");
+  RNA_def_property_struct_type(prop, "Material");
+  RNA_def_property_flag(prop, PROP_EDITABLE | PROP_ID_REFCOUNT);
+  RNA_def_property_pointer_funcs(
+      prop, nullptr, nullptr, nullptr, "rna_EeveeFilterGraphNode_material_poll");
+  RNA_def_property_ui_text(prop, "Material", "Filter-domain material to invoke");
+  RNA_def_property_update(prop, NC_NODE | NA_EDITED, "rna_EeveeFilterGraphNode_material_update");
+
+  RNA_def_struct_sdna_from(srna, "NodeEeveeFilterGraphFilterMaterial", "storage");
+
+  prop = RNA_def_property(srna, "input_items", PROP_COLLECTION, PROP_NONE);
+  RNA_def_property_collection_sdna(prop, nullptr, "items", "items_num");
+  RNA_def_property_struct_type(prop, "EeveeFilterGraphSocketItem");
+  RNA_def_property_ui_text(prop, "Input Items", "Image inputs accepted by this material invocation");
+  RNA_def_property_srna(prop, "NodeEeveeFilterGraphMaterialInputs");
+
+  prop = RNA_def_property(srna, "active_index", PROP_INT, PROP_UNSIGNED);
+  RNA_def_property_int_sdna(prop, nullptr, "active_index");
+  RNA_def_property_ui_text(prop, "Active Item Index", "Index of the active item");
+  RNA_def_property_clear_flag(prop, PROP_ANIMATABLE);
+  RNA_def_property_flag(prop, PROP_NO_DEG_UPDATE);
+  RNA_def_property_update(prop, NC_NODE, nullptr);
+
+  prop = RNA_def_property(srna, "active_item", PROP_POINTER, PROP_NONE);
+  RNA_def_property_struct_type(prop, "EeveeFilterGraphSocketItem");
+  RNA_def_property_pointer_funcs(prop,
+                                 "rna_Node_ItemArray_active_get<EeveeFilterGraphMaterialItemsAccessor>",
+                                 "rna_Node_ItemArray_active_set<EeveeFilterGraphMaterialItemsAccessor>",
+                                 nullptr,
+                                 nullptr);
+  RNA_def_property_flag(prop, PROP_EDITABLE | PROP_NO_DEG_UPDATE);
+  RNA_def_property_ui_text(prop, "Active Item", "Active filter material input item");
+  RNA_def_property_update(prop, NC_NODE, nullptr);
+
+  prop = RNA_def_property(srna, "execution_resolution", PROP_ENUM, PROP_NONE);
+  RNA_def_property_enum_items(prop, eevee_filter_graph_execution_resolution_items);
+  RNA_def_property_enum_funcs(prop,
+                              "rna_EeveeFilterGraphNode_execution_resolution_get",
+                              "rna_EeveeFilterGraphNode_execution_resolution_set",
+                              nullptr);
+  RNA_def_property_ui_text(prop, "Execution Resolution", "Resolution used to execute this filter pass");
+  RNA_def_property_update(
+      prop, NC_NODE | NA_EDITED, "rna_EeveeFilterGraphNode_execution_resolution_update");
+
+  prop = RNA_def_property(srna, "resolution_scale", PROP_FLOAT, PROP_FACTOR);
+  RNA_def_property_float_sdna(prop, nullptr, "resolution_scale");
+  RNA_def_property_range(prop, 0.0625f, 1.0f);
+  RNA_def_property_ui_text(
+      prop, "Resolution Scale", "Internal execution resolution scale for this filter pass");
+  RNA_def_property_update(
+      prop, NC_NODE | NA_EDITED, "rna_EeveeFilterGraphNode_execution_resolution_update");
+
+  RNA_def_struct_sdna_from(srna, "bNode", nullptr);
+}
+
+static void def_eevee_filter_graph_stage_output(BlenderRNA * /*brna*/, StructRNA *srna)
+{
+  PropertyRNA *prop;
+
+  prop = RNA_def_property(srna, "execution_stage", PROP_ENUM, PROP_NONE);
+  RNA_def_property_enum_sdna(prop, nullptr, "custom1");
+  RNA_def_property_enum_items(prop, eevee_filter_execution_stage_items);
+  RNA_def_property_enum_funcs(
+      prop, nullptr, "rna_EeveeFilterGraphStageOutput_execution_stage_set", nullptr);
+  RNA_def_property_ui_text(prop, "Execution Stage", "Where this graph output runs in Eevee");
+  RNA_def_property_update(prop, NC_NODE | NA_EDITED, "rna_EeveeFilterGraphStageOutput_update");
+
+  prop = RNA_def_property(srna, "is_active_output", PROP_BOOLEAN, PROP_NONE);
+  RNA_def_property_boolean_sdna(prop, nullptr, "flag", NODE_DO_OUTPUT);
+  RNA_def_property_boolean_funcs(
+      prop, nullptr, "rna_EeveeFilterGraphStageOutput_is_active_output_set");
+  RNA_def_property_ui_text(
+      prop, "Active Output", "Use this output node for its selected execution stage");
+  RNA_def_property_update(prop, NC_NODE | NA_EDITED, "rna_EeveeFilterGraphStageOutput_update");
+}
+
+static void rna_def_eevee_filter_graph_nodetree(BlenderRNA *brna)
+{
+  StructRNA *srna = RNA_def_struct(brna, "EeveeFilterGraphNodeTree", "NodeTree");
+  RNA_def_struct_ui_text(srna,
+                         "Eevee Filter Graph Node Tree",
+                         "Node tree for non-linear Eevee fullscreen filter material graphs");
+  RNA_def_struct_sdna(srna, "bNodeTree");
+  RNA_def_struct_ui_icon(srna, ICON_NODE_COMPOSITING);
+}
+
 static void rna_def_shader_nodetree(BlenderRNA *brna)
 {
   StructRNA *srna;
@@ -12140,6 +12648,13 @@ static void rna_def_nodes(BlenderRNA *brna)
   define("NodeInternal", "NodeSeparateBundle", def_separate_bundle);
   define("NodeInternal", "NodeStoreBundleItem");
 
+  define("NodeInternal", "EeveeFilterGraphNodeAOVInput", def_eevee_filter_graph_aov_input);
+  define("NodeInternal", "EeveeFilterGraphNodeAOVOutput", def_eevee_filter_graph_aov_output);
+  define("NodeInternal", "EeveeFilterGraphNodeFilterMaterial",
+         def_eevee_filter_graph_filter_material);
+  define("NodeInternal", "EeveeFilterGraphNodeSceneColor");
+  define("NodeInternal", "EeveeFilterGraphNodeStageOutput", def_eevee_filter_graph_stage_output);
+
   define("ShaderNode", "ShaderNodeAddShader");
   define("ShaderNode", "ShaderNodeAmbientOcclusion", def_sh_ambient_occlusion);
   define("ShaderNode", "ShaderNodeAttribute", def_sh_attribute);
@@ -12168,6 +12683,7 @@ static void rna_def_nodes(BlenderRNA *brna)
   define("ShaderNode", "ShaderNodeDisplacement", def_sh_displacement);
   define("ShaderNode", "ShaderNodeEeveeSpecular");
   define("ShaderNode", "ShaderNodeEmission");
+  define("ShaderNode", "ShaderNodeFilterGraphInput", def_sh_filter_graph_input);
   define("ShaderNode", "ShaderNodeFloatCurve", def_float_curve);
   define("ShaderNode", "ShaderNodeFresnel");
   define("ShaderNode", "ShaderNodeGamma");
@@ -12194,6 +12710,7 @@ static void rna_def_nodes(BlenderRNA *brna)
   define("ShaderNode", "ShaderNodeNormalMap", def_sh_normal_map);
   define("ShaderNode", "ShaderNodeObjectInfo");
   define("ShaderNode", "ShaderNodeOutputAOV", def_sh_output_aov);
+  define("ShaderNode", "ShaderNodeOutputFilter", def_sh_output_filter);
   define("ShaderNode", "ShaderNodeOutputLight", def_sh_output);
   define("ShaderNode", "ShaderNodeOutputLineStyle", def_sh_output_linestyle);
   define("ShaderNode", "ShaderNodeOutputMaterial", def_sh_output);
@@ -12757,6 +13274,7 @@ void RNA_def_nodetree(BlenderRNA *brna)
   rna_def_nodetree(brna);
 
   rna_def_composite_nodetree(brna);
+  rna_def_eevee_filter_graph_nodetree(brna);
   rna_def_shader_nodetree(brna);
   rna_def_texture_nodetree(brna);
   rna_def_geometry_nodetree(brna);

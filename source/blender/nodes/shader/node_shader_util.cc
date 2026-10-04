@@ -137,6 +137,16 @@ bool object_or_npr_eevee_shader_nodes_poll(const bContext *C)
   return object_eevee_shader_nodes_poll(C);
 }
 
+bool filter_eevee_shader_nodes_poll(const bContext *C)
+{
+  const SpaceNode *snode = CTX_wm_space_node(C);
+  if (snode == nullptr || snode->shaderfrom != SNODE_SHADER_FILTER) {
+    return false;
+  }
+  const RenderEngineType *engine_type = CTX_data_engine_type(C);
+  return STREQ(engine_type->idname, "BLENDER_EEVEE");
+}
+
 bool object_filter_or_npr_eevee_shader_nodes_poll(const bContext *C)
 {
   /* EBC does not have filter/NPR shader editor contexts yet; fall back to the object poll. */

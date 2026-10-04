@@ -60,6 +60,7 @@ bool object_cycles_shader_nodes_poll(const bContext *C);
 bool object_eevee_shader_nodes_poll(const bContext *C);
 bool object_or_npr_eevee_shader_nodes_poll(const bContext *C);
 bool object_filter_or_npr_eevee_shader_nodes_poll(const bContext *C);
+bool filter_eevee_shader_nodes_poll(const bContext *C);
 
 /* ********* exec data struct, remains internal *********** */
 
