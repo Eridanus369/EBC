@@ -35,10 +35,27 @@ float2 calc_barycentric_co(int vertid)
   return bary;
 }
 
+/* NPR: Indirect texture reference used by the filter material graph.
+ * The actual sampling is implemented in `eevee_filter_material.bsl.hh`
+ * (`filter_texture_eval` family). */
+struct TextureHandle {
+  uint type;
+  int index;
+};
+
+/* Scene Color is a filter-domain handle. Keep it outside the existing NPR/world ranges. */
+#define TEX_HANDLE_SCENE 30u
+#define TEX_HANDLE_FILTER_GRAPH_INPUT 31u
+#define TEX_HANDLE_FILTER_GRAPH_TEXTURE 32u
+
+#define TEXTURE_HANDLE_DEFAULT TextureHandle(0u, 0)
+
 /* Assumes GPU_VEC4 is color data, special case that needs luminance coefficients from OCIO. */
 #define float_from_float4(v, luminance_coefficients) dot(v.rgb, luminance_coefficients)
 #define float_from_float3(v) ((v.r + v.g + v.b) * (1.0f / 3.0f))
 #define float_from_float2(v) ((v.x + v.y) * (1.0f / 2.0f))
+#define float_from_TextureHandle(t, luminance_coefficients) \
+  float_from_float4(filter_texture_eval(t), luminance_coefficients)
 #define float_from_int(v) float(v)
 #define float_from_bool(v) float(v)
 
@@ -47,18 +64,21 @@ float2 calc_barycentric_co(int vertid)
 #define float2_from_float(v) float2(v)
 #define float2_from_int(v) float2(float(v))
 #define float2_from_bool(v) float2(float(v))
+#define float2_from_TextureHandle(t) filter_texture_eval(t).xy
 
 #define float3_from_float4(v) v.rgb
 #define float3_from_float2(v) float3(v.xy, 0.0f)
 #define float3_from_float(v) float3(v)
 #define float3_from_int(v) float3(float(v))
 #define float3_from_bool(v) float3(float(v))
+#define float3_from_TextureHandle(t) filter_texture_eval(t).rgb
 
 #define float4_from_float3(v) float4(v, 1.0f)
 #define float4_from_float2(v) float4(v.xy, 0.0f, 1.0f)
 #define float4_from_float(v) float4(float3(v), 1.0f)
 #define float4_from_int(v) float4(float3(float(v)), 1.0f)
 #define float4_from_bool(v) float4(float3(float(v)), 1.0f)
+#define float4_from_TextureHandle(t) filter_texture_eval(t)
 
 #define int_from_float(v) int(v)
 #define int_from_bool(v) int(v)

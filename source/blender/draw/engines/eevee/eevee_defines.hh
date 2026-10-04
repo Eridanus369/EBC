@@ -249,6 +249,17 @@
 #define OUTLINE_VECTOR_TEX_SLOT 26
 #define OUTLINE_OCCLUSION_DEPTH_TEX_SLOT 27
 
+/* NPR: Filter material graph.
+ * NOTE: Filter bindings only need to be unique within one create info closure
+ * (resource tables are per-pipeline, see SlotAllocator). Slots below reuse ranges
+ * owned by other passes since the filter graph never runs concurrently with them. */
+#define FILTER_SCENE_COLOR_TEX_SLOT 12    /* RAYCAST_DEPTH range reuse. */
+#define FILTER_DEPTH_TEX_SLOT 13          /* OBJECT_ID range reuse. */
+#define FILTER_AOV_COLOR_TEX_SLOT 14      /* PREPASS_NORMAL range reuse. */
+#define FILTER_AOV_VALUE_TEX_SLOT 15      /* PLANAR_PROBE range reuse. */
+#define FILTER_CRYPTOMATTE_TEX_SLOT 16    /* PLANAR_PROBE range reuse. */
+#define FILTER_GRAPH_INPUT_TEX_SLOT 21    /* OUTLINE range reuse. */
+
 /* Images. */
 #define RBUFS_COLOR_SLOT 0
 #define RBUFS_VALUE_SLOT 1
@@ -259,6 +270,9 @@
 /* NPR: screen-space outline gbuffers written by material shaders. */
 #define OUTLINE_COLOR_SLOT 6
 #define OUTLINE_INFO_SLOT 7
+/* NPR: filter graph output layer array written by filter material shaders.
+ * Reuses the GBUF image range (different pass). */
+#define FILTER_GRAPH_OUTPUT_IMG_SLOT 3
 #define OUTLINE_JFA_IN_IMG_SLOT 0
 #define OUTLINE_JFA_OUT_IMG_SLOT 1
 #define OUTLINE_JFA_STEP_GROUP_SIZE 16
@@ -292,6 +306,13 @@
 #define CLIP_PLANE_BUF 7
 /* Only during subsurface scattering */
 #define SUBSURFACE_BUF_SLOT 4
+/* NPR: filter graph uniform buffers. Reuse probe ranges (different pass). */
+#define FILTER_OBJECT_INFO_BUF_SLOT 5   /* SPHERE_PROBE range reuse. */
+#define FILTER_GRAPH_INPUT_BUF_SLOT 6   /* PLANAR_PROBE range reuse. */
+
+#define FILTER_OBJECT_INFO_MAX 512
+#define FILTER_GRAPH_INPUT_MAX 32
+#define FILTER_GRAPH_OUTPUT_MAX 32
 
 /* Storage Buffers. */
 #define LIGHT_CULL_BUF_SLOT 0

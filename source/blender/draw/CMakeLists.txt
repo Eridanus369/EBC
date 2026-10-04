@@ -414,6 +414,7 @@ set(GLSL_SRC
   engines/eevee/shaders/eevee_depth_of_field_tiles.bsl.hh
   engines/eevee/shaders/eevee_fast_gi.bsl.hh
   engines/eevee/shaders/eevee_film.bsl.hh
+  engines/eevee/shaders/eevee_filter_material.bsl.hh
   engines/eevee/shaders/eevee_filter.bsl.hh
   engines/eevee/shaders/eevee_forward_lib.bsl.hh
   engines/eevee/shaders/eevee_forward_resolve.bsl.hh
@@ -526,6 +527,7 @@ set(GLSL_SRC
   engines/eevee/eevee_debug_shared.hh
   engines/eevee/eevee_defines.hh
   engines/eevee/eevee_depth_of_field_shared.hh
+  engines/eevee/eevee_filter_material_shared.hh
   engines/eevee/eevee_film_shared.hh
   engines/eevee/eevee_hizbuffer_shared.hh
   engines/eevee/eevee_light_shared.hh
