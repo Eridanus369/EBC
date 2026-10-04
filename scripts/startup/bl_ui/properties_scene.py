@@ -4,6 +4,7 @@
 
 import bpy
 from bpy.types import (
+    Operator,
     Panel,
     UIList,
 )
@@ -59,6 +60,54 @@ class SCENE_PT_scene(SceneButtonsPanel, Panel):
         layout.prop(scene, "camera")
         layout.prop(scene, "background_set")
         layout.prop(scene, "active_clip", text="Active Clip")
+
+
+class SCENE_OT_eevee_filter_graph_new(Operator):
+    bl_idname = "scene.eevee_filter_graph_new"
+    bl_label = "New Filter Graph"
+    bl_description = "Create a new Eevee filter graph and assign it to the scene"
+
+    def execute(self, context):
+        graph = bpy.data.node_groups.new(name="Eevee Filter Graph",
+                                        type="EeveeFilterGraphNodeTree")
+        graph.use_fake_user = True
+
+        scene_color = graph.nodes.new("EeveeFilterGraphNodeSceneColor")
+        scene_color.location = (-260, 0)
+
+        stage_output = graph.nodes.new("EeveeFilterGraphNodeStageOutput")
+        stage_output.location = (80, 0)
+
+        graph.links.new(scene_color.outputs["Color Image"], stage_output.inputs["Image"])
+        graph.nodes.active = stage_output
+        stage_output.select = True
+
+        context.scene.eevee.filter_graph = graph
+
+        self.report({'INFO'}, f"Created filter graph '{graph.name}'")
+        return {'FINISHED'}
+
+
+class SCENE_PT_eevee_filter_graph(SceneButtonsPanel, Panel):
+    bl_label = "Filter Graph"
+    bl_options = {'DEFAULT_CLOSED'}
+    COMPAT_ENGINES = {'BLENDER_EEVEE'}
+
+    @classmethod
+    def poll(cls, context):
+        return context.engine in cls.COMPAT_ENGINES
+
+    def draw(self, context):
+        layout = self.layout
+        props = context.scene.eevee
+
+        col = layout.column()
+        col.use_property_split = True
+        col.use_property_decorate = False
+        col.template_ID(props, "filter_graph", new="scene.eevee_filter_graph_new")
+
+        if props.filter_graph is None:
+            layout.label(text="No filter graph assigned.", icon='INFO')
 
 
 class SCENE_PT_unit(SceneButtonsPanel, Panel):
@@ -473,6 +522,8 @@ classes = (
     SCENE_UL_keying_set_paths,
     SCENE_PT_context_scene,
     SCENE_PT_scene,
+    SCENE_OT_eevee_filter_graph_new,
+    SCENE_PT_eevee_filter_graph,
     SCENE_PT_unit,
     SCENE_PT_physics,
     SCENE_PT_simulation,

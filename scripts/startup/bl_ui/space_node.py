@@ -107,6 +107,20 @@ class NODE_HT_header(Header):
                 row.enabled = not snode.pin
                 row.template_ID(scene, "world", new="world.new")
 
+            if snode.shader_type == 'FILTER':
+                NODE_MT_editor_menus.draw_collapsible(context, layout)
+
+                layout.separator_spacer()
+
+                row = layout.row()
+                row.enabled = not snode.pin
+                if hasattr(snode, "filter_material"):
+                    row.template_ID(snode, "filter_material", new="node.filter_material_new")
+                elif snode_id and getattr(snode_id, "eevee_domain", None) == 'FILTER':
+                    row.label(text=snode_id.name, icon='MATERIAL')
+                else:
+                    row.label(text="No Filter Material", icon='MATERIAL')
+
             if snode.shader_type == 'LINESTYLE':
                 view_layer = context.view_layer
                 lineset = view_layer.freestyle_settings.linesets.active
@@ -222,12 +236,17 @@ class NODE_HT_header(Header):
                     layout.popover(panel="NODE_PT_geometry_node_tool_options", text="Options")
                 display_pin = False
         else:
-            # Custom node tree is edited as independent ID block
+            # Most custom node trees are edited as independent ID blocks.
+            # Eevee Filter Graph is scene-owned and selected through Scene.eevee.
             NODE_MT_editor_menus.draw_collapsible(context, layout)
 
             layout.separator_spacer()
 
-            layout.template_ID(snode, "node_tree", new="node.new_node_tree")
+            if snode.tree_type == 'EeveeFilterGraphNodeTree':
+                layout.template_ID(scene.eevee, "filter_graph",
+                                   new="scene.eevee_filter_graph_new")
+            else:
+                layout.template_ID(snode, "node_tree", new="node.new_node_tree")
 
         # Put pin next to ID block
         if display_pin:
@@ -333,9 +352,54 @@ class NODE_MT_add(node_add_menu.AddNodeMenu):
             layout.menu_contents("NODE_MT_shader_node_add_all")
         elif snode.tree_type == 'TextureNodeTree':
             layout.menu_contents("NODE_MT_texture_node_add_all")
+        elif snode.tree_type == 'EeveeFilterGraphNodeTree':
+            layout.menu_contents("NODE_MT_filter_graph_node_add_all")
         elif nodeitems_utils.has_node_categories(context):
             # Actual node sub-menus are defined by draw functions from node categories.
             nodeitems_utils.draw_node_categories_menu(self, context)
+
+
+class NODE_MT_filter_graph_node_input(node_add_menu.AddNodeMenu):
+    bl_space_type = 'NODE_EDITOR'
+    bl_label = "Input"
+    bl_translation_context = i18n_contexts.operator_default
+
+    def draw(self, _context):
+        layout = self.layout
+        self.node_operator(layout, "EeveeFilterGraphNodeSceneColor")
+        self.node_operator(layout, "EeveeFilterGraphNodeAOVInput")
+
+
+class NODE_MT_filter_graph_node_pass(node_add_menu.AddNodeMenu):
+    bl_space_type = 'NODE_EDITOR'
+    bl_label = "Pass"
+    bl_translation_context = i18n_contexts.operator_default
+
+    def draw(self, _context):
+        layout = self.layout
+        self.node_operator(layout, "EeveeFilterGraphNodeFilterMaterial", label="Filter Pass")
+
+
+class NODE_MT_filter_graph_node_output(node_add_menu.AddNodeMenu):
+    bl_space_type = 'NODE_EDITOR'
+    bl_label = "Output"
+    bl_translation_context = i18n_contexts.operator_default
+
+    def draw(self, _context):
+        layout = self.layout
+        self.node_operator(layout, "EeveeFilterGraphNodeStageOutput")
+        self.node_operator(layout, "EeveeFilterGraphNodeAOVOutput", label="AOV Output")
+
+
+class NODE_MT_filter_graph_node_add_all(Menu):
+    bl_space_type = 'NODE_EDITOR'
+    bl_label = ""
+
+    def draw(self, _context):
+        layout = self.layout
+        layout.menu("NODE_MT_filter_graph_node_input")
+        layout.menu("NODE_MT_filter_graph_node_pass")
+        layout.menu("NODE_MT_filter_graph_node_output")
 
 
 class NODE_MT_swap(node_add_menu.SwapNodeMenu):
@@ -1246,6 +1310,10 @@ classes = (
     NODE_HT_header,
     NODE_MT_editor_menus,
     NODE_MT_add,
+    NODE_MT_filter_graph_node_input,
+    NODE_MT_filter_graph_node_pass,
+    NODE_MT_filter_graph_node_output,
+    NODE_MT_filter_graph_node_add_all,
     NODE_MT_swap,
     NODE_MT_select,
     NODE_MT_node,

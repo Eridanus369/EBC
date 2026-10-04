@@ -30,6 +30,7 @@
 #include "DNA_camera_types.h"
 #include "DNA_layer_types.h"
 #include "DNA_mask_types.h"
+#include "DNA_material_types.h"
 #include "DNA_object_types.h"
 #include "DNA_space_types.h"
 #include "DNA_view3d_types.h"
@@ -2932,6 +2933,47 @@ static void rna_SpaceNodeEditor_node_tree_set(PointerRNA *ptr,
                                                   reinterpret_cast<const SpaceLink *>(snode));
   ARegion *region = BKE_area_find_region_type(area, RGN_TYPE_WINDOW);
   ED_node_tree_start(region, snode, static_cast<bNodeTree *>(value.data), nullptr, nullptr);
+}
+
+static PointerRNA rna_SpaceNodeEditor_filter_material_get(PointerRNA *ptr)
+{
+  SpaceNode *snode = ptr->data_as<SpaceNode>();
+  if (snode->shaderfrom != SNODE_SHADER_FILTER || snode->id == nullptr ||
+      GS(snode->id->name) != ID_MA)
+  {
+    return PointerRNA{};
+  }
+  return RNA_id_pointer_create(snode->id);
+}
+
+static void rna_SpaceNodeEditor_filter_material_set(PointerRNA *ptr,
+                                                    const PointerRNA value,
+                                                    ReportList * /*reports*/)
+{
+  SpaceNode *snode = ptr->data_as<SpaceNode>();
+  Material *material = static_cast<Material *>(value.data);
+  if (material != nullptr && material->eevee_domain != MA_EEVEE_DOMAIN_FILTER) {
+    return;
+  }
+
+  bNodeTree *node_tree = material ? material->nodetree : nullptr;
+  ID *id = material ? &material->id : nullptr;
+
+  ScrArea *area = BKE_screen_find_area_from_space(reinterpret_cast<const bScreen *>(ptr->owner_id),
+                                                  reinterpret_cast<const SpaceLink *>(snode));
+  ARegion *region = area ? BKE_area_find_region_type(area, RGN_TYPE_WINDOW) : nullptr;
+
+  STRNCPY_UTF8(snode->tree_idname, "ShaderNodeTree");
+  snode->shaderfrom = SNODE_SHADER_FILTER;
+  ED_node_tree_start(region, snode, node_tree, id, nullptr);
+}
+
+static bool rna_SpaceNodeEditor_filter_material_poll(PointerRNA * /*ptr*/,
+                                                     const PointerRNA value)
+{
+  Material *material = static_cast<Material *>(value.data);
+  return material == nullptr ||
+         (material->eevee_domain == MA_EEVEE_DOMAIN_FILTER && material->nodetree != nullptr);
 }
 
 static bool rna_SpaceNodeEditor_selected_node_group_poll(PointerRNA *space_node_pointer,
@@ -8705,6 +8747,11 @@ static void rna_def_space_node(BlenderRNA *brna)
   static const EnumPropertyItem shader_type_items[] = {
       {SNODE_SHADER_OBJECT, "OBJECT", ICON_OBJECT_DATA, "Object", "Edit shader nodes from Object"},
       {SNODE_SHADER_WORLD, "WORLD", ICON_WORLD_DATA, "World", "Edit shader nodes from World"},
+      {SNODE_SHADER_FILTER,
+       "FILTER",
+       ICON_MATERIAL,
+       "Filter",
+       "Edit shader nodes from the scene filter material"},
 #  ifdef WITH_FREESTYLE
       {SNODE_SHADER_LINESTYLE,
        "LINESTYLE",
@@ -8778,6 +8825,18 @@ static void rna_def_space_node(BlenderRNA *brna)
   prop = RNA_def_property(srna, "id", PROP_POINTER, PROP_NONE);
   RNA_def_property_clear_flag(prop, PROP_EDITABLE);
   RNA_def_property_ui_text(prop, "ID", "Data-block whose nodes are being edited");
+
+  prop = RNA_def_property(srna, "filter_material", PROP_POINTER, PROP_NONE);
+  RNA_def_property_struct_type(prop, "Material");
+  RNA_def_property_pointer_funcs(prop,
+                                 "rna_SpaceNodeEditor_filter_material_get",
+                                 "rna_SpaceNodeEditor_filter_material_set",
+                                 nullptr,
+                                 "rna_SpaceNodeEditor_filter_material_poll");
+  RNA_def_property_flag(prop, PROP_EDITABLE | PROP_CONTEXT_UPDATE);
+  RNA_def_property_clear_flag(prop, PROP_ID_REFCOUNT);
+  RNA_def_property_ui_text(prop, "Filter Material", "Filter material being edited");
+  RNA_def_property_update(prop, NC_SPACE | ND_SPACE_NODE, "rna_SpaceNodeEditor_node_tree_update");
 
   prop = RNA_def_property(srna, "id_from", PROP_POINTER, PROP_NONE);
   RNA_def_property_pointer_sdna(prop, nullptr, "from");
