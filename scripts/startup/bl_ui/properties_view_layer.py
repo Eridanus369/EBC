@@ -134,6 +134,10 @@ class VIEWLAYER_PT_eevee_layer_passes_data(ViewLayerButtonsPanel, Panel):
         col.prop(view_layer, "use_pass_grease_pencil", text="Grease Pencil")
 
         view_layer_eevee = view_layer.eevee
+        sub = col.column()
+        sub.active = scene.eevee.use_outline
+        sub.prop(view_layer_eevee, "use_pass_outline", text="Outline")
+
         prefs = context.preferences
         use_debug = prefs.view.show_developer_ui
         if use_debug:

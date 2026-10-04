@@ -66,6 +66,10 @@ def object_or_npr_eevee_shader_nodes_poll(context):
     return object_eevee_shader_nodes_poll(context)
 
 
+def outline_control_shader_nodes_poll(context):
+    return object_or_npr_eevee_shader_nodes_poll(context)
+
+
 def glsl_eevee_shader_nodes_poll(context):
     snode = context.space_data
     return (eevee_shader_nodes_poll(context) and
@@ -206,6 +210,18 @@ class NODE_MT_shader_node_output_base(node_add_menu.NodeMenu):
     def draw(self, context):
         layout = self.layout
 
+        self.node_operator(
+            layout,
+            "ShaderNodeOutputOutlineShell",
+            label="Outline Shell Output",
+            poll=object_shader_nodes_poll(context),
+        )
+        self.node_operator(
+            layout,
+            "ShaderNodeOutlineControl",
+            label="Outline Control",
+            poll=outline_control_shader_nodes_poll(context),
+        )
         self.node_operator(
             layout,
             "ShaderNodeEeveeLightShaderOutput",
