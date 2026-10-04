@@ -1089,14 +1089,16 @@ void ntreeGPULightShaderNodes(bNodeTree *localtree, GPUMaterial *mat)
 {
   ntree_shader_unlink_script_nodes(localtree);
   bke::node_tree_runtime::materialize_shader_portals(*localtree);
+  for (bNode &n : localtree->nodes) {
+    }
   bNode *output = ntree_shader_eevee_light_shader_output_node(localtree);
 
   ntree_shader_pruned_unused(localtree, output);
 
   bNodeTreeExec *exec = ntreeShaderBeginExecTree(localtree);
   if (output != nullptr) {
-    ntreeExecGPUNodes(exec, mat, output, nullptr);
-  }
+      ntreeExecGPUNodes(exec, mat, output, nullptr);
+    }
   ntreeShaderEndExecTree(exec);
 }
 

@@ -567,6 +567,12 @@ void LightModule::end_sync()
   int lights_allocated = ceil_to_multiple_u(max_ii(light_map_.size(), 1), LIGHT_CHUNK);
   light_buf_.resize(lights_allocated);
 
+  /* NPR: Initialize the light shader source index buffers before iterating over lights. */
+  light_shader_index_buf_ensure_no_shader(light_shader_src_index_buf_, lights_allocated);
+  light_shader_index_buf_ensure_no_shader(front_light_shader_src_index_buf_, lights_allocated);
+  light_shader_index_buf_ensure_no_shader(volume_light_shader_src_index_buf_, lights_allocated);
+  light_shader_index_buf_ensure_no_shader(surfel_light_shader_src_index_buf_, lights_allocated);
+
   /* Track light deletion. */
   /* Indices inside GPU data array. */
   int sun_lights_idx = 0;
@@ -585,6 +591,24 @@ void LightModule::end_sync()
     int dst_idx = is_sun_light(light.type) ? sun_lights_idx++ : local_lights_idx++;
     /* Put all light data into global data SSBO. */
     light_buf_[dst_idx] = light;
+
+    /* NPR: Write per-light shader indices. Uniform light shaders use negative encoding so the
+     * material shader samples the uniform buffer instead of the texture array. */
+    const int uniform_encoded_index = (light.uniform_light_shader_index >= 0) ?
+                                          -light.uniform_light_shader_index - 2 :
+                                          -1;
+    light_shader_src_index_buf_[dst_idx] = (light.uniform_light_shader_index >= 0) ?
+                                               uniform_encoded_index :
+                                               light.light_shader_index;
+    front_light_shader_src_index_buf_[dst_idx] = (light.uniform_light_shader_index >= 0) ?
+                                                     uniform_encoded_index :
+                                                     light.front_light_shader_index;
+    volume_light_shader_src_index_buf_[dst_idx] = (light.uniform_light_shader_index >= 0) ?
+                                                      uniform_encoded_index :
+                                                      light.volume_light_shader_index;
+    surfel_light_shader_src_index_buf_[dst_idx] = (light.uniform_light_shader_index >= 0) ?
+                                                      uniform_encoded_index :
+                                                      light.surfel_light_shader_index;
 
     /* Untag for next sync. */
     light.used = false;
@@ -648,12 +672,21 @@ void LightModule::end_sync()
    * exist (as a 1x1 white dummy) even when no custom light shader is registered. */
   lights_allocated = ceil_to_multiple_u(max_ii(lights_len_, 1), LIGHT_CHUNK);
   light_shader_index_buf_ensure_no_shader(light_shader_index_buf_, lights_allocated);
-  light_shader_index_buf_.push_update();
   light_shader_index_buf_ensure_no_shader(front_light_shader_index_buf_, lights_allocated);
-  front_light_shader_index_buf_.push_update();
   light_shader_index_buf_ensure_no_shader(volume_light_shader_index_buf_, lights_allocated);
-  volume_light_shader_index_buf_.push_update();
   light_shader_index_buf_ensure_no_shader(surfel_light_shader_index_buf_, lights_allocated);
+
+  /* NPR: Copy the source indices to the rendered index buffers. The EBC culling pass does not
+   * reorder these buffers, so a direct copy suffices. */
+  for (int i = 0; i < lights_len_; ++i) {
+    light_shader_index_buf_[i] = light_shader_src_index_buf_[i];
+    front_light_shader_index_buf_[i] = front_light_shader_src_index_buf_[i];
+    volume_light_shader_index_buf_[i] = volume_light_shader_src_index_buf_[i];
+    surfel_light_shader_index_buf_[i] = surfel_light_shader_src_index_buf_[i];
+  }
+  light_shader_index_buf_.push_update();
+  front_light_shader_index_buf_.push_update();
+  volume_light_shader_index_buf_.push_update();
   surfel_light_shader_index_buf_.push_update();
 
   surfel_light_shader_buf_.resize(1);

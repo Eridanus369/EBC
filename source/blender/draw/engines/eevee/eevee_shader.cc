@@ -1286,6 +1286,14 @@ void ShaderModule::material_create_info_amend(GPUMaterial *gpumat, GPUCodegenOut
   GPUCodegenOutput &codegen = *codegen_;
   ShaderCreateInfo &info = *reinterpret_cast<ShaderCreateInfo *>(codegen.create_info);
 
+  /* NPR: Custom light shader eval — materials using lighting/GLSL light access must sample the
+   * per-light shader result from the light shader cache (texture array or uniform buffer). */
+  if (use_lighting_nodes) {
+    info.define("MAT_GLSL_LIGHT_SHADER_EVAL");
+    info.define("LIGHT_SHADER_TEXTURE_EVAL");
+    GPU_material_glsl_light_shader_eval_set(gpumat);
+  }
+
   /* WORKAROUND: Add new ob attr buffer. */
   if (GPU_material_uniform_attributes(gpumat) != nullptr ||
       GPU_material_flag_get(gpumat, GPU_MATFLAG_LIGHT_ATTRIBUTE) ||

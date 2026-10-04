@@ -376,6 +376,14 @@ class ShaderNodesInliner {
     /* owner_id can be null for DefaultSurfaceNodeTree. */
     ID_Type tree_type = src_tree_.owner_id ? src_tree_.owner_id->id_type() : ID_MA;
 
+    /* NPR: standalone node-groups created by Python/GUI (owner_id == nullptr) still need the
+     * Light Shader Output path when they contain one. Force ID_LA in that case. */
+    if (tree_type != ID_LA &&
+        !src_tree_.nodes_by_type("ShaderNodeEeveeLightShaderOutput"_ustr).is_empty())
+    {
+      tree_type = ID_LA;
+    }
+
     switch (tree_type) {
       case ID_MA:
         add_output_type("ShaderNodeOutputMaterial"_ustr);
