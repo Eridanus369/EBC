@@ -174,6 +174,20 @@
 #define SH_NODE_NPR_IMAGE_SAMPLE 751
 #define SH_NODE_FILTER_GRAPH_INPUT 752
 
+/** Source image exposed by the Scene Color node (#SH_NODE_SCENE_COLOR.custom1). */
+enum {
+  SHD_SCENE_SOURCE_COLOR = 0,
+  SHD_SCENE_SOURCE_DEPTH = 1,
+  SHD_SCENE_SOURCE_NORMAL = 2,
+  SHD_SCENE_SOURCE_POSITION = 3,
+};
+
+/** Masking mode of the Filter Object Mask node (#SH_NODE_FILTER_OBJECT_MASK.custom1). */
+enum NodeFilterMaskMode {
+  SHD_FILTER_MASK_SINGLE_OBJECT = 0,
+  SHD_FILTER_MASK_COLLECTION = 1,
+};
+
 /* NPR Eevee filter graph nodes (dedicated NTREE_EEVEE_FILTER_GRAPH tree). */
 #define EEVEE_FILTER_GRAPH_NODE_SCENE_COLOR 900
 #define EEVEE_FILTER_GRAPH_NODE_AOV_INPUT 901

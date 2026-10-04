@@ -79,6 +79,27 @@ void Film::init_aovs(const Set<std::string> &passes_used_by_viewport_compositor)
     }
   }
 
+  /* NPR: Append the AOVs requested by the filter graph so that filter materials can read and
+   * write them through the render pass buffers. */
+  for (ViewLayerAOV &aov : inst_.view_layer->aovs) {
+    if (aovs.size() > AOV_MAX) {
+      break;
+    }
+    if (!inst_.filter_materials.uses_aov_name(aov.name)) {
+      continue;
+    }
+    bool already_added = false;
+    for (ViewLayerAOV *added : aovs) {
+      if (added == &aov) {
+        already_added = true;
+        break;
+      }
+    }
+    if (!already_added) {
+      aovs.append(&aov);
+    }
+  }
+
   if (aovs.size() > AOV_MAX) {
     inst_.info_append_i18n("Error: Too many AOVs");
     return;

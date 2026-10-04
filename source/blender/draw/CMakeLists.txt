@@ -111,6 +111,7 @@ set(SRC
   engines/eevee/eevee_depth_of_field.cc
   engines/eevee/eevee_engine.cc
   engines/eevee/eevee_film.cc
+  engines/eevee/eevee_filter_material.cc
   engines/eevee/eevee_hizbuffer.cc
   engines/eevee/eevee_instance.cc
   engines/eevee/eevee_light.cc

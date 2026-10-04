@@ -233,6 +233,7 @@ void Instance::init(const int2 &output_res,
 
   sampling.init(scene);
   camera.init();
+  filter_materials.init();
   film.init(output_res, output_rect);
   render_buffers.init();
   ambient_occlusion.init();
@@ -318,6 +319,7 @@ void Instance::init_light_bake(Depsgraph *depsgraph, draw::Manager *manager)
   camera.init();
   /* Film isn't used but init to avoid side effects in other module. */
   rcti empty_rect{0, 0, 0, 0};
+  filter_materials.init();
   film.init(int2(1), &empty_rect);
   render_buffers.init();
   ambient_occlusion.init();
@@ -377,6 +379,7 @@ void Instance::begin_sync()
   }
 
   materials.begin_sync();
+  filter_materials.begin_sync();
   outline.begin_sync();
   velocity.begin_sync(); /* NOTE: Also syncs camera. */
   lights.begin_sync();

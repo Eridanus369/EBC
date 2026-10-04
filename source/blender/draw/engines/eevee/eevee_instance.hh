@@ -33,6 +33,7 @@
 #include "eevee_cryptomatte.hh"
 #include "eevee_debug_shared.hh"
 #include "eevee_depth_of_field.hh"
+#include "eevee_filter_material.hh"
 #include "eevee_film.hh"
 #include "eevee_gbuffer.hh"
 #include "eevee_hizbuffer.hh"
@@ -114,6 +115,7 @@ class Instance : public DrawEngine {
   SyncModule sync;
   UniformDataModule uniform_data;
   MaterialModule materials;
+  FilterMaterialModule filter_materials;
   SubsurfaceModule subsurface;
   PipelineModule pipelines;
   ShadowModule shadows;
@@ -203,6 +205,7 @@ class Instance : public DrawEngine {
       : shaders(*ShaderModule::module_get()),
         sync(*this),
         materials(*this),
+        filter_materials(*this),
         subsurface(*this),
         pipelines(*this, uniform_data.pipeline),
         shadows(*this, uniform_data.data.shadow),

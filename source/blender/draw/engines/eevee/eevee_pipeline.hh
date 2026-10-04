@@ -1012,6 +1012,11 @@ class PipelineModule {
         /* Should be handled by the `probe_capture == MAT_PROBE_PLANAR` case. */
         BLI_assert_unreachable();
         return nullptr;
+
+      case MAT_PIPE_FILTER:
+        /* Filter materials are rendered by the FilterMaterialModule directly. */
+        BLI_assert_unreachable();
+        return nullptr;
     }
     return nullptr;
   }
