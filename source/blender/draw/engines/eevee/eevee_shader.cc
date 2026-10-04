@@ -143,6 +143,11 @@ ShaderGroups ShaderModule::static_shaders_load(const ShaderGroups request_bits,
     request(FILM_SHADERS, AS_SPAN(shader_list));
   }
   {
+    /* NPR: Scene filter graph stitching passes. */
+    const eShaderType shader_list[] = {FILTER_GRAPH_INPUT_COPY, FILTER_GRAPH_RESOLVE};
+    request(FILTER_GRAPH_SHADERS, AS_SPAN(shader_list));
+  }
+  {
     const eShaderType shader_list[] = {DEFERRED_CAPTURE_EVAL};
     request(DEFERRED_CAPTURE_SHADERS, AS_SPAN(shader_list));
   }
@@ -456,6 +461,10 @@ const char *ShaderModule::static_shader_create_info_name_get(eShaderType shader_
       return "eevee_depth_of_field_tiles_dilate_minmax";
     case DOF_TILES_FLATTEN:
       return "eevee_depth_of_field_tiles_flatten";
+    case FILTER_GRAPH_INPUT_COPY:
+      return "eevee_filter_graph_input_copy";
+    case FILTER_GRAPH_RESOLVE:
+      return "eevee_filter_graph_resolve";
     case LIGHT_CULLING_DEBUG:
       return "eevee_light_culling_debug";
     case LIGHT_CULLING_SELECT:
@@ -766,6 +775,16 @@ static SlotAllocator add_pipeline_create_info(gpu::shader::ShaderCreateInfo &inf
            * pipeline. */
           info.fragment_source("eevee_surf_volume.bsl.hh");
           info.fragment_function("eevee_surf_volume");
+          break;
+        case MAT_PIPE_FILTER:
+          /* NPR: Scene filter graph evaluation pass. */
+          pipeline_info_name = "eevee_eevee_filter_material_infos_";
+          info.name_ += "_world_filter";
+          info.define("MAT_FILTER");
+          /* Until every vertex shader are ported, we need to bridge the gap here by defining the
+           * pipeline. */
+          info.fragment_source("eevee_filter_material.bsl.hh");
+          info.fragment_function("eevee_filter_material");
           break;
         default:
           pipeline_info_name = "eevee_surf_world_infos_";
@@ -1775,6 +1794,24 @@ void ShaderModule::material_create_info_amend(GPUMaterial *gpumat, GPUCodegenOut
     }
     dependencies_set.add("eevee_geom_types_lib.bsl.hh");
     dependencies_set.add("eevee_nodetree_lib.bsl.hh");
+    if (pipeline_type == MAT_PIPE_FILTER) {
+      /* NPR: Filter graph materials evaluate the filter outputs against the scene textures. */
+      dependencies_set.add("eevee_filter_material_lib.bsl.hh");
+      for (const GPUGraphOutput &filter_output : codegen.filter_outputs) {
+        material_graph_dependencies_append(gpumat,
+                                           filter_output.dependencies,
+                                           dependencies_set,
+                                           emitted_generated_sources,
+                                           generated_source_block);
+      }
+      if (codegen.filter_outputs.is_empty() && !codegen.filter.empty()) {
+        material_graph_dependencies_append(gpumat,
+                                           codegen.filter.dependencies,
+                                           dependencies_set,
+                                           emitted_generated_sources,
+                                           generated_source_block);
+      }
+    }
 
     for (const auto &graph : codegen.material_functions) {
       material_graph_dependencies_append(gpumat,
@@ -1870,6 +1907,30 @@ void ShaderModule::material_create_info_amend(GPUMaterial *gpumat, GPUCodegenOut
     frag_gen << "  closure_weights_reset(0.0);\n";
     frag_gen << codegen.volume.serialized_or_default("return Closure(0);\n");
     frag_gen << "}\n\n";
+
+    if (pipeline_type == MAT_PIPE_FILTER) {
+      /* NPR: Emit one function per Filter Output node plus the entry point called by the filter
+       * material shader. Each output is stored into its own layer of `filter_graph_output_img`
+       * by `filter_graph_output_store` (eevee_filter_material_lib.bsl.hh). */
+      Vector<GPUGraphOutput> filter_outputs;
+      if (!codegen.filter_outputs.is_empty()) {
+        filter_outputs = codegen.filter_outputs;
+      }
+      else if (!codegen.filter.empty()) {
+        filter_outputs.append(codegen.filter);
+      }
+      for (const int i : filter_outputs.index_range()) {
+        frag_gen << "float4 nodetree_filter_output_" << i << "()\n{\n";
+        frag_gen << filter_outputs[i].serialized_or_default("return float4(0.0f);\n");
+        frag_gen << "}\n\n";
+      }
+      frag_gen << "void nodetree_filter_outputs(int2 frag_texel)\n{\n";
+      for (const int i : filter_outputs.index_range()) {
+        frag_gen << "  filter_graph_output_store(" << i << ", nodetree_filter_output_" << i
+                 << "(), frag_texel);\n";
+      }
+      frag_gen << "}\n\n";
+    }
 
     info.generated_sources.append({"eevee_nodetree_frag_lib.glsl",
                                    material_dependencies_finalize(dependencies_set),
@@ -2131,6 +2192,23 @@ void ShaderModule::material_create_info_pipelines_amend(eMaterialGeometry geomet
             .depth_format(gpu::TextureTargetFormat::SFLOAT_32_DEPTH_UINT_8)
             .stencil_format(gpu::TextureTargetFormat::SFLOAT_32_DEPTH_UINT_8);
 
+        break;
+      }
+
+      case MAT_PIPE_FILTER: {
+        /* NPR: Filter graph pipeline. Renders to the dummy color attachment; the filter outputs
+         * are written via imageStore into `filter_graph_output_img`. */
+        r_info.pipeline_state()
+            .primitive(GPU_PRIM_TRIS)
+            .state(GPU_WRITE_COLOR,
+                   GPU_BLEND_NONE,
+                   GPU_CULL_NONE,
+                   GPU_DEPTH_NONE,
+                   GPU_STENCIL_NONE,
+                   GPU_STENCIL_OP_NONE,
+                   GPU_VERTEX_LAST)
+            .viewports(1)
+            .color_format(gpu::TextureTargetFormat::SFLOAT_16_16_16_16);
         break;
       }
 

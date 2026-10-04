@@ -50,6 +50,9 @@ enum eMaterialPipeline {
 
   /* Pipeline for surfel capture. */
   MAT_PIPE_CAPTURE,
+
+  /* NPR: Scene filter graph evaluation (world geometry fullscreen pass). */
+  MAT_PIPE_FILTER,
 };
 
 /**
