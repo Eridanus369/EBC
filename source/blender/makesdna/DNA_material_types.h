@@ -179,6 +179,12 @@ enum eMaterial_VolumeIntersectionMethod : char {
   MA_VOLUME_ISECT_ACCURATE = 1,
 };
 
+/** #Material::eevee_domain */
+enum {
+  MA_EEVEE_DOMAIN_SURFACE = 0,
+  MA_EEVEE_DOMAIN_FILTER = 1,
+};
+
 /** #Material::blend_method */
 enum eMaterial_BlendMethod : char {
   MA_BM_SOLID = 0,
@@ -428,7 +434,8 @@ struct Material {
   eMaterial_Flag flag = {};
   /** Rendering modes for EEVEE. */
   eMaterial_SurfaceRenderMethod surface_render_method = MA_SURFACE_METHOD_DEFERRED;
-  char _pad1[1] = {};
+  /** NPR: EEVEE material domain (surface vs. fullscreen filter). */
+  char eevee_domain = MA_EEVEE_DOMAIN_SURFACE;
 
   /* Colors from Blender Internal that we are still using. */
   float r = 0.8, g = 0.8, b = 0.8, a = 1.0f;

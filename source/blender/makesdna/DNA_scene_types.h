@@ -2807,6 +2807,24 @@ struct RaytraceEEVEE {
   char _pad[4] = {};
 };
 
+/* NPR Eevee filter materials. */
+enum SceneEEVEEFilterExecutionStage {
+  SCE_EEVEE_FILTER_STAGE_BEFORE_DEPTH_OF_FIELD = 0,
+  SCE_EEVEE_FILTER_STAGE_BEFORE_COMPOSITE = 1,
+  SCE_EEVEE_FILTER_STAGE_BEFORE_VOLUME_FOG = 2,
+  SCE_EEVEE_FILTER_STAGE_BEFORE_POSTFX = 3,
+};
+
+struct SceneFilterMaterial {
+  SceneFilterMaterial *next, *prev;
+  char name[64];
+  int uid;
+  char enabled;
+  char execution_stage;
+  char _pad[2];
+  struct Material *material;
+};
+
 /** #SceneEEVEE::flag */
 enum eSceneEEVEE_Flag : int {
   // SCE_EEVEE_VOLUMETRIC_ENABLED = (1 << 0), /* Unused */
@@ -2927,7 +2945,14 @@ struct SceneEEVEE {
   /** NPR: built-in screen-space outline pass (Outline Control / Freestyle edges). */
   char use_outline = true;
   char _pad_outline[3] = {};
-  char _pad50[8] = {};
+
+  /** NPR: legacy scene-level filter material stack (migrated to the filter graph). */
+  ListBase filter_materials = {};
+  /** NPR: scene-level Eevee filter graph node tree. */
+  struct bNodeTree *filter_graph = nullptr;
+  int active_filter_material_index = -1;
+  int next_filter_material_uid = 1;
+  void *_pad = nullptr;
 };
 
 struct SceneGpencil {

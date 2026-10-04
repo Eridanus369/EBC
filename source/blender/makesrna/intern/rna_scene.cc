@@ -1315,6 +1315,33 @@ void rna_Scene_compositing_node_group_update(Main *bmain, Scene * /*scene*/, Poi
   }
 }
 
+/* NPR Eevee filter graph. */
+static bool rna_Scene_eevee_filter_graph_poll(PointerRNA * /*ptr*/, PointerRNA value)
+{
+  bNodeTree *ntree = static_cast<bNodeTree *>(value.data);
+  return ntree != nullptr && ntree->type == NTREE_EEVEE_FILTER_GRAPH;
+}
+
+static void rna_Scene_eevee_filter_graph_set(PointerRNA *ptr,
+                                             const PointerRNA value,
+                                             ReportList *reports)
+{
+  SceneEEVEE *eevee = static_cast<SceneEEVEE *>(ptr->data);
+  bNodeTree *ntree = static_cast<bNodeTree *>(value.data);
+  if (ntree && ntree->type != NTREE_EEVEE_FILTER_GRAPH) {
+    BKE_reportf(
+        reports, RPT_ERROR, "Node tree '%s' is not an Eevee filter graph.", ntree->id.name + 2);
+    return;
+  }
+  if (eevee->filter_graph) {
+    id_us_min(&eevee->filter_graph->id);
+  }
+  eevee->filter_graph = ntree;
+  if (eevee->filter_graph) {
+    id_us_plus(&eevee->filter_graph->id);
+  }
+}
+
 static std::optional<std::string> rna_SceneEEVEE_path(const PointerRNA * /*ptr*/)
 {
   return "eevee";
@@ -9632,6 +9659,18 @@ static void rna_def_scene_eevee(BlenderRNA *brna)
                            "Control nodes and marked Freestyle edges");
   RNA_def_property_override_flag(prop, PROPOVERRIDE_OVERRIDABLE_LIBRARY);
   RNA_def_property_update(prop, NC_SCENE | ND_RENDER_OPTIONS, nullptr);
+
+  prop = RNA_def_property(srna, "filter_graph", PROP_POINTER, PROP_NONE);
+  RNA_def_property_pointer_sdna(prop, nullptr, "filter_graph");
+  RNA_def_property_struct_type(prop, "NodeTree");
+  RNA_def_property_flag(prop, PROP_EDITABLE | PROP_ID_REFCOUNT);
+  RNA_def_property_ui_text(prop, "Filter Graph", "Scene-level Eevee filter material graph");
+  RNA_def_property_update(prop, NC_SCENE | ND_NODES, "rna_Scene_set_update");
+  RNA_def_property_pointer_funcs(prop,
+                                 nullptr,
+                                 "rna_Scene_eevee_filter_graph_set",
+                                 nullptr,
+                                 "rna_Scene_eevee_filter_graph_poll");
 
   prop = RNA_def_property(srna, "shadow_pool_size", PROP_ENUM, PROP_NONE);
   RNA_def_property_enum_items(prop, eevee_shadow_pool_size_items);
