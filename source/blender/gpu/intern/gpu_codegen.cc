@@ -659,6 +659,32 @@ void GPUCodegen::generate_graphs()
     output.composite = graph_serialize(GPU_NODE_TAG_COMPOSITOR);
   }
 
+  /* NPR: Serialize each Filter Output node as a separate graph. */
+  if (!BLI_listbase_is_empty(&graph.outlink_filters)) {
+    for (GPUNodeGraphOutputLink &filter_link : graph.outlink_filters) {
+      /* Untag every node in the graph to avoid serializing nodes from other filter outputs. */
+      for (GPUNode &node : graph.nodes) {
+        node.tag &= ~GPU_NODE_TAG_FILTER;
+      }
+      gpu_nodes_tag(&graph, filter_link.outlink, GPU_NODE_TAG_FILTER);
+      GPUGraphOutput filter_graph = graph_serialize(
+          GPU_NODE_TAG_FILTER, filter_link.outlink, nullptr);
+      output.filter_output_identifiers.append(filter_link.hash);
+      output.filter_outputs.append(filter_graph);
+    }
+    /* Leave the filter tags as they were before serialization. */
+    for (GPUNodeGraphOutputLink &filter_link : graph.outlink_filters) {
+      gpu_nodes_tag(&graph, filter_link.outlink, GPU_NODE_TAG_FILTER);
+    }
+    if (!output.filter_outputs.is_empty()) {
+      output.filter = output.filter_outputs.first();
+    }
+  }
+  else {
+    output.filter = graph_serialize(
+        GPU_NODE_TAG_FILTER | GPU_NODE_TAG_AOV, graph.outlink_filter, nullptr);
+  }
+
   if (!graph.material_functions.is_empty()) {
     for (GPUNodeGraphFunctionLink &func_link : graph.material_functions) {
       std::stringstream eval_ss;

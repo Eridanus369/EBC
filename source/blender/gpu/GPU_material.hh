@@ -707,6 +707,11 @@ struct GPUCodegenOutput {
   GPUGraphOutput composite;
   Vector<GPUGraphOutput> material_functions;
 
+  /* NPR: Eevee fullscreen filter material graphs (Filter Output node). */
+  GPUGraphOutput filter;
+  Vector<int> filter_output_identifiers;
+  Vector<GPUGraphOutput> filter_outputs;
+
   GPUShaderCreateInfo *create_info;
 };
 
@@ -846,6 +851,18 @@ bool GPU_material_has_outline_output(const GPUMaterial *material);
 void GPU_material_output_filter(GPUMaterial *material, GPUNodeLink *link);
 void GPU_material_output_filter_item(GPUMaterial *material, int identifier, GPUNodeLink *link);
 bool GPU_material_has_filter_output(const GPUMaterial *material);
+
+/* NPR: Filter material evaluation inputs (Filter Object Info / Filter Mask nodes). */
+int GPU_material_filter_object_info_ensure(GPUMaterial *material, Object *object);
+int GPU_material_filter_object_info_count(const GPUMaterial *material);
+Object *GPU_material_filter_object_info_get(const GPUMaterial *material, int index);
+int GPU_material_filter_mask_object_append(GPUMaterial *material, Object *object);
+int GPU_material_filter_mask_object_count(const GPUMaterial *material);
+Object *GPU_material_filter_mask_object_get(const GPUMaterial *material, int index);
+
+/* NPR: Filter graph depends on animated scene time. */
+void GPU_material_set_time_dependent(GPUMaterial *mat);
+bool GPU_material_is_time_dependent(const GPUMaterial *mat);
 
 void GPU_material_add_output_link_composite(GPUMaterial *material, GPUNodeLink *link);
 

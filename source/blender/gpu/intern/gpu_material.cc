@@ -124,6 +124,10 @@ struct GPUMaterial {
   Vector<GPUReferencedObject> referenced_objects;
   Vector<GPULightShaderParameterRequest> light_shader_parameters;
 
+  /* NPR: Filter material evaluation inputs (Filter Object Info / Filter Mask nodes). */
+  Vector<Object *> filter_object_infos;
+  Vector<Object *> filter_mask_objects;
+
   Vector<std::string> closure_uv_source_stack;
   Vector<GPUType> closure_uv_source_type_stack;
   Vector<std::string> closure_uv_dx_source_stack;
@@ -137,6 +141,8 @@ struct GPUMaterial {
   bool has_glsl_light_shader_eval = false;
   /* NPR: graph is rooted at an Outline Shell Output node instead of the material output. */
   bool is_outline_shell = false;
+  /* NPR: Filter graph depends on animated scene time. */
+  bool is_time_dependent = false;
 
   std::string name;
 
@@ -935,6 +941,67 @@ void GPU_material_output_filter_item(GPUMaterial *material, int identifier, GPUN
 bool GPU_material_has_filter_output(const GPUMaterial *material)
 {
   return material != nullptr && !BLI_listbase_is_empty(&material->graph.outlink_filters);
+}
+
+int GPU_material_filter_object_info_ensure(GPUMaterial *material, Object *object)
+{
+  if (material == nullptr || object == nullptr) {
+    return -1;
+  }
+
+  const int existing_index = material->filter_object_infos.first_index_of_try(object);
+  if (existing_index != -1) {
+    return existing_index;
+  }
+
+  material->filter_object_infos.append(object);
+  return material->filter_object_infos.size() - 1;
+}
+
+int GPU_material_filter_object_info_count(const GPUMaterial *material)
+{
+  return (material != nullptr) ? material->filter_object_infos.size() : 0;
+}
+
+Object *GPU_material_filter_object_info_get(const GPUMaterial *material, int index)
+{
+  if (material == nullptr || index < 0 || index >= material->filter_object_infos.size()) {
+    return nullptr;
+  }
+  return material->filter_object_infos[index];
+}
+
+int GPU_material_filter_mask_object_append(GPUMaterial *material, Object *object)
+{
+  if (material == nullptr || object == nullptr) {
+    return -1;
+  }
+
+  material->filter_mask_objects.append(object);
+  return material->filter_mask_objects.size() - 1;
+}
+
+int GPU_material_filter_mask_object_count(const GPUMaterial *material)
+{
+  return (material != nullptr) ? material->filter_mask_objects.size() : 0;
+}
+
+Object *GPU_material_filter_mask_object_get(const GPUMaterial *material, int index)
+{
+  if (material == nullptr || index < 0 || index >= material->filter_mask_objects.size()) {
+    return nullptr;
+  }
+  return material->filter_mask_objects[index];
+}
+
+void GPU_material_set_time_dependent(GPUMaterial *mat)
+{
+  mat->is_time_dependent = true;
+}
+
+bool GPU_material_is_time_dependent(const GPUMaterial *mat)
+{
+  return mat != nullptr && mat->is_time_dependent;
 }
 
 void GPU_material_add_output_link_composite(GPUMaterial *material, GPUNodeLink *link)
