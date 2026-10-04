@@ -330,6 +330,10 @@ enum GPUType {
   /* GLSL Struct types */
   GPU_CLOSURE,
 
+  /* NPR: Indirect texture handle for the filter material graph (see TextureHandle in
+   * gpu_shader_codegen_lib.glsl). */
+  GPU_TEXTURE_HANDLE,
+
   /* Opengl Attributes */
   GPU_ATTR,
 };
@@ -363,6 +367,7 @@ constexpr int gpu_type_element_count(const GPUType type)
     case GPU_TEX2D_ARRAY:
     case GPU_TEX3D:
     case GPU_CLOSURE:
+    case GPU_TEXTURE_HANDLE:
     case GPU_ATTR:
       break;
   }
@@ -549,6 +554,7 @@ inline GPUNodeStackValue GPU_node_stack_default_value(const GPUType type)
     case GPU_TEX2D_ARRAY:
     case GPU_TEX3D:
     case GPU_CLOSURE:
+    case GPU_TEXTURE_HANDLE:
     case GPU_ATTR:
       break;
   }

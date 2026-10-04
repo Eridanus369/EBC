@@ -157,6 +157,10 @@ void register_shader_nodes()
   register_node_type_eevee_filter_graph_aov_output();
   register_node_type_sh_filter_graph_input();
   register_node_type_sh_output_filter();
+  register_node_type_sh_scene_color();
+  register_node_type_sh_npr_image_sample();
+  register_node_type_sh_filter_object_info();
+  register_node_type_sh_filter_object_mask();
 
   /* UPBGE */
   register_node_type_sh_sprites_animation();

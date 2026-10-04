@@ -20,6 +20,8 @@
 
 #include "IMB_colormanagement.hh"
 
+#include "NOD_filter_graph.hh"
+
 #include "node_shader_util.hh"
 
 #include "NOD_socket_search_link.hh"
@@ -490,6 +492,88 @@ static void data_from_gpu_stack_list(ListBaseT<bNodeSocket> *sockets,
       i++;
     }
   }
+}
+
+/* NPR: Image (#SOCK_IMAGE) sockets do not go through the bNodeStack system. Walk the link chain
+ * feeding an image input socket (following reroute nodes) and return the final link, whose
+ * from-node/from-socket produce the texture handle. */
+const bNodeLink *node_shader_filter_image_origin_link(const bNodeSocket *sock)
+{
+  if (sock == nullptr || sock->in_out != SOCK_IN) {
+    return nullptr;
+  }
+
+  const bNodeSocket *current = sock;
+  for (int depth = 0; depth < 64; depth++) {
+    const bNodeLink *link = current->link;
+    if (link == nullptr || (link->flag & NODE_LINK_MUTED) || link->fromsock == nullptr) {
+      return nullptr;
+    }
+    const bNode *fromnode = link->fromnode;
+    if (fromnode != nullptr && fromnode->type_legacy == NODE_REROUTE) {
+      current = static_cast<const bNodeSocket *>(fromnode->inputs.first());
+      if (current == nullptr) {
+        return nullptr;
+      }
+      continue;
+    }
+    return link;
+  }
+  return nullptr;
+}
+
+/* Build the GPUNodeLink carrying the TextureHandle produced by an image origin socket.
+ * Supported origins: Pass Input (filter graph invocation images) and Scene Color. */
+GPUNodeLink *node_shader_gpu_filter_image_handle(GPUMaterial *mat, const bNodeLink *link)
+{
+  if (mat == nullptr || link == nullptr || link->fromnode == nullptr ||
+      link->fromsock == nullptr)
+  {
+    return nullptr;
+  }
+
+  const bNode *fromnode = link->fromnode;
+  const bNodeSocket *fromsock = link->fromsock;
+
+  if (fromnode->type_legacy == SH_NODE_FILTER_GRAPH_INPUT) {
+    const auto *storage = static_cast<const NodeShaderFilterGraphInput *>(fromnode->storage);
+    if (storage == nullptr) {
+      return nullptr;
+    }
+    for (const int i : IndexRange(storage->items_num)) {
+      if (i >= blender::nodes::eevee_filter_graph_input_cap) {
+        break;
+      }
+      const std::string identifier = "Image_" + std::to_string(storage->items[i].identifier);
+      if (identifier == StringRefNull(fromsock->identifier)) {
+        float index = float(i);
+        GPUNodeLink *handle = nullptr;
+        GPU_link(mat, "node_filter_graph_input", GPU_constant(&index), &handle);
+        return handle;
+      }
+    }
+    return nullptr;
+  }
+
+  if (fromnode->type_legacy == SH_NODE_SCENE_COLOR) {
+    float index = -1.0f;
+    if (STREQ(fromsock->identifier, "Depth Image")) {
+      index = 1.0f;
+    }
+    else if (STREQ(fromsock->identifier, "Normal Image")) {
+      index = 2.0f;
+    }
+    else if (STREQ(fromsock->identifier, "Position Image")) {
+      index = 4.0f;
+    }
+    if (index >= 0.0f) {
+      GPUNodeLink *handle = nullptr;
+      GPU_link(mat, "node_scene_source_handle", GPU_constant(&index), &handle);
+      return handle;
+    }
+  }
+
+  return nullptr;
 }
 
 bool bke::node_supports_active_flag(const bNode &node, int sub_activity)

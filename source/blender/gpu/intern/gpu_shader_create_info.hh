@@ -372,6 +372,7 @@ static inline Type to_type(const GPUType type)
     case GPU_TEX2D_ARRAY:
     case GPU_TEX3D:
     case GPU_CLOSURE:
+    case GPU_TEXTURE_HANDLE:
     case GPU_ATTR:
       break;
   }
@@ -458,6 +459,8 @@ static inline std::ostream &operator<<(std::ostream &stream, const GPUType type)
   switch (type) {
     case GPU_CLOSURE:
       return stream << "Closure";
+    case GPU_TEXTURE_HANDLE:
+      return stream << "TextureHandle";
     default:
       return stream << to_type(type);
   }

@@ -37,6 +37,7 @@ namespace blender {
 struct bContext;
 struct bNodeExecContext;
 struct bNodeTreeExec;
+struct bNodeLink;
 struct GPUNodeLink;
 struct GPUNodeStack;
 struct GPUMaterial;
@@ -102,6 +103,12 @@ void node_shader_gpu_stack_from_portal_out(const bNode &portal_out,
 /* Link search callback that ignores the "Weight" socket in shader nodes.
  * These sockets are never available and must be ignored to avoid invalid link operations. */
 void search_link_ops_for_shader_bsdf_node(nodes::GatherLinkSearchOpParams &params);
+
+/* NPR: Image (#SOCK_IMAGE) sockets do not use the bNodeStack system. Walk the link chain
+ * feeding an image input (following reroute nodes) and build the TextureHandle GPUNodeLink
+ * produced by its origin node (Pass Input or Scene Color). */
+const bNodeLink *node_shader_filter_image_origin_link(const bNodeSocket *sock);
+GPUNodeLink *node_shader_gpu_filter_image_handle(GPUMaterial *mat, const bNodeLink *link);
 
 /* Link search callback that ignores the "LightIndex", "ShaderZoneIO", and "Weight" socket in
  * shader nodes. These sockets are never available and must be ignored to avoid invalid link

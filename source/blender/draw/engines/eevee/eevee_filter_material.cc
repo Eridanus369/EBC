@@ -16,6 +16,7 @@
 #include "BLI_hash_c.hh"
 #include "BLI_listbase.hh"
 #include "BLI_map.hh"
+#include "BLI_math_matrix.hh"
 #include "BLI_math_vector.hh"
 #include "BLI_set.hh"
 #include "BLI_string.hh"
@@ -26,6 +27,9 @@
 #include "BKE_node_legacy_types.hh"
 #include "BKE_node_runtime.hh"
 #include "BKE_node.hh"
+#include "BKE_object.hh"
+
+#include "DNA_object_types.h"
 
 #include "NOD_filter_graph.hh"
 
@@ -1067,14 +1071,12 @@ void FilterMaterialModule::update_filter_object_mask_buffer(GPUMaterial *gpumat)
     entry = filter_object_info_default();
   }
 
-  const int material_object_count = GPU_material_filter_object_info_count(gpumat);
-  const int material_mask_count = GPU_material_filter_mask_object_count(gpumat);
-  const int object_count = min_ii(material_object_count + material_mask_count,
+  /* Filter Object Info and Filter Mask nodes share one de-duplicated object list on the
+   * GPUMaterial. */
+  const int object_count = min_ii(GPU_material_filter_object_info_count(gpumat),
                                   FILTER_OBJECT_INFO_MAX);
   for (int index = 0; index < object_count; index++) {
-    Object *object = (index < material_object_count) ?
-                         GPU_material_filter_object_info_get(gpumat, index) :
-                         GPU_material_filter_mask_object_get(gpumat, index - material_object_count);
+    Object *object = GPU_material_filter_object_info_get(gpumat, index);
     if (object == nullptr) {
       continue;
     }
@@ -1083,6 +1085,22 @@ void FilterMaterialModule::update_filter_object_mask_buffer(GPUMaterial *gpumat)
     const char *name = object->id.name + 2;
     const uint32_t hash = BKE_cryptomatte_hash(name, int(std::strlen(name)));
     entry.metadata = float4(BKE_cryptomatte_hash_to_float(hash), 0.0f, 0.0f, 0.0f);
+
+    /* Object color. */
+    copy_v4_v4(entry.color, object->color);
+
+    /* World transform (evaluated object matrix). */
+    using namespace blender::math;
+    const float4x4 &matrix = object->object_to_world();
+    float3 location;
+    float3 scale;
+    Quaternion quaternion;
+    to_loc_rot_scale(matrix, location, quaternion, scale);
+    const float3 rotation_euler(to_euler(quaternion));
+
+    copy_v3_v3(entry.location, location);
+    copy_v3_v3(entry.rotation, rotation_euler);
+    copy_v3_v3(entry.scale, scale);
   }
 
   filter_object_info_buf_.push_update();

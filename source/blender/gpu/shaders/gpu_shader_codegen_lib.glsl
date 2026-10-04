@@ -55,7 +55,7 @@ struct TextureHandle {
 #define float_from_float3(v) ((v.r + v.g + v.b) * (1.0f / 3.0f))
 #define float_from_float2(v) ((v.x + v.y) * (1.0f / 2.0f))
 #define float_from_TextureHandle(t, luminance_coefficients) \
-  float_from_float4(filter_texture_eval(t), luminance_coefficients)
+  float_from_float4(eevee::filter_texture_eval(t), luminance_coefficients)
 #define float_from_int(v) float(v)
 #define float_from_bool(v) float(v)
 
@@ -64,21 +64,21 @@ struct TextureHandle {
 #define float2_from_float(v) float2(v)
 #define float2_from_int(v) float2(float(v))
 #define float2_from_bool(v) float2(float(v))
-#define float2_from_TextureHandle(t) filter_texture_eval(t).xy
+#define float2_from_TextureHandle(t) eevee::filter_texture_eval(t).xy
 
 #define float3_from_float4(v) v.rgb
 #define float3_from_float2(v) float3(v.xy, 0.0f)
 #define float3_from_float(v) float3(v)
 #define float3_from_int(v) float3(float(v))
 #define float3_from_bool(v) float3(float(v))
-#define float3_from_TextureHandle(t) filter_texture_eval(t).rgb
+#define float3_from_TextureHandle(t) eevee::filter_texture_eval(t).rgb
 
 #define float4_from_float3(v) float4(v, 1.0f)
 #define float4_from_float2(v) float4(v.xy, 0.0f, 1.0f)
 #define float4_from_float(v) float4(float3(v), 1.0f)
 #define float4_from_int(v) float4(float3(float(v)), 1.0f)
 #define float4_from_bool(v) float4(float3(float(v)), 1.0f)
-#define float4_from_TextureHandle(t) filter_texture_eval(t)
+#define float4_from_TextureHandle(t) eevee::filter_texture_eval(t)
 
 #define int_from_float(v) int(v)
 #define int_from_bool(v) int(v)

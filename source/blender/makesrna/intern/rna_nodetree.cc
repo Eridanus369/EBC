@@ -12214,6 +12214,52 @@ static void def_sh_filter_graph_input(BlenderRNA *brna, StructRNA *srna)
   RNA_def_struct_sdna_from(srna, "bNode", nullptr);
 }
 
+static const EnumPropertyItem sh_scene_color_source_items[] = {
+    {SHD_SCENE_SOURCE_COLOR, "COLOR", 0, "Color", "Scene color"},
+    {SHD_SCENE_SOURCE_DEPTH, "DEPTH", 0, "Depth", "Scene linear depth"},
+    {SHD_SCENE_SOURCE_NORMAL, "NORMAL", 0, "Normal", "Scene view-space normal"},
+    {SHD_SCENE_SOURCE_POSITION, "POSITION", 0, "Position", "Scene world-space position"},
+    {0, nullptr, 0, nullptr, nullptr},
+};
+
+static void def_sh_scene_color(BlenderRNA * /*brna*/, StructRNA *srna)
+{
+  PropertyRNA *prop;
+
+  prop = RNA_def_property(srna, "source", PROP_ENUM, PROP_NONE);
+  RNA_def_property_enum_sdna(prop, nullptr, "custom1");
+  RNA_def_property_enum_items(prop, sh_scene_color_source_items);
+  RNA_def_property_enum_default(prop, SHD_SCENE_SOURCE_COLOR);
+  RNA_def_property_ui_text(prop, "Source", "Scene source exposed by the Color output");
+  RNA_def_property_update(prop, NC_NODE | NA_EDITED, nullptr);
+}
+
+static const EnumPropertyItem sh_filter_mask_mode_items[] = {
+    {SHD_FILTER_MASK_SINGLE_OBJECT,
+     "SINGLE_OBJECT",
+     0,
+     "Single Object",
+     "Mask one object selected in the Object socket"},
+    {SHD_FILTER_MASK_COLLECTION,
+     "COLLECTION",
+     0,
+     "Collection",
+     "Mask all geometry objects in the Collection socket"},
+    {0, nullptr, 0, nullptr, nullptr},
+};
+
+static void def_sh_filter_object_mask(BlenderRNA * /*brna*/, StructRNA *srna)
+{
+  PropertyRNA *prop;
+
+  prop = RNA_def_property(srna, "mode", PROP_ENUM, PROP_NONE);
+  RNA_def_property_enum_sdna(prop, nullptr, "custom1");
+  RNA_def_property_enum_items(prop, sh_filter_mask_mode_items);
+  RNA_def_property_enum_default(prop, SHD_FILTER_MASK_SINGLE_OBJECT);
+  RNA_def_property_ui_text(prop, "Mode", "How the masked objects are selected");
+  RNA_def_property_update(prop, NC_NODE | NA_EDITED, nullptr);
+}
+
 static void def_sh_output_filter(BlenderRNA *brna, StructRNA *srna)
 {
   PropertyRNA *prop;
@@ -12684,6 +12730,10 @@ static void rna_def_nodes(BlenderRNA *brna)
   define("ShaderNode", "ShaderNodeEeveeSpecular");
   define("ShaderNode", "ShaderNodeEmission");
   define("ShaderNode", "ShaderNodeFilterGraphInput", def_sh_filter_graph_input);
+  define("ShaderNode", "ShaderNodeSceneColor", def_sh_scene_color);
+  define("ShaderNode", "ShaderNodeNPRImageSample");
+  define("ShaderNode", "ShaderNodeFilterObjectInfo");
+  define("ShaderNode", "ShaderNodeFilterObjectMask", def_sh_filter_object_mask);
   define("ShaderNode", "ShaderNodeFloatCurve", def_float_curve);
   define("ShaderNode", "ShaderNodeFresnel");
   define("ShaderNode", "ShaderNodeGamma");

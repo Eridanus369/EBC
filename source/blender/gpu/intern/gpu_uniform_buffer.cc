@@ -208,6 +208,7 @@ static inline bool is_ubo_supported_type(const GPUType type)
     case GPU_TEX2D_ARRAY:
     case GPU_TEX3D:
     case GPU_CLOSURE:
+    case GPU_TEXTURE_HANDLE:
     case GPU_ATTR:
       return false;
   }

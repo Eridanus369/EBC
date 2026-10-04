@@ -76,6 +76,10 @@ set(SRC
   nodes/node_shader_object_info.cc
   nodes/node_shader_output_aov.cc
   nodes/node_shader_output_filter.cc
+  nodes/node_shader_scene_color.cc
+  nodes/node_shader_npr_image_sample.cc
+  nodes/node_shader_filter_object_info.cc
+  nodes/node_shader_filter_object_mask.cc
   nodes/node_shader_output_light.cc
   nodes/node_shader_output_linestyle.cc
   nodes/node_shader_output_material.cc

@@ -124,9 +124,11 @@ struct GPUMaterial {
   Vector<GPUReferencedObject> referenced_objects;
   Vector<GPULightShaderParameterRequest> light_shader_parameters;
 
-  /* NPR: Filter material evaluation inputs (Filter Object Info / Filter Mask nodes). */
-  Vector<Object *> filter_object_infos;
-  Vector<Object *> filter_mask_objects;
+  /* NPR: Filter material evaluation inputs (Filter Object Info / Filter Mask nodes).
+   * Both node kinds share a single de-duplicated list, so the index returned to GPU code
+   * is a stable global index into the filter object info uniform buffer, independent of
+   * node compilation order. */
+  Vector<Object *> filter_objects;
 
   Vector<std::string> closure_uv_source_stack;
   Vector<GPUType> closure_uv_source_type_stack;
@@ -949,49 +951,42 @@ int GPU_material_filter_object_info_ensure(GPUMaterial *material, Object *object
     return -1;
   }
 
-  const int existing_index = material->filter_object_infos.first_index_of_try(object);
+  const int existing_index = material->filter_objects.first_index_of_try(object);
   if (existing_index != -1) {
     return existing_index;
   }
 
-  material->filter_object_infos.append(object);
-  return material->filter_object_infos.size() - 1;
+  material->filter_objects.append(object);
+  return material->filter_objects.size() - 1;
 }
 
 int GPU_material_filter_object_info_count(const GPUMaterial *material)
 {
-  return (material != nullptr) ? material->filter_object_infos.size() : 0;
+  return (material != nullptr) ? material->filter_objects.size() : 0;
 }
 
 Object *GPU_material_filter_object_info_get(const GPUMaterial *material, int index)
 {
-  if (material == nullptr || index < 0 || index >= material->filter_object_infos.size()) {
+  if (material == nullptr || index < 0 || index >= material->filter_objects.size()) {
     return nullptr;
   }
-  return material->filter_object_infos[index];
+  return material->filter_objects[index];
 }
 
 int GPU_material_filter_mask_object_append(GPUMaterial *material, Object *object)
 {
-  if (material == nullptr || object == nullptr) {
-    return -1;
-  }
-
-  material->filter_mask_objects.append(object);
-  return material->filter_mask_objects.size() - 1;
+  /* Mask objects live in the same de-duplicated list as info objects. */
+  return GPU_material_filter_object_info_ensure(material, object);
 }
 
 int GPU_material_filter_mask_object_count(const GPUMaterial *material)
 {
-  return (material != nullptr) ? material->filter_mask_objects.size() : 0;
+  return GPU_material_filter_object_info_count(material);
 }
 
 Object *GPU_material_filter_mask_object_get(const GPUMaterial *material, int index)
 {
-  if (material == nullptr || index < 0 || index >= material->filter_mask_objects.size()) {
-    return nullptr;
-  }
-  return material->filter_mask_objects[index];
+  return GPU_material_filter_object_info_get(material, index);
 }
 
 void GPU_material_set_time_dependent(GPUMaterial *mat)

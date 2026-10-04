@@ -273,7 +273,9 @@ static void gpu_node_input_link(GPUNode *node, GPUNodeLink *link, const GPUType 
       input->layer_attr = link->layer_attr;
       break;
     case GPU_NODE_LINK_CONSTANT:
-      input->source = (type == GPU_CLOSURE) ? GPU_SOURCE_STRUCT : GPU_SOURCE_CONSTANT;
+      input->source = ((type == GPU_CLOSURE) || (type == GPU_TEXTURE_HANDLE)) ?
+                          GPU_SOURCE_STRUCT :
+                          GPU_SOURCE_CONSTANT;
       break;
     case GPU_NODE_LINK_UNIFORM:
       input->source = GPU_SOURCE_UNIFORM;
@@ -1357,6 +1359,8 @@ void gpu_node_graph_prune_unused(GPUNodeGraph *graph)
   gpu_nodes_tag(graph, graph->outlink_volume, GPU_NODE_TAG_VOLUME);
   gpu_nodes_tag(graph, graph->outlink_displacement, GPU_NODE_TAG_DISPLACEMENT);
   gpu_nodes_tag(graph, graph->outlink_thickness, GPU_NODE_TAG_THICKNESS);
+  /* NPR: tag the custom light shader output graph so it is serialized and not pruned. */
+  gpu_nodes_tag(graph, graph->outlink_light_shader, GPU_NODE_TAG_LIGHT_SHADER);
 
   for (GPUNodeGraphOutputLink &aovlink : graph->outlink_aovs) {
     gpu_nodes_tag(graph, aovlink.outlink, GPU_NODE_TAG_AOV);
@@ -1434,7 +1438,9 @@ void gpu_node_graph_optimize(GPUNodeGraph *graph)
         }
       }
       if (input.source == GPU_SOURCE_UNIFORM) {
-        input.source = (input.type == GPU_CLOSURE) ? GPU_SOURCE_STRUCT : GPU_SOURCE_CONSTANT;
+        input.source = ((input.type == GPU_CLOSURE) || (input.type == GPU_TEXTURE_HANDLE)) ?
+                           GPU_SOURCE_STRUCT :
+                           GPU_SOURCE_CONSTANT;
       }
     }
   }
