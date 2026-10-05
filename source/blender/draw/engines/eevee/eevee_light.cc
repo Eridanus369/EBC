@@ -562,7 +562,6 @@ void LightModule::sync_light(const ObjectRef &ob_ref)
         if (!matches) {
           continue;
         }
-        /* Check if this output is linked to anything. */
         for (const bNodeLink &link : la.nodetree->links) {
           if (link.fromsock == &sock && !(link.flag & NODE_LINK_MUTED)) {
             is_point_dependent = true;
