@@ -1463,8 +1463,6 @@ gpu::Texture *FilterMaterialModule::render_stage(draw::View &view,
     }
 
     output_tx.ensure_layer_views();
-    fprintf(stderr, "F3DDBG: render_filter_entry pass_extent=%d,%d gpumat=%p\n",
-            pass_extent.x, pass_extent.y, (void *)entry.gpumat);
     const float clear_color[4] = {0.0f, 0.0f, 0.0f, 0.0f};
     GPU_texture_clear(output_tx, GPU_DATA_FLOAT, clear_color);
     GPU_memory_barrier(GPU_BARRIER_TEXTURE_UPDATE | GPU_BARRIER_SHADER_IMAGE_ACCESS);
@@ -1479,18 +1477,18 @@ gpu::Texture *FilterMaterialModule::render_stage(draw::View &view,
       update_filter_object_mask_buffer(entry.gpumat);
     }
     pass.material_set(*inst_.manager, entry.gpumat);
+    /* NPR: BSL resource tables are bound by name (dense binding indices), not by the legacy
+     * *_SLOT constants — the latter only order slot allocation, they are not runtime bindings. */
     pass.bind_texture("scene_color_tx", &scene_color_tx, linear_sampler);
     pass.bind_texture("rp_color_tx", &aov_color_tx, linear_sampler);
     pass.bind_texture("rp_value_tx", &aov_value_tx);
     pass.bind_texture("depth_tx", &inst_.render_buffers.depth_tx);
     pass.bind_texture("cryptomatte_tx", &inst_.render_buffers.cryptomatte_tx);
     pass.bind_texture("filter_graph_input_tx", graph_input_tx.gpu_texture(), linear_sampler);
-    pass.bind_image(FILTER_GRAPH_OUTPUT_IMG_SLOT, &output_tx);
-    pass.bind_image(RBUFS_COLOR_SLOT, &inst_.render_buffers.rp_color_tx);
-    pass.bind_image(RBUFS_VALUE_SLOT, &inst_.render_buffers.rp_value_tx);
-    pass.bind_texture(RBUFS_UTILITY_TEX_SLOT, inst_.pipelines.utility_tx);
-    pass.bind_ubo(FILTER_OBJECT_INFO_BUF_SLOT, &filter_object_info_buf_);
-    pass.bind_ubo(FILTER_GRAPH_INPUT_BUF_SLOT, &filter_graph_input_buf_);
+    pass.bind_image("filter_graph_output_img", &output_tx);
+    pass.bind_texture("utility_tx", inst_.pipelines.utility_tx);
+    pass.bind_ubo("filter_object_buf", &filter_object_info_buf_);
+    pass.bind_ubo("filter_graph_input_buf", &filter_graph_input_buf_);
     pass.bind_resources(inst_.uniform_data);
     pass.bind_resources(inst_.sampling);
     pass.barrier(GPU_BARRIER_TEXTURE_FETCH | GPU_BARRIER_SHADER_IMAGE_ACCESS);
@@ -1592,8 +1590,8 @@ gpu::Texture *FilterMaterialModule::render_stage(draw::View &view,
       pass.bind_texture("rp_value_tx", &inst_.render_buffers.rp_value_tx);
       pass.bind_texture("depth_tx", &inst_.render_buffers.depth_tx);
       pass.bind_texture("filter_graph_input_tx", graph_input_tx->gpu_texture(), sampler);
-      pass.bind_ubo(FILTER_OBJECT_INFO_BUF_SLOT, &filter_object_info_buf_);
-      pass.bind_ubo(FILTER_GRAPH_INPUT_BUF_SLOT, &filter_graph_input_buf_);
+      /* NPR: the resolve shader only declares `filter_graph_input_buf`; bind it by name. */
+      pass.bind_ubo("filter_graph_input_buf", &filter_graph_input_buf_);
       pass.bind_resources(inst_.uniform_data);
       pass.push_constant("target_extent", target_extent);
       pass.push_constant("resolve_mode", FILTER_GRAPH_RESOLVE_RAW);
@@ -1649,8 +1647,8 @@ gpu::Texture *FilterMaterialModule::render_stage(draw::View &view,
     pass.bind_texture("rp_value_tx", &inst_.render_buffers.rp_value_tx);
     pass.bind_texture("depth_tx", &inst_.render_buffers.depth_tx);
     pass.bind_texture("filter_graph_input_tx", graph_input_tx->gpu_texture(), sampler);
-    pass.bind_ubo(FILTER_OBJECT_INFO_BUF_SLOT, &filter_object_info_buf_);
-    pass.bind_ubo(FILTER_GRAPH_INPUT_BUF_SLOT, &filter_graph_input_buf_);
+    /* NPR: the resolve shader only declares `filter_graph_input_buf`; bind it by name. */
+    pass.bind_ubo("filter_graph_input_buf", &filter_graph_input_buf_);
     pass.bind_resources(inst_.uniform_data);
     pass.push_constant("target_extent", extent);
     pass.push_constant("resolve_mode", FILTER_GRAPH_RESOLVE_STAGE_OUTPUT);
@@ -1804,8 +1802,8 @@ gpu::Texture *FilterMaterialModule::render_stage(draw::View &view,
           pass.bind_texture("rp_value_tx", &inst_.render_buffers.rp_value_tx);
           pass.bind_texture("depth_tx", &inst_.render_buffers.depth_tx);
           pass.bind_texture("filter_graph_input_tx", graph_input_tx->gpu_texture(), sampler);
-          pass.bind_ubo(FILTER_OBJECT_INFO_BUF_SLOT, &filter_object_info_buf_);
-          pass.bind_ubo(FILTER_GRAPH_INPUT_BUF_SLOT, &filter_graph_input_buf_);
+          /* NPR: the resolve shader only declares `filter_graph_input_buf`; bind by name. */
+          pass.bind_ubo("filter_graph_input_buf", &filter_graph_input_buf_);
           pass.bind_resources(inst_.uniform_data);
           pass.push_constant("target_extent", extent);
           pass.push_constant("resolve_mode", FILTER_GRAPH_RESOLVE_RAW);
@@ -1824,7 +1822,6 @@ gpu::Texture *FilterMaterialModule::render_stage(draw::View &view,
           }
         }
         if (entry == nullptr) {
-          fprintf(stderr, "F3DDBG: FILTER_MATERIAL entry==nullptr (did not compile)\n");
           inst_.info_append_i18n("Error: Filter Graph material node did not compile");
           return black_graph_output();
         }

@@ -80,7 +80,7 @@ float4 closure_to_rgba(Closure /*cl*/)
 
 int2 filter_graph_output_extent()
 {
-  [[resource_table]] FilterMaterial &srt = resource_table_get(FilterMaterial);
+  [[resource_table]] eevee::FilterMaterial &srt = resource_table_get(eevee::FilterMaterial);
   return int2(imageSize(srt.filter_graph_output_img).xy);
 }
 
@@ -91,7 +91,7 @@ int2 filter_graph_source_texel(float2 uv, int2 source_extent)
 
 float filter_scene_depth_value(float2 uv)
 {
-  [[resource_table]] FilterMaterial &srt = resource_table_get(FilterMaterial);
+  [[resource_table]] eevee::FilterMaterial &srt = resource_table_get(eevee::FilterMaterial);
   return reverse_z::read(texture(srt.depth_tx, uv).r);
 }
 
@@ -110,8 +110,8 @@ float4 filter_scene_depth_color(float2 uv)
 
 float4 filter_scene_normal_color(int2 texel, float2 uv)
 {
-  [[resource_table]] FilterMaterial &srt = resource_table_get(FilterMaterial);
-  [[resource_table]] const Uniform &uni = resource_table_get(Uniform);
+  [[resource_table]] eevee::FilterMaterial &srt = resource_table_get(eevee::FilterMaterial);
+  [[resource_table]] const eevee::Uniform &uni = resource_table_get(eevee::Uniform);
   if (uni.uniform_buf.render_pass.normal_id >= 0) {
     return float4(
         texelFetch(srt.rp_color_tx, int3(texel, uni.uniform_buf.render_pass.normal_id), 0).rgb,
@@ -132,8 +132,8 @@ float4 filter_scene_normal_color(int2 texel, float2 uv)
 
 float4 filter_scene_position_color(int2 texel, float2 uv)
 {
-  [[resource_table]] FilterMaterial &srt = resource_table_get(FilterMaterial);
-  [[resource_table]] const Uniform &uni = resource_table_get(Uniform);
+  [[resource_table]] eevee::FilterMaterial &srt = resource_table_get(eevee::FilterMaterial);
+  [[resource_table]] const eevee::Uniform &uni = resource_table_get(eevee::Uniform);
   if (uni.uniform_buf.render_pass.position_id >= 0) {
     return float4(
         texelFetch(srt.rp_color_tx, int3(texel, uni.uniform_buf.render_pass.position_id), 0).rgb,
@@ -158,7 +158,7 @@ float4 filter_scene_position_color(int2 texel, float2 uv)
 
 void input_aov_impl(uint hash, out TextureHandle color, out TextureHandle value)
 {
-  [[resource_table]] const Uniform &uni = resource_table_get(Uniform);
+  [[resource_table]] const eevee::Uniform &uni = resource_table_get(eevee::Uniform);
   uint total_len = uni.uniform_buf.render_pass.aovs.color_len +
                    uni.uniform_buf.render_pass.aovs.value_len;
   uint hash_index;
@@ -190,7 +190,7 @@ void input_aov_impl(uint hash, out TextureHandle color, out TextureHandle value)
 
 TextureHandle filter_graph_input_resolve(TextureHandle tex)
 {
-  [[resource_table]] FilterMaterial &srt = resource_table_get(FilterMaterial);
+  [[resource_table]] eevee::FilterMaterial &srt = resource_table_get(eevee::FilterMaterial);
   if (tex.type != TEX_HANDLE_FILTER_GRAPH_INPUT) {
     return tex;
   }
@@ -205,7 +205,7 @@ TextureHandle filter_graph_input_resolve(TextureHandle tex)
 
 int TextureHandle_alpha_mode(TextureHandle tex)
 {
-  [[resource_table]] FilterMaterial &srt = resource_table_get(FilterMaterial);
+  [[resource_table]] eevee::FilterMaterial &srt = resource_table_get(eevee::FilterMaterial);
   if (tex.type == TEX_HANDLE_FILTER_GRAPH_INPUT) {
     if (tex.index < 0 || tex.index >= FILTER_GRAPH_INPUT_MAX) {
       return FILTER_GRAPH_ALPHA_MODE_OPACITY;
@@ -235,7 +235,7 @@ bool TextureHandle_is_scene_depth(TextureHandle tex)
 
 int TextureHandle_source_kind(TextureHandle tex)
 {
-  [[resource_table]] FilterMaterial &srt = resource_table_get(FilterMaterial);
+  [[resource_table]] eevee::FilterMaterial &srt = resource_table_get(eevee::FilterMaterial);
   if (tex.type == TEX_HANDLE_FILTER_GRAPH_INPUT) {
     if (tex.index < 0 || tex.index >= FILTER_GRAPH_INPUT_MAX) {
       return FILTER_GRAPH_SOURCE_COLOR;
@@ -276,7 +276,7 @@ bool filter_graph_use_linear_resample(int source_kind)
 
 float4 filter_texture_eval(TextureHandle tex, float2 offset, bool texel_offset)
 {
-  [[resource_table]] FilterMaterial &srt = resource_table_get(FilterMaterial);
+  [[resource_table]] eevee::FilterMaterial &srt = resource_table_get(eevee::FilterMaterial);
   int source_kind = TextureHandle_source_kind(tex);
   tex = filter_graph_input_resolve(tex);
   if (tex.type == TEX_HANDLE_NULL) {
@@ -356,7 +356,7 @@ float4 filter_texture_eval(TextureHandle tex)
  * coordinate nodes, etc.), matching the old Scene Color Vector input. */
 float4 filter_texture_eval_uv(TextureHandle tex, float2 uv)
 {
-  [[resource_table]] FilterMaterial &srt = resource_table_get(FilterMaterial);
+  [[resource_table]] eevee::FilterMaterial &srt = resource_table_get(eevee::FilterMaterial);
   int source_kind = TextureHandle_source_kind(tex);
   tex = filter_graph_input_resolve(tex);
   if (tex.type == TEX_HANDLE_NULL) {

@@ -77,7 +77,8 @@ struct ResolveResources {
 
 float filter_graph_scene_depth_value(float2 uv)
 {
-  [[resource_table]] const ResolveResources &srt = resource_table_get(ResolveResources);
+  [[resource_table]] const eevee::filter_graph::ResolveResources &srt = resource_table_get(
+      eevee::filter_graph::ResolveResources);
   return reverse_z::read(texture(srt.depth_tx, uv).r);
 }
 
@@ -96,8 +97,9 @@ float4 filter_graph_scene_depth_color(float2 uv)
 
 float4 filter_graph_scene_normal_color(int2 texel, float2 uv)
 {
-  [[resource_table]] const Uniform &uni = resource_table_get(Uniform);
-  [[resource_table]] const ResolveResources &srt = resource_table_get(ResolveResources);
+  [[resource_table]] const eevee::Uniform &uni = resource_table_get(eevee::Uniform);
+  [[resource_table]] const eevee::filter_graph::ResolveResources &srt = resource_table_get(
+      eevee::filter_graph::ResolveResources);
   if (uni.uniform_buf.render_pass.normal_id >= 0) {
     return float4(
         texelFetch(srt.rp_color_tx, int3(texel, uni.uniform_buf.render_pass.normal_id), 0).rgb,
@@ -118,8 +120,9 @@ float4 filter_graph_scene_normal_color(int2 texel, float2 uv)
 
 float4 filter_graph_scene_position_color(int2 texel, float2 uv)
 {
-  [[resource_table]] const Uniform &uni = resource_table_get(Uniform);
-  [[resource_table]] const ResolveResources &srt = resource_table_get(ResolveResources);
+  [[resource_table]] const eevee::Uniform &uni = resource_table_get(eevee::Uniform);
+  [[resource_table]] const eevee::filter_graph::ResolveResources &srt = resource_table_get(
+      eevee::filter_graph::ResolveResources);
   if (uni.uniform_buf.render_pass.position_id >= 0) {
     return float4(
         texelFetch(srt.rp_color_tx, int3(texel, uni.uniform_buf.render_pass.position_id), 0).rgb,
@@ -138,7 +141,8 @@ float4 filter_graph_scene_position_color(int2 texel, float2 uv)
 
 float4 filter_graph_eval_handle(TextureHandle tex, int source_kind)
 {
-  [[resource_table]] const ResolveResources &srt = resource_table_get(ResolveResources);
+  [[resource_table]] const eevee::filter_graph::ResolveResources &srt = resource_table_get(
+      eevee::filter_graph::ResolveResources);
   float2 uv = gl_FragCoord.xy / float2(srt.target_extent);
   uv = clamp(uv, float2(0.0f), float2(1.0f));
 
@@ -194,7 +198,8 @@ float4 filter_graph_eval_handle(TextureHandle tex, int source_kind)
 
 float4 filter_graph_resolve_stage_output(TextureHandle tex, int alpha_mode)
 {
-  [[resource_table]] const ResolveResources &srt = resource_table_get(ResolveResources);
+  [[resource_table]] const eevee::filter_graph::ResolveResources &srt = resource_table_get(
+      eevee::filter_graph::ResolveResources);
   float4 color = filter_graph_eval_handle(tex, srt.filter_graph_input_buf[0].source_kind);
 
   if (alpha_mode == FILTER_GRAPH_ALPHA_MODE_TRANSMITTANCE) {
