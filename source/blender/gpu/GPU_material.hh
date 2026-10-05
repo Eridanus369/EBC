@@ -88,7 +88,7 @@ inline constexpr const char *GPU_GLSL_FUNCTION_LIGHTPROBE_HELPER_FILENAME =
 inline constexpr const char *GPU_GLSL_FUNCTION_MATRIX_HELPER_FILENAME =
     "__glsl_function_matrix_helpers.glsl";
 
-enum eGPUMaterialFlag {
+enum eGPUMaterialFlag : uint32_t {
   GPU_MATFLAG_DIFFUSE = (1 << 0),
   GPU_MATFLAG_SUBSURFACE = (1 << 1),
   GPU_MATFLAG_GLOSSY = (1 << 2),
@@ -105,6 +105,9 @@ enum eGPUMaterialFlag {
   GPU_MATFLAG_LIGHTING = (1 << 12),
   GPU_MATFLAG_LIGHT_ATTRIBUTE = (1 << 13),
   GPU_MATFLAG_SHADOW_OFFSET = (1 << 14),
+
+  /* NPR shader tree material. */
+  GPU_MATFLAG_NPR = (1u << 15),
 
   GPU_MATFLAG_VOLUME_SCATTER = (1 << 16),
   GPU_MATFLAG_VOLUME_ABSORPTION = (1 << 17),
@@ -134,7 +137,28 @@ enum eGPUMaterialFlag {
   GPU_MATFLAG_GLSL_LIGHT_ACCESS = (1 << 30),
   /* NPR: Screenspace Info node samples the previous-layer radiance/depth. */
   GPU_MATFLAG_SCREENSPACE_INFO = (1 << 27),
+
+  /* NPR refraction buffers requested by the NPR Refraction node. */
+  GPU_MATFLAG_NPR_REFRACTION = (1u << 31),
 };
+
+/** Principled NPR code needed by the consumed nodes in one material. */
+enum eGPUMaterialNPRFeature : uint32_t {
+  GPU_MAT_NPR_FEATURE_NONE = 0,
+  GPU_MAT_NPR_FINITE_HIGHLIGHT = (1 << 0),
+  GPU_MAT_NPR_REFERENCE_HIGHLIGHT = (1 << 1),
+  GPU_MAT_NPR_SHADOW_STABLE = (1 << 2),
+  GPU_MAT_NPR_SHADOW_TEMPORAL = (1 << 3),
+  GPU_MAT_NPR_SHADOW_SOFT = (1 << 4),
+  GPU_MAT_NPR_SHARED_ENERGY = (1 << 5),
+  GPU_MAT_NPR_RIM_DEPTH = (1 << 6),
+  GPU_MAT_NPR_MAP_PER_LIGHT = (1 << 8),
+  GPU_MAT_NPR_MAP_COMBINED = (1 << 9),
+  GPU_MAT_NPR_MAP_TOTAL = (1 << 10),
+  GPU_MAT_NPR_DRIVEN_RAMP = (1 << 11),
+  GPU_MAT_NPR_FOREACH_LIGHT = (1 << 12),
+};
+ENUM_OPERATORS(eGPUMaterialNPRFeature);
 
 /** Data lanes requested from an evaluated object by a material node. */
 enum eGPUReferencedObjectDataFlag : uint32_t {
@@ -869,6 +893,32 @@ Object *GPU_material_filter_mask_object_get(const GPUMaterial *material, int ind
 /* NPR: Filter graph depends on animated scene time. */
 void GPU_material_set_time_dependent(GPUMaterial *mat);
 bool GPU_material_is_time_dependent(const GPUMaterial *mat);
+
+/* NPR tree: output from the NPR shader tree (NPR Output node). */
+void GPU_material_output_npr(GPUMaterial *material, GPUNodeLink *link);
+bool GPU_material_has_npr_output(const GPUMaterial *material);
+
+/* NPR: Principled NPR v2 surface shader. */
+void GPU_material_principled_npr_v2_set(GPUMaterial *mat);
+bool GPU_material_principled_npr_v2_has(const GPUMaterial *mat);
+
+/* NPR: Screen-space surface diffusion. */
+void GPU_material_surface_diffusion_set(GPUMaterial *mat);
+bool GPU_material_surface_diffusion_has(const GPUMaterial *mat);
+
+/* NPR: Principled NPR feature bits (ramp mapping, shadow, rim, etc.). */
+void GPU_material_npr_features_add(GPUMaterial *mat, eGPUMaterialNPRFeature features);
+eGPUMaterialNPRFeature GPU_material_npr_features_get(const GPUMaterial *mat);
+
+/* NPR: Foreach Light node requests per-light iteration in the shader. */
+void GPU_material_npr_foreach_light_set(GPUMaterial *mat);
+bool GPU_material_npr_foreach_light(const GPUMaterial *mat);
+
+/* NPR: Shader Info shadow classification and Hi-Z depth data. */
+void GPU_material_shader_info_shadow_classification_set(GPUMaterial *mat);
+bool GPU_material_has_shader_info_shadow_classification(const GPUMaterial *mat);
+void GPU_material_hiz_data_set(GPUMaterial *mat);
+bool GPU_material_uses_hiz_data(const GPUMaterial *mat);
 
 void GPU_material_add_output_link_composite(GPUMaterial *material, GPUNodeLink *link);
 

@@ -66,6 +66,7 @@
 #include "WM_api.hh"
 #include "WM_types.hh"
 
+#include "NOD_shader.h"
 #include "NOD_trace_values.hh"
 
 #include "io_utils.hh"
@@ -174,6 +175,18 @@ void ED_node_tree_pop(ARegion *region, SpaceNode *snode)
 
   /* don't remove root */
   if (path == snode->treepath.first_) {
+    if (ED_node_is_shader(snode)) {
+      if (ELEM(snode->shaderfrom, SNODE_SHADER_OBJECT, SNODE_SHADER_WORLD) &&
+          npr_tree_get(snode->nodetree) != nullptr)
+      {
+        snode->shaderfrom = SNODE_SHADER_NPR;
+      }
+      else if (snode->shaderfrom == SNODE_SHADER_NPR) {
+        snode->shaderfrom = (snode->from != nullptr && GS(snode->from->name) == ID_WO) ?
+                                SNODE_SHADER_WORLD :
+                                SNODE_SHADER_OBJECT;
+      }
+    }
     return;
   }
 

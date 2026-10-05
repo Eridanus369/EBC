@@ -145,6 +145,18 @@ struct GPUMaterial {
   bool is_outline_shell = false;
   /* NPR: Filter graph depends on animated scene time. */
   bool is_time_dependent = false;
+  /* NPR tree: material is rooted at an NPR Output node. */
+  bool has_npr_output = false;
+  /* NPR: Principled NPR v2 surface shader is in use. */
+  bool has_principled_npr_v2 = false;
+  /* NPR: Screen-space surface diffusion is in use. */
+  bool has_surface_diffusion = false;
+  /* NPR: aggregated Principled NPR feature bits. */
+  eGPUMaterialNPRFeature npr_features = GPU_MAT_NPR_FEATURE_NONE;
+  /* NPR: Shader Info node requests shadow classification. */
+  bool has_shader_info_shadow_classification = false;
+  /* NPR: depth rim uses Hi-Z data. */
+  bool uses_hiz_data = false;
 
   std::string name;
 
@@ -215,6 +227,8 @@ GPUMaterialFromNodeTreeResult GPU_material_from_nodetree(
   bNodeTree *localtree = bke::node_tree_add_tree(
       nullptr, (StringRef(ntree->id.name) + " Inlined").c_str(), ntree->idname);
   localtree->flag |= NTREE_IS_GPU_SHADER_INTERNAL;
+  /* Optional NPR shader tree inlined alongside the material tree. */
+  bNodeTree *npr_localtree = nullptr;
   nodes::InlineShaderNodeTreeParams inline_params;
   inline_params.allow_preserving_repeat_zones = true;
   inline_params.target_engine_ = engine == GPU_MAT_EEVEE ? SHD_OUTPUT_EEVEE : SHD_OUTPUT_ALL;
@@ -258,6 +272,13 @@ GPUMaterialFromNodeTreeResult GPU_material_from_nodetree(
   }
   else {
     ntreeGPUMaterialNodes(localtree, mat);
+
+    /* NPR tree: an Eevee material output may reference a separate NPR shader tree which is
+     * inlined into the same GPU material graph. */
+    if (!outline_shell && npr_tree_get(ntree) != nullptr) {
+      GPU_material_flag_set(mat, GPU_MATFLAG_NPR);
+      npr_localtree = ntreeGPUNPRNodes(ntree, mat);
+    }
   }
 
   gpu_material_ramp_texture_build(mat);
@@ -298,6 +319,9 @@ GPUMaterialFromNodeTreeResult GPU_material_from_nodetree(
   /* Only free after GPU_pass_shader_get where gpu::UniformBuf read data from the local
    * tree. */
   BKE_id_free(nullptr, &localtree->id);
+  if (npr_localtree != nullptr) {
+    BKE_id_free(nullptr, &npr_localtree->id);
+  }
 
   /* Note that even if building the shader fails in some way, we want to keep
    * it to avoid trying to compile again and again, and simply do not use
@@ -997,6 +1021,83 @@ void GPU_material_set_time_dependent(GPUMaterial *mat)
 bool GPU_material_is_time_dependent(const GPUMaterial *mat)
 {
   return mat != nullptr && mat->is_time_dependent;
+}
+
+void GPU_material_output_npr(GPUMaterial *material, GPUNodeLink *link)
+{
+  material->has_npr_output = true;
+  if (material->graph.outlink_surface == nullptr) {
+    material->graph.outlink_surface = link;
+  }
+}
+
+bool GPU_material_has_npr_output(const GPUMaterial *material)
+{
+  return material != nullptr && material->has_npr_output;
+}
+
+void GPU_material_principled_npr_v2_set(GPUMaterial *mat)
+{
+  mat->has_principled_npr_v2 = true;
+}
+
+bool GPU_material_principled_npr_v2_has(const GPUMaterial *mat)
+{
+  return mat != nullptr && mat->has_principled_npr_v2;
+}
+
+void GPU_material_surface_diffusion_set(GPUMaterial *mat)
+{
+  mat->has_surface_diffusion = true;
+}
+
+bool GPU_material_surface_diffusion_has(const GPUMaterial *mat)
+{
+  return mat != nullptr && mat->has_surface_diffusion;
+}
+
+void GPU_material_npr_features_add(GPUMaterial *mat, eGPUMaterialNPRFeature features)
+{
+  mat->npr_features |= features;
+}
+
+eGPUMaterialNPRFeature GPU_material_npr_features_get(const GPUMaterial *mat)
+{
+  return mat != nullptr ? mat->npr_features : GPU_MAT_NPR_FEATURE_NONE;
+}
+
+void GPU_material_npr_foreach_light_set(GPUMaterial *mat)
+{
+  mat->npr_features |= GPU_MAT_NPR_FOREACH_LIGHT;
+}
+
+bool GPU_material_npr_foreach_light(const GPUMaterial *mat)
+{
+  return mat != nullptr && bool(mat->npr_features & GPU_MAT_NPR_FOREACH_LIGHT);
+}
+
+void GPU_material_shader_info_shadow_classification_set(GPUMaterial *material)
+{
+  if (material != nullptr) {
+    material->has_shader_info_shadow_classification = true;
+  }
+}
+
+bool GPU_material_has_shader_info_shadow_classification(const GPUMaterial *material)
+{
+  return material != nullptr && material->has_shader_info_shadow_classification;
+}
+
+void GPU_material_hiz_data_set(GPUMaterial *material)
+{
+  if (material != nullptr) {
+    material->uses_hiz_data = true;
+  }
+}
+
+bool GPU_material_uses_hiz_data(const GPUMaterial *material)
+{
+  return material != nullptr && material->uses_hiz_data;
 }
 
 void GPU_material_add_output_link_composite(GPUMaterial *material, GPUNodeLink *link)

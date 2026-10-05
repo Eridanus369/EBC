@@ -285,6 +285,19 @@ if(WITH_HARU)
   target_compile_definitions(bf_deps_optional_haru INTERFACE WITH_HARU)
   target_include_directories(bf_deps_optional_haru SYSTEM INTERFACE ${HARU_INCLUDE_DIRS})
   target_link_libraries(bf_deps_optional_haru INTERFACE ${HARU_LIBRARIES})
+  # The precompiled libhpdfs.a can be built with CCITT Fax support, which leaves
+  # TIFFFax{Black,White}Codes references to a static libtiff (the symbols are not
+  # exported by the shared library). Pull the static archive in after haru.
+  find_library(HARU_TIFF_LIBRARY
+    NAMES tiff
+    PATHS ${LIBDIR}/tiff/lib
+    NO_DEFAULT_PATH)
+  if(NOT HARU_TIFF_LIBRARY)
+    find_library(HARU_TIFF_LIBRARY NAMES tiff)
+  endif()
+  if(HARU_TIFF_LIBRARY)
+    target_link_libraries(bf_deps_optional_haru INTERFACE ${HARU_TIFF_LIBRARY})
+  endif()
 endif()
 
 # -----------------------------------------------------------------------------

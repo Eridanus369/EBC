@@ -852,7 +852,29 @@ if(WITH_GHOST_WAYLAND)
 endif()
 
 if(WITH_GHOST_X11)
+  # Config-mode packages found while WITH_STATIC_LIBS is ON (e.g. system SDL3Config)
+  # transitively run find_package(X11) with `.a` preferred, poisoning the X11_*_LIB
+  # cache entries with static libraries. Static X11 needs an exact link order plus
+  # extra libs (xcb, Xau, Xdmcp) and breaks the final link, so drop such cached
+  # results and re-detect X11 preferring shared libraries.
+  get_cmake_property(_x11_cache_vars CACHE_VARIABLES)
+  foreach(_x11_var ${_x11_cache_vars})
+    if(_x11_var MATCHES "^X11_.*_LIB$")
+      get_property(_x11_val CACHE ${_x11_var} PROPERTY VALUE)
+      if(_x11_val MATCHES "\\.a$")
+        unset(${_x11_var} CACHE)
+      endif()
+    endif()
+  endforeach()
+  unset(_x11_cache_vars)
+  unset(_x11_var)
+  unset(_x11_val)
+
+  set(_x11_suffixes_back ${CMAKE_FIND_LIBRARY_SUFFIXES})
+  set(CMAKE_FIND_LIBRARY_SUFFIXES .so)
   find_package(X11 REQUIRED)
+  set(CMAKE_FIND_LIBRARY_SUFFIXES ${_x11_suffixes_back})
+  unset(_x11_suffixes_back)
   # For some reason the finder doesn't mark this.
   mark_as_advanced(X11_xcb_xkb_INCLUDE_PATH)
 

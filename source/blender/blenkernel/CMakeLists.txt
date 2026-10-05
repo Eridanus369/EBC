@@ -238,6 +238,7 @@ set(SRC
   intern/node_tree_structure_type_inferencing.cc
   intern/node_tree_update.cc
   intern/node_tree_zones.cc
+  intern/npr.cc
   intern/object.cc
   intern/object_deform.cc
   intern/object_dupli.cc

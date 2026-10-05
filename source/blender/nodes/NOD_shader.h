@@ -41,6 +41,19 @@ void ntreeGPUMaterialNodes(struct bNodeTree *localtree, struct GPUMaterial *mat)
  */
 void ntreeGPULightShaderNodes(struct bNodeTree *localtree, struct GPUMaterial *mat);
 
+/**
+ * NPR tree attached to the active EEVEE material/world output node's `id` pointer, or null.
+ */
+struct bNodeTree *npr_tree_get(struct bNodeTree *ntree);
+struct Material;
+struct bNodeTree *npr_tree_get_from_mat(struct Material *material);
+
+/**
+ * Inline and execute the NPR tree attached to `material_tree` into the GPU material graph.
+ * Returns the inlined local tree (owned by caller) or null.
+ */
+struct bNodeTree *ntreeGPUNPRNodes(struct bNodeTree *material_tree, struct GPUMaterial *mat);
+
 bool node_shader_glsl_function_source_get(const bNode &node,
                                           std::string &r_source,
                                           std::string &r_error);

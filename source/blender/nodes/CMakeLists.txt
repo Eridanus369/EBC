@@ -161,6 +161,7 @@ set(SRC
   NOD_node_in_compute_context.hh
   NOD_nodes_srna.hh
   NOD_partial_eval.hh
+  NOD_principled_npr.hh
   NOD_register.hh
   NOD_rna_define.hh
   NOD_scene_compositor_effect_inputs_srna.hh

@@ -748,6 +748,7 @@ set(GLSL_SRC
   shaders/material/gpu_shader_material_derivative.glsl
   shaders/material/gpu_shader_material_curvature.glsl
   shaders/material/gpu_shader_material_render_info.glsl
+  shaders/material/gpu_shader_material_shader_info_shared.glsl
   shaders/material/gpu_shader_material_oklab_colorramp.glsl
   shaders/material/gpu_shader_material_glsl_light_access.glsl
   shaders/material/gpu_shader_material_light_probe_color.glsl
@@ -755,6 +756,16 @@ set(GLSL_SRC
   shaders/material/gpu_shader_material_screenspace_info.glsl
   shaders/material/gpu_shader_material_filter.glsl
   shaders/material/gpu_shader_material_npr_light_info.glsl
+  shaders/material/gpu_shader_material_npr.glsl
+  shaders/material/gpu_shader_material_npr_rim.glsl
+  shaders/material/gpu_shader_material_npr_rim_lib.glsl
+  shaders/material/gpu_shader_material_npr_surface_diffusion.glsl
+  shaders/material/gpu_shader_material_principled_shared.glsl
+  shaders/material/gpu_shader_material_principled_npr.glsl
+  shaders/material/gpu_shader_material_principled_npr_v2.glsl
+  shaders/material/gpu_shader_material_principled_npr_v2_math.glsl
+  shaders/material/gpu_shader_material_principled_npr_v2_light.glsl
+  shaders/material/gpu_shader_material_principled_npr_depth_rim.glsl
   shaders/material/gpu_shader_material_light_shader_output.glsl
   shaders/material/gpu_shader_material_light_shader_info.glsl
   shaders/material/gpu_shader_material_uv_map.bsl.hh

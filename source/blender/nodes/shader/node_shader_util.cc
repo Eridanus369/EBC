@@ -133,12 +133,6 @@ bool object_eevee_shader_nodes_poll(const bContext *C)
          STREQ(engine_type->idname, "BLENDER_EEVEE");
 }
 
-bool object_or_npr_eevee_shader_nodes_poll(const bContext *C)
-{
-  /* EBC does not have NPR shader editor context yet; fall back to the object poll. */
-  return object_eevee_shader_nodes_poll(C);
-}
-
 bool filter_eevee_shader_nodes_poll(const bContext *C)
 {
   const SpaceNode *snode = CTX_wm_space_node(C);
@@ -149,10 +143,26 @@ bool filter_eevee_shader_nodes_poll(const bContext *C)
   return STREQ(engine_type->idname, "BLENDER_EEVEE");
 }
 
+bool npr_shader_nodes_poll(const bContext *C)
+{
+  const SpaceNode *snode = CTX_wm_space_node(C);
+  return snode != nullptr && snode->shaderfrom == SNODE_SHADER_NPR;
+}
+
+bool filter_or_npr_eevee_shader_nodes_poll(const bContext *C)
+{
+  return filter_eevee_shader_nodes_poll(C) || npr_shader_nodes_poll(C);
+}
+
+bool object_or_npr_eevee_shader_nodes_poll(const bContext *C)
+{
+  return object_eevee_shader_nodes_poll(C) || npr_shader_nodes_poll(C);
+}
+
 bool object_filter_or_npr_eevee_shader_nodes_poll(const bContext *C)
 {
-  /* EBC does not have filter/NPR shader editor contexts yet; fall back to the object poll. */
-  return object_eevee_shader_nodes_poll(C);
+  return object_eevee_shader_nodes_poll(C) || filter_eevee_shader_nodes_poll(C) ||
+         npr_shader_nodes_poll(C);
 }
 
 /* ****** */

@@ -44,6 +44,7 @@
 #include "UI_resources.hh"
 
 #include "NOD_shader.h"
+#include "NOD_shader_nodes_inline.hh"
 
 #include "node_common.h"
 #include "node_exec.hh"
@@ -63,6 +64,26 @@ static bool shader_tree_poll(const bContext *C, bke::bNodeTreeType * /*treetype*
           !BKE_scene_use_shading_nodes_custom(scene));
 }
 
+bNodeTree *npr_tree_get(bNodeTree *ntree)
+{
+  if (ntree == nullptr) {
+    return nullptr;
+  }
+  bNode *output = ntreeShaderOutputNode(ntree, SHD_OUTPUT_EEVEE);
+  if (output == nullptr || output->id == nullptr || GS(output->id->name) != ID_NT) {
+    return nullptr;
+  }
+  return reinterpret_cast<bNodeTree *>(output->id);
+}
+
+bNodeTree *npr_tree_get_from_mat(Material *material)
+{
+  if (material == nullptr) {
+    return nullptr;
+  }
+  return npr_tree_get(material->nodetree);
+}
+
 static void shader_get_from_context(const bContext *C,
                                     bke::bNodeTreeType * /*treetype*/,
                                     bNodeTree **r_ntree,
@@ -76,7 +97,20 @@ static void shader_get_from_context(const bContext *C,
   BKE_view_layer_synced_ensure(*bmain, scene, view_layer);
   Object *ob = BKE_view_layer_active_object_get(view_layer);
 
-  if (snode->shaderfrom == SNODE_SHADER_OBJECT) {
+  if (ELEM(snode->shaderfrom, SNODE_SHADER_OBJECT, SNODE_SHADER_NPR)) {
+    if (snode->shaderfrom == SNODE_SHADER_NPR && scene->world != nullptr) {
+      if (bNodeTree *world_nprtree = npr_tree_get(scene->world->nodetree)) {
+        const bool is_world_npr_context = snode->from == &scene->world->id ||
+                                          ELEM(snode->id, &scene->world->id, &world_nprtree->id) ||
+                                          snode->nodetree == scene->world->nodetree;
+        if (is_world_npr_context) {
+          *r_from = &scene->world->id;
+          *r_id = &world_nprtree->id;
+          *r_ntree = world_nprtree;
+          return;
+        }
+      }
+    }
     if (ob) {
       *r_from = &ob->id;
       if (ob->type == OB_LAMP) {
@@ -88,6 +122,15 @@ static void shader_get_from_context(const bContext *C,
         if (ma) {
           *r_id = &ma->id;
           *r_ntree = ma->nodetree;
+          if (snode->shaderfrom == SNODE_SHADER_NPR) {
+            if (bNodeTree *nprtree = npr_tree_get_from_mat(ma)) {
+              *r_id = &nprtree->id;
+              *r_ntree = nprtree;
+            }
+            else {
+              *r_ntree = nullptr;
+            }
+          }
         }
       }
     }
@@ -1228,6 +1271,41 @@ void ntreeGPUMaterialNodes(bNodeTree *localtree, GPUMaterial *mat)
     }
   }
   ntreeShaderEndExecTree(exec);
+}
+
+static bNode *ntreeShaderNPROutputNode(bNodeTree *localtree)
+{
+  for (bNode *node : localtree->all_nodes()) {
+    if (node->type_legacy == SH_NODE_NPR_OUTPUT) {
+      return node;
+    }
+  }
+  return nullptr;
+}
+
+bNodeTree *ntreeGPUNPRNodes(bNodeTree *material_tree, GPUMaterial *mat)
+{
+  bNodeTree *npr_tree = npr_tree_get(material_tree);
+  if (npr_tree == nullptr) {
+    return nullptr;
+  }
+
+  bNodeTree *localtree = bke::node_tree_add_tree(nullptr, "NPRShaderTree Inlined",
+                                                 npr_tree->idname);
+  localtree->flag |= NTREE_IS_GPU_SHADER_INTERNAL;
+
+  nodes::InlineShaderNodeTreeParams inline_params;
+  inline_params.allow_preserving_repeat_zones = true;
+  inline_params.target_engine_ = SHD_OUTPUT_EEVEE;
+  nodes::inline_shader_node_tree(*npr_tree, *localtree, inline_params);
+
+  bNodeTreeExec *exec = ntreeShaderBeginExecTree(localtree);
+  if (bNode *npr_output = ntreeShaderNPROutputNode(localtree)) {
+    ntreeExecGPUNodes(exec, mat, npr_output, nullptr);
+  }
+  ntree_exec_gpu_nodes_of_type(exec, mat, localtree, SH_NODE_OUTPUT_AOV);
+  ntreeShaderEndExecTree(exec);
+  return localtree;
 }
 
 bNodeTreeExec *ntreeShaderBeginExecTree_internal(bNodeExecContext *context,

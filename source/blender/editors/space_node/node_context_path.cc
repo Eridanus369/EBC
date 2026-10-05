@@ -11,11 +11,14 @@
 #include "BLI_vector.hh"
 
 #include "DNA_node_types.h"
+#include "DNA_world_types.h"
 
 #include "BKE_compositor.hh"
 #include "BKE_context.hh"
 #include "BKE_material.hh"
 #include "BKE_object.hh"
+
+#include "NOD_shader.h"
 
 #include "RNA_access.hh"
 #include "RNA_prototypes.hh"
@@ -151,6 +154,31 @@ static void get_context_path_node_shader(const bContext &C,
       ui::context_path_add_generic(path, *RNA_Scene, scene);
       if (scene != nullptr) {
         context_path_add_top_level_shader_node_tree(snode, path, *RNA_World, scene->world);
+      }
+    }
+    else if (snode.shaderfrom == SNODE_SHADER_NPR) {
+      Scene *scene = CTX_data_scene(&C);
+      bNodeTree *world_nprtree = (scene != nullptr && scene->world != nullptr) ?
+                                      npr_tree_get(scene->world->nodetree) :
+                                      nullptr;
+      if (world_nprtree != nullptr && scene->world != nullptr &&
+          (snode.from == &scene->world->id ||
+           ELEM(snode.id, &scene->world->id, &world_nprtree->id)))
+      {
+        ui::context_path_add_generic(path, *RNA_Scene, scene);
+        context_path_add_top_level_shader_node_tree(snode, path, *RNA_World, scene->world);
+        ui::context_path_add_generic(path, *RNA_NodeTree, world_nprtree);
+      }
+      else if (object != nullptr) {
+        ui::context_path_add_generic(path, *RNA_Object, object);
+        if (!(object->matbits && object->matbits[object->actcol - 1])) {
+          context_path_add_object_data(path, *object);
+        }
+        Material *material = BKE_object_material_get(object, object->actcol);
+        context_path_add_top_level_shader_node_tree(snode, path, *RNA_Material, material);
+        if (bNodeTree *nprtree = npr_tree_get_from_mat(material)) {
+          ui::context_path_add_generic(path, *RNA_NodeTree, nprtree);
+        }
       }
     }
 #ifdef WITH_FREESTYLE

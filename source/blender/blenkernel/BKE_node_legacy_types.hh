@@ -209,6 +209,14 @@ enum {
 #define SH_NODE_OUTLINE_CONTROL 813
 #define SH_NODE_OUTPUT_OUTLINE_SHELL 822
 
+/* NPR tree nodes (NPR shader type, NTREE_SHADER with eevee_domain='NPR'). */
+#define SH_NODE_NPR_INPUT 910
+#define SH_NODE_NPR_OUTPUT 911
+#define SH_NODE_NPR_REFRACTION 912
+#define SH_NODE_PRINCIPLED_NPR 913
+#define SH_NODE_NPR_SURFACE_DIFFUSION 914
+#define SH_NODE_NPR_RIM 915
+
 /** \} */
 
 /* -------------------------------------------------------------------- */

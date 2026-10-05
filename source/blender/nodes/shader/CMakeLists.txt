@@ -78,6 +78,13 @@ set(SRC
   nodes/node_shader_output_filter.cc
   nodes/node_shader_scene_color.cc
   nodes/node_shader_npr_image_sample.cc
+  nodes/node_shader_npr_input.cc
+  nodes/node_shader_npr_output.cc
+  nodes/node_shader_npr_refraction.cc
+  nodes/node_shader_npr_rim.cc
+  nodes/node_shader_npr_surface_diffusion.cc
+  nodes/node_shader_principled_npr.cc
+  nodes/node_shader_principled_npr_v2.cc
   nodes/node_shader_filter_object_info.cc
   nodes/node_shader_filter_object_mask.cc
   nodes/node_shader_output_light.cc

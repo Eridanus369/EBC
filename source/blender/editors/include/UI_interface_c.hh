@@ -10,6 +10,7 @@
 
 #include <bit>
 #include <functional>
+#include <memory>
 #include <optional>
 #include <string>
 #include <type_traits>
@@ -20,6 +21,7 @@
 #include "BLI_string_utf8_symbols.hh"
 #include "BLI_sys_types.hh" /* size_t */
 
+#include "DNA_colorband_types.h"
 #include "DNA_listBase.h"
 #include "DNA_userdef_types.h"
 
@@ -2607,6 +2609,20 @@ void template_preview(Layout *layout,
                       MTex *slot,
                       const char *preview_id);
 void template_color_ramp(Layout *layout, PointerRNA *ptr, StringRefNull propname, bool expand);
+
+/* NPR: custom color ramp widget driven by external data callbacks. */
+enum class CustomColorRampAction { Select, Move, Add, Remove };
+struct CustomColorRampData {
+  ColorBand display;
+  std::function<void(ColorBand &)> refresh;
+  std::function<void(float, float[4])> evaluate;
+  std::function<bool(CustomColorRampAction, int, float)> edit;
+  std::function<void(bContext &)> update;
+};
+void template_custom_color_ramp(Layout *layout,
+                                PointerRNA *ptr,
+                                StringRefNull propname,
+                                std::shared_ptr<CustomColorRampData> data);
 /**
  * \param icon_scale: Scale of the icon, 1x == button height.
  */

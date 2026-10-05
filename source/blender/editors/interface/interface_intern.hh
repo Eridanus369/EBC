@@ -9,6 +9,7 @@
 #pragma once
 
 #include <functional>
+#include <memory>
 #include <optional>
 #include <ranges>
 
@@ -25,6 +26,7 @@
 #include "RNA_types.hh"
 
 #include "UI_interface.hh"
+#include "UI_interface_c.hh"
 #include "UI_interface_layout.hh"
 #include "UI_resources.hh"
 struct IconTextOverlay;
@@ -562,6 +564,7 @@ struct ButtonHSVCube : public Button {
 /** Derived struct for #ButtonType::ColorBand. */
 struct ButtonColorBand : public Button {
   ColorBand *edit_coba = nullptr;
+  std::shared_ptr<CustomColorRampData> custom;
 };
 
 /** Derived struct for #ButtonType::CurveProfile. */
