@@ -778,7 +778,7 @@ static SlotAllocator add_pipeline_create_info(gpu::shader::ShaderCreateInfo &inf
           break;
         case MAT_PIPE_FILTER:
           /* NPR: Scene filter graph evaluation pass. */
-          pipeline_info_name = "eevee_eevee_filter_material_infos_";
+          pipeline_info_name = "eevee_filter_material_infos_";
           info.name_ += "_world_filter";
           info.define("MAT_FILTER");
           /* Until every vertex shader are ported, we need to bridge the gap here by defining the
@@ -1310,6 +1310,7 @@ void ShaderModule::material_create_info_amend(GPUMaterial *gpumat, GPUCodegenOut
   if (use_lighting_nodes) {
     info.define("MAT_GLSL_LIGHT_SHADER_EVAL");
     info.define("LIGHT_SHADER_TEXTURE_EVAL");
+    info.compilation_constant(gpu::shader::Type::bool_t, "use_light_shader_texture_eval", true);
     GPU_material_glsl_light_shader_eval_set(gpumat);
   }
 

@@ -1463,6 +1463,8 @@ gpu::Texture *FilterMaterialModule::render_stage(draw::View &view,
     }
 
     output_tx.ensure_layer_views();
+    fprintf(stderr, "F3DDBG: render_filter_entry pass_extent=%d,%d gpumat=%p\n",
+            pass_extent.x, pass_extent.y, (void *)entry.gpumat);
     const float clear_color[4] = {0.0f, 0.0f, 0.0f, 0.0f};
     GPU_texture_clear(output_tx, GPU_DATA_FLOAT, clear_color);
     GPU_memory_barrier(GPU_BARRIER_TEXTURE_UPDATE | GPU_BARRIER_SHADER_IMAGE_ACCESS);
@@ -1822,6 +1824,7 @@ gpu::Texture *FilterMaterialModule::render_stage(draw::View &view,
           }
         }
         if (entry == nullptr) {
+          fprintf(stderr, "F3DDBG: FILTER_MATERIAL entry==nullptr (did not compile)\n");
           inst_.info_append_i18n("Error: Filter Graph material node did not compile");
           return black_graph_output();
         }

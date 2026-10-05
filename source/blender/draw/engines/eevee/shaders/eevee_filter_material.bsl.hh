@@ -47,7 +47,7 @@ struct FilterMaterialFragOut {
 };
 
 [[fragment]]
-void eevee_filter_material([[resource_table]] PipelineConstants & /*pipe*/,
+void filter_material([[resource_table]] PipelineConstants & /*pipe*/,
                            [[resource_table]] FilterMaterial &srt,
                            [[resource_table]] const Uniform &uni,
                            [[resource_table]] const UtilityTexture & /*util_tx*/,

@@ -394,6 +394,8 @@ class ShaderNodesInliner {
         add_output_type("ShaderNodeOutputOutlineShell"_ustr);
         /* NPR: the Outline Control node is also a side-effect-only node with no outputs. */
         add_output_type("ShaderNodeOutlineControl"_ustr);
+        /* NPR: Eevee filter-domain materials root at the Filter Output node. */
+        add_output_type("ShaderNodeOutputFilter"_ustr);
         break;
       case ID_WO:
         add_output_type("ShaderNodeOutputWorld"_ustr);

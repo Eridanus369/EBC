@@ -66,7 +66,7 @@ static int node_shader_gpu_scene_color(GPUMaterial *mat,
   float zero[3] = {0.0f, 0.0f, 0.0f};
   GPUNodeLink *source_link = GPU_constant(&source);
   GPUNodeLink *uv_link = in[0].link ? in[0].link : GPU_constant(zero);
-  int use_uv = in[0].link ? 1 : 0;
+  bool use_uv = in[0].link != nullptr;
   GPUNodeLink *use_uv_link = GPU_constant(&use_uv);
 
   GPUNodeLink *color = nullptr;

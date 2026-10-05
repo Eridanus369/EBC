@@ -332,7 +332,12 @@ struct DeferredLayerBase {
                            GPU_material_flag_get(gpumat, GPU_MATFLAG_LIGHTING) ||
                            /* NPR: Screenspace Info reads the previous-layer buffers, which are
                             * bound on the hybrid sub-passes. */
-                           GPU_material_flag_get(gpumat, GPU_MATFLAG_SCREENSPACE_INFO);
+                           GPU_material_flag_get(gpumat, GPU_MATFLAG_SCREENSPACE_INFO) ||
+                           /* NPR: Materials that evaluate custom light shaders (Light Info /
+                            * GLSL light access) need the per-light caches and culling buffers that
+                            * are only bound on the hybrid sub-passes. */
+                           GPU_material_flag_get(gpumat, GPU_MATFLAG_GLSL_LIGHT_ACCESS) ||
+                           GPU_material_has_glsl_light_shader_eval(gpumat);
     const bool has_raycast = GPU_material_flag_get(gpumat, GPU_MATFLAG_RAYCAST);
     const eMaterialCullMethod cull = material_cull_method_resolve(*blender_mat, cull_method);
 

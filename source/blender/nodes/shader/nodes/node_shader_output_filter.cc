@@ -189,7 +189,7 @@ static int node_shader_gpu_output_filter(GPUMaterial *mat,
   GPU_material_flag_set(mat, GPU_MATFLAG_FILTER_MATERIAL);
 
   NodeShaderFilterOutput *storage = ensure_shader_filter_output_storage(*node);
-  if (storage == nullptr) {
+  if (storage == nullptr || storage->items_num == 0) {
     GPUNodeLink *outlink_filter = nullptr;
     GPUNodeLink *color = filter_stack_constant_link(in[0]);
     GPUNodeLink *alpha = filter_stack_constant_link(in[1]);

@@ -70,9 +70,16 @@ float glsl_light_point_radiance(LightData light)
 
 float glsl_light_friendly_power(LightData light, LightingType type)
 {
-  /* EBC LightData already bakes shape/point radiance into shape_power /
-   * point_power. Just return the per-channel power. */
-  return glsl_light_power_get(light, type);
+  /* Normalize the per-channel power by the shape/point radiance ratio, matching the
+   * reference implementation. EBC LightData stores the light energy inside
+   * shape_power / point_power (instead of inside color), so power_get already
+   * carries the energy; the ratio below only removes the geometric shape factor. */
+  float shape_radiance = glsl_light_shape_radiance(light);
+  float point_radiance = glsl_light_point_radiance(light);
+  if (shape_radiance <= 1e-16f) {
+    return 0.0f;
+  }
+  return glsl_light_power_get(light, type) * (point_radiance / shape_radiance);
 }
 
 float3 glsl_light_resolve_normal(float3 normal_value)

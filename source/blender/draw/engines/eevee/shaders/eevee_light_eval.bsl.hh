@@ -38,8 +38,15 @@
 namespace eevee {
 
 struct LightEvalData {
+  [[compilation_constant]] bool use_light_shader_texture_eval;
+
   [[resource_table]] srt_t<ShadowRenderData> shadow_data;
   [[resource_table]] srt_t<UtilityTexture> utility_tx;
+  /* NPR: per-light custom shader cache (texture array + index buffer + uniform buffer). Only
+   * included when a material reads it via GLSL light access; the C++ side sets the matching
+   * compilation constant when it defines MAT_GLSL_LIGHT_SHADER_EVAL. */
+  [[resource_table, condition(use_light_shader_texture_eval)]] srt_t<LightShaderEvalData>
+      light_shader_data;
 
   [[compilation_constant]] int light_closure_eval_count_reflect;
   [[compilation_constant]] int light_closure_eval_count_transmit;

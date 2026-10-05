@@ -18,6 +18,8 @@
 #include "DNA_sdna_type_ids.hh"
 
 #include "BKE_light.h"
+#include "BKE_node.hh"
+#include "BKE_node_legacy_types.hh"
 
 namespace blender::eevee {
 
@@ -534,11 +536,59 @@ void LightModule::sync_light(const ObjectRef &ob_ref)
         inst_.manager->register_layer_attributes(gpumat);
       }
     };
+
+    /* NPR: Classify the light shader as point-independent (Uniform) vs point-dependent
+     * (Front). Point-independent shaders only read Default Color/Intensity/Attenuation and
+     * do not need the prepass normal buffer; point-dependent shaders read Distance / Light
+     * Space / Direction / World Position / Rotation and use the front-layer cache. */
+    bool is_point_dependent = false;
+    for (const bNode &node : la.nodetree->nodes) {
+      if (node.type_legacy != SH_NODE_EEVEE_LIGHT_SHADER_INFO || (node.flag & NODE_MUTED)) {
+        continue;
+      }
+      static const char *positional_outputs[] = {
+          "Distance", "Light Space", "Direction", "World Position", "Rotation"};
+      for (const bNodeSocket &sock : node.outputs) {
+        if (sock.flag & SOCK_UNAVAIL) {
+          continue;
+        }
+        bool matches = false;
+        for (const char *name : positional_outputs) {
+          if (STREQ(sock.name, name)) {
+            matches = true;
+            break;
+          }
+        }
+        if (!matches) {
+          continue;
+        }
+        /* Check if this output is linked to anything. */
+        for (const bNodeLink &link : la.nodetree->links) {
+          if (link.fromsock == &sock && !(link.flag & NODE_LINK_MUTED)) {
+            is_point_dependent = true;
+            break;
+          }
+        }
+        if (is_point_dependent) {
+          break;
+        }
+      }
+      if (is_point_dependent) {
+        break;
+      }
+    }
+
     if (inst_.is_baking()) {
       register_light_shader(eLightShaderPipeline::Surfel,
                             light.surfel_light_shader_index,
                             surfel_light_shader_materials_,
                             surfel_light_shader_lights_);
+    }
+    else if (!is_point_dependent) {
+      register_light_shader(eLightShaderPipeline::Uniform,
+                            light.uniform_light_shader_index,
+                            uniform_light_shader_materials_,
+                            uniform_light_shader_lights_);
     }
     else {
       tag_front_light_shader_needed();
@@ -615,6 +665,12 @@ void LightModule::end_sync()
   }
   /* This scene data buffer is then immutable after this point. */
   light_buf_.push_update();
+  /* NPR: The culling pass consumes these source index buffers to produce the culled ones, so the
+   * CPU-written values must reach the GPU before the culling dispatch. */
+  light_shader_src_index_buf_.push_update();
+  front_light_shader_src_index_buf_.push_update();
+  volume_light_shader_src_index_buf_.push_update();
+  surfel_light_shader_src_index_buf_.push_update();
 
   /* If exceeding the limit, just trim off the excess to avoid glitchy rendering. */
   if (sun_lights_len_ + local_lights_len_ > CULLING_MAX_ITEM) {
@@ -676,14 +732,9 @@ void LightModule::end_sync()
   light_shader_index_buf_ensure_no_shader(volume_light_shader_index_buf_, lights_allocated);
   light_shader_index_buf_ensure_no_shader(surfel_light_shader_index_buf_, lights_allocated);
 
-  /* NPR: Copy the source indices to the rendered index buffers. The EBC culling pass does not
-   * reorder these buffers, so a direct copy suffices. */
-  for (int i = 0; i < lights_len_; ++i) {
-    light_shader_index_buf_[i] = light_shader_src_index_buf_[i];
-    front_light_shader_index_buf_[i] = front_light_shader_src_index_buf_[i];
-    volume_light_shader_index_buf_[i] = volume_light_shader_src_index_buf_[i];
-    surfel_light_shader_index_buf_[i] = surfel_light_shader_src_index_buf_[i];
-  }
+  /* NPR: The rendered index buffers are reordered by the culling pass (Select/Sort) to match the
+   * culled light buffer the materials index into. They only need to be pre-filled with the
+   * "no shader" sentinel here. */
   light_shader_index_buf_.push_update();
   front_light_shader_index_buf_.push_update();
   volume_light_shader_index_buf_.push_update();
@@ -744,6 +795,15 @@ void LightModule::culling_pass_sync()
     sub.bind_ssbo("out_light_buf", culling_light_buf_);
     sub.bind_ssbo("out_zdist_buf", culling_zdist_buf_);
     sub.bind_ssbo("out_key_buf", culling_key_buf_);
+    /* NPR: reorder the custom light shader index buffers alongside the culled light buffer. */
+    sub.bind_ssbo("in_light_shader_index_buf", light_shader_src_index_buf_);
+    sub.bind_ssbo("out_light_shader_index_buf", light_shader_index_buf_);
+    sub.bind_ssbo("in_front_light_shader_index_buf", front_light_shader_src_index_buf_);
+    sub.bind_ssbo("out_front_light_shader_index_buf", front_light_shader_index_buf_);
+    sub.bind_ssbo("in_volume_light_shader_index_buf", volume_light_shader_src_index_buf_);
+    sub.bind_ssbo("out_volume_light_shader_index_buf", volume_light_shader_index_buf_);
+    sub.bind_ssbo("in_surfel_light_shader_index_buf", surfel_light_shader_src_index_buf_);
+    sub.bind_ssbo("out_surfel_light_shader_index_buf", surfel_light_shader_index_buf_);
     sub.dispatch(int3(culling_select_dispatch_size, 1, 1));
     sub.barrier(GPU_BARRIER_SHADER_STORAGE);
   }
@@ -755,6 +815,14 @@ void LightModule::culling_pass_sync()
     sub.bind_ssbo("out_light_buf", culling_light_buf_);
     sub.bind_ssbo("in_zdist_buf", culling_zdist_buf_);
     sub.bind_ssbo("in_key_buf", culling_key_buf_);
+    sub.bind_ssbo("in_light_shader_index_buf", light_shader_src_index_buf_);
+    sub.bind_ssbo("out_light_shader_index_buf", light_shader_index_buf_);
+    sub.bind_ssbo("in_front_light_shader_index_buf", front_light_shader_src_index_buf_);
+    sub.bind_ssbo("out_front_light_shader_index_buf", front_light_shader_index_buf_);
+    sub.bind_ssbo("in_volume_light_shader_index_buf", volume_light_shader_src_index_buf_);
+    sub.bind_ssbo("out_volume_light_shader_index_buf", volume_light_shader_index_buf_);
+    sub.bind_ssbo("in_surfel_light_shader_index_buf", surfel_light_shader_src_index_buf_);
+    sub.bind_ssbo("out_surfel_light_shader_index_buf", surfel_light_shader_index_buf_);
     sub.dispatch(int3(culling_sort_dispatch_size, 1, 1));
     sub.barrier(GPU_BARRIER_SHADER_STORAGE);
   }

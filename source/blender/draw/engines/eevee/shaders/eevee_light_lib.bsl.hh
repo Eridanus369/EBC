@@ -86,6 +86,16 @@ float light_influence_attenuation(float dist, float inv_sqr_influence)
   return square(fac);
 }
 
+/* Binary influence cutoff. Kept at global scope because it is called from raw GLSL material
+ * shaders (gpu_shader_material_glsl_light_access.glsl) which cannot resolve namespaced symbols. */
+float light_influence_cutoff(float dist, float inv_sqr_influence)
+{
+  if (inv_sqr_influence <= 0.0f) {
+    return 0.0f;
+  }
+  return float(square(dist) * inv_sqr_influence < 1.0f);
+}
+
 float light_spot_attenuation(LightData light, float3 L)
 {
   LightSpotData spot = light.spot();
@@ -285,14 +295,6 @@ float power_get(LightData light, LightingType type)
 bool light_linking_affects_receiver(uint2 light_set_membership, uchar receiver_light_set)
 {
   return bitmask64_test(light_set_membership, receiver_light_set);
-}
-
-float light_influence_cutoff(float dist, float inv_sqr_influence)
-{
-  if (inv_sqr_influence <= 0.0f) {
-    return 0.0f;
-  }
-  return float(square(dist) * inv_sqr_influence < 1.0f);
 }
 
 }  // namespace light

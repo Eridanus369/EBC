@@ -821,6 +821,9 @@ void DeferredLayerBase::gbuffer_pass_sync(Instance &inst)
         pass->state_set(DRWState(state | material_cull_drw_state(eMaterialCullMethod(cull))));
         if (hybrid) {
           pass->bind_resources(inst.lights);
+          /* NPR: hybrid materials can evaluate custom light shaders inline (GLSL light access /
+           * Light Info), so the per-light shader cache must be bound for these draws. */
+          inst.lights.bind_light_shader_resources(*pass);
           pass->bind_resources(inst.shadows);
           pass->bind_resources(inst.sphere_probes);
           pass->bind_resources(inst.volume_probes);

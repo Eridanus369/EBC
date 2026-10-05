@@ -41,7 +41,7 @@ static int node_shader_gpu_image_sample(GPUMaterial *mat,
 
   float zero[3] = {0.0f, 0.0f, 0.0f};
   GPUNodeLink *uv_link = in[1].link ? in[1].link : GPU_constant(zero);
-  int use_uv = in[1].link ? 1 : 0;
+  bool use_uv = in[1].link != nullptr;
   GPUNodeLink *use_uv_link = GPU_constant(&use_uv);
 
   GPUNodeLink *color = nullptr;
