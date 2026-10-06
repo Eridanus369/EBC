@@ -109,6 +109,8 @@ set(SRC
   engines/eevee/eevee_camera.cc
   engines/eevee/eevee_cryptomatte.cc
   engines/eevee/eevee_depth_of_field.cc
+  engines/eevee/eevee_dlss5.cc
+  engines/eevee/dlss5_d3d12.cc
   engines/eevee/eevee_engine.cc
   engines/eevee/eevee_film.cc
   engines/eevee/eevee_filter_material.cc
@@ -217,6 +219,8 @@ set(SRC
   engines/eevee/eevee_camera.hh
   engines/eevee/eevee_cryptomatte.hh
   engines/eevee/eevee_depth_of_field.hh
+  engines/eevee/eevee_dlss5.hh
+  engines/eevee/dlss5_d3d12.hh
   engines/eevee/eevee_engine.h
   engines/eevee/eevee_film.hh
   engines/eevee/eevee_gbuffer.hh

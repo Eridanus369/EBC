@@ -197,7 +197,20 @@ void ShadingView::render()
   inst_.planar_probes.viewport_draw(render_view_, combined_fb_);
 
   gpu::Texture *combined_final_tx = render_postfx(rbufs.combined_tx);
-  inst_.film.accumulate(jitter_view_, combined_final_tx);
+  Dlss5FrameInputs dlss5_inputs;
+  dlss5_inputs.color = combined_final_tx;
+  dlss5_inputs.base_color = rbufs.combined_tx;
+  dlss5_inputs.depth = rbufs.depth_tx;
+  dlss5_inputs.velocity = rbufs.vector_tx;
+  dlss5_inputs.input_extent = extent_;
+  dlss5_inputs.output_extent = inst_.film.display_extent_get();
+  dlss5_inputs.guide_extent = extent_;
+  dlss5_inputs.guide_overscan = inst_.film.render_overscan_get();
+  dlss5_inputs.guide_scale = inst_.film.scaling_factor_get();
+  dlss5_inputs.jitter = inst_.film.pixel_jitter_get();
+  dlss5_inputs.is_viewport = inst_.is_viewport();
+  gpu::Texture *dlss5_final_tx = inst_.dlss5.process(dlss5_inputs, jitter_view_);
+  inst_.film.accumulate(jitter_view_, dlss5_final_tx);
 
   inst_.outline.release_result();
 

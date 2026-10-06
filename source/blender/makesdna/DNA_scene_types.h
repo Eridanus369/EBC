@@ -2859,6 +2859,12 @@ enum eSceneEEVEE_Flag : int {
 };
 ENUM_OPERATORS(eSceneEEVEE_Flag)
 
+/** #SceneEEVEE.dlss5_mode */
+enum SceneEEVEEDLSS5Mode : char {
+  SCE_EEVEE_DLSS5_OFF = 0,
+  SCE_EEVEE_DLSSNR = 1,
+};
+
 enum FastGI_Method : char {
   FAST_GI_FULL = 0,
   FAST_GI_AO_ONLY = 1,
@@ -2940,6 +2946,17 @@ struct SceneEEVEE {
 
   float overscan = 3.0f;
   float light_threshold = 0.01f;
+
+  float dlss5_intensity = 1.0f;
+  float dlss5_local_tone_strength = 1.0f;
+  float dlss5_local_structure_strength = 1.0f;
+  float dlss5_skin_structure_strength = -1.0f;
+  SceneEEVEEDLSS5Mode dlss5_mode = SCE_EEVEE_DLSS5_OFF;
+  char dlss5_use_auto_mask = false;
+  char dlss5_ui_correction = false;
+  char dlss5_render_scale = 1;
+  char dlss5_style = 2;
+  char _pad_dlss5[3] = {};
 
   float time_limit = 0.0f;
   /** NPR: built-in screen-space outline pass (Outline Control / Freestyle edges). */

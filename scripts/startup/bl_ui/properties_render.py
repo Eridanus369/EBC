@@ -867,6 +867,55 @@ class RENDER_PT_eevee_outline(RenderButtonsPanel, Panel):
         col.label(text="Uses Outline Control nodes and the Outline render pass.")
 
 
+class RENDER_PT_eevee_dlss(RenderButtonsPanel, Panel):
+    bl_label = "DLSS Neural Rendering"
+    bl_options = {'DEFAULT_CLOSED'}
+    COMPAT_ENGINES = {'BLENDER_EEVEE'}
+
+    @classmethod
+    def poll(cls, context):
+        return (context.engine in cls.COMPAT_ENGINES)
+
+    def draw_header(self, context):
+        props = context.scene.eevee
+        self.layout.prop(props, "dlss5_mode", text="")
+
+    def draw(self, context):
+        import sys
+        layout = self.layout
+        layout.use_property_split = True
+        layout.use_property_decorate = False
+
+        scene = context.scene
+        props = scene.eevee
+
+        active = (props.dlss5_mode != 'OFF')
+        layout.active = active
+
+        if sys.platform == 'win32':
+            platform_note = "Windows: D3D12/Vulkan backend required (NVIDIA RTX + DLSS SDK)"
+        else:
+            platform_note = "Linux: Vulkan NGX backend required (integration pending, currently bypassed)"
+        col = layout.column()
+        col.label(text=platform_note, icon='INFO')
+        col.separator()
+
+        col.prop(props, "dlss5_intensity")
+        col.prop(props, "dlss5_style")
+        col.prop(props, "dlss5_render_scale")
+        col.separator()
+
+        col = layout.column(heading="Reconstruction", align=False)
+        col.prop(props, "dlss5_local_tone_strength")
+        col.prop(props, "dlss5_local_structure_strength")
+        col.prop(props, "dlss5_skin_structure_strength")
+        col.separator()
+
+        col = layout.column(heading="Compositing", align=False)
+        col.prop(props, "dlss5_use_auto_mask")
+        col.prop(props, "dlss5_ui_correction")
+
+
 class RENDER_PT_eevee_film(RenderButtonsPanel, Panel):
     bl_label = "Film"
     bl_options = {'DEFAULT_CLOSED'}
@@ -1324,6 +1373,7 @@ classes = (
     RENDER_PT_eevee_motion_blur,
     RENDER_PT_eevee_motion_blur_curve,
     RENDER_PT_eevee_outline,
+    RENDER_PT_eevee_dlss,
     RENDER_PT_eevee_film,
     RENDER_PT_eevee_performance,
     RENDER_PT_eevee_performance_memory,

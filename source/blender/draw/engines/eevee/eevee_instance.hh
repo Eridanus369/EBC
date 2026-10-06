@@ -33,6 +33,7 @@
 #include "eevee_cryptomatte.hh"
 #include "eevee_debug_shared.hh"
 #include "eevee_depth_of_field.hh"
+#include "eevee_dlss5.hh"
 #include "eevee_filter_material.hh"
 #include "eevee_film.hh"
 #include "eevee_gbuffer.hh"
@@ -125,6 +126,7 @@ class Instance : public DrawEngine {
   VelocityModule velocity;
   MotionBlurModule motion_blur;
   DepthOfField depth_of_field;
+  Dlss5Module dlss5;
   Cryptomatte cryptomatte;
   GBuffer gbuffer;
   HiZBuffer hiz_buffer;
@@ -200,7 +202,49 @@ class Instance : public DrawEngine {
   /** Debug mode from debug value. */
   eDebugMode debug_mode = eDebugMode::DEBUG_NONE;
 
+  /** Cached DLSS5 settings snapshot, used to detect config changes between frames. */
+  struct {
+    int mode = 0;
+    float intensity = 0.0f;
+    float local_tone_strength = 0.0f;
+    float local_structure_strength = 0.0f;
+    float skin_structure_strength = 0.0f;
+    char use_auto_mask = 0;
+    char ui_correction = 0;
+    char style = 0;
+  } dlss5_last_;
+  bool dlss5_last_valid_ = false;
+
  public:
+  bool dlss5_settings_changed()
+  {
+    if (scene == nullptr) {
+      return false;
+    }
+    const SceneEEVEE &e = scene->eevee;
+    if (!dlss5_last_valid_ ||
+        dlss5_last_.mode != int(e.dlss5_mode) ||
+        dlss5_last_.intensity != e.dlss5_intensity ||
+        dlss5_last_.local_tone_strength != e.dlss5_local_tone_strength ||
+        dlss5_last_.local_structure_strength != e.dlss5_local_structure_strength ||
+        dlss5_last_.skin_structure_strength != e.dlss5_skin_structure_strength ||
+        dlss5_last_.use_auto_mask != e.dlss5_use_auto_mask ||
+        dlss5_last_.ui_correction != e.dlss5_ui_correction ||
+        dlss5_last_.style != e.dlss5_style)
+    {
+      dlss5_last_.mode = int(e.dlss5_mode);
+      dlss5_last_.intensity = e.dlss5_intensity;
+      dlss5_last_.local_tone_strength = e.dlss5_local_tone_strength;
+      dlss5_last_.local_structure_strength = e.dlss5_local_structure_strength;
+      dlss5_last_.skin_structure_strength = e.dlss5_skin_structure_strength;
+      dlss5_last_.use_auto_mask = e.dlss5_use_auto_mask;
+      dlss5_last_.ui_correction = e.dlss5_ui_correction;
+      dlss5_last_.style = e.dlss5_style;
+      dlss5_last_valid_ = true;
+      return true;
+    }
+    return false;
+  }
   Instance()
       : shaders(*ShaderModule::module_get()),
         sync(*this),
@@ -215,6 +259,7 @@ class Instance : public DrawEngine {
         velocity(*this),
         motion_blur(*this),
         depth_of_field(*this),
+        dlss5(*this),
         cryptomatte(*this),
         hiz_buffer(*this, uniform_data.data.hiz),
         sampling(*this, uniform_data.data.clamp),

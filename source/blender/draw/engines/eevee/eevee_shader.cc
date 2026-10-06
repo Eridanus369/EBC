@@ -284,6 +284,13 @@ ShaderGroups ShaderModule::static_shaders_load(const ShaderGroups request_bits,
                                        VOLUME_SCATTER_WITH_LIGHTS};
     request(VOLUME_EVAL_SHADERS, AS_SPAN(shader_list));
   }
+  {
+    const eShaderType shader_list[] = {DLSS5_COLOR_CONVERT,
+                                       DLSS5_HDR_RECONSTRUCT,
+                                       DLSS5_DEPTH_CONVERT,
+                                       DLSS5_VELOCITY_CONVERT};
+    request(DLSS5_SHADERS, AS_SPAN(shader_list));
+  }
 #undef AS_SPAN
   return ready;
 }
@@ -617,6 +624,14 @@ const char *ShaderModule::static_shader_create_info_name_get(eShaderType shader_
       return "eevee_volume_scatter";
     case VOLUME_SCATTER_WITH_LIGHTS:
       return "eevee_volume_scatter_with_lights";
+    case DLSS5_COLOR_CONVERT:
+      return "eevee_dlss5_color_convert";
+    case DLSS5_HDR_RECONSTRUCT:
+      return "eevee_dlss5_hdr_reconstruct";
+    case DLSS5_DEPTH_CONVERT:
+      return "eevee_dlss5_depth_convert";
+    case DLSS5_VELOCITY_CONVERT:
+      return "eevee_dlss5_velocity_convert";
     /* To avoid compiler warning about missing case. */
     case MAX_SHADER_TYPE:
       return "";

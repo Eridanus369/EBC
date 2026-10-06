@@ -9773,6 +9773,108 @@ static void rna_def_scene_eevee(BlenderRNA *brna)
                            "the filter wider, softening shadows)");
   RNA_def_property_override_flag(prop, PROPOVERRIDE_OVERRIDABLE_LIBRARY);
   RNA_def_property_update(prop, NC_SCENE | ND_RENDER_OPTIONS, nullptr);
+
+  {
+    static const EnumPropertyItem dlss5_mode_items[] = {
+        {SCE_EEVEE_DLSS5_OFF, "OFF", 0, "Off", "Disable DLSS Neural Rendering"},
+        {SCE_EEVEE_DLSSNR,
+         "NPR_DLSSNR",
+         0,
+         "DLSS Neural Rendering",
+         "Use NVIDIA DLSS Neural Rendering for upscaling and reconstruction"},
+        {0, nullptr, 0, nullptr, nullptr},
+    };
+    prop = RNA_def_property(srna, "dlss5_mode", PROP_ENUM, PROP_NONE);
+    RNA_def_property_enum_sdna(prop, nullptr, "dlss5_mode");
+    RNA_def_property_enum_items(prop, dlss5_mode_items);
+    RNA_def_property_ui_text(
+        prop,
+        "DLSS Mode",
+        "Optional DLSS Super Resolution / Neural Rendering mode (requires NVIDIA GPU + Vulkan)");
+    RNA_def_property_override_flag(prop, PROPOVERRIDE_OVERRIDABLE_LIBRARY);
+    RNA_def_property_update(prop, NC_SCENE | ND_RENDER_OPTIONS, nullptr);
+  }
+
+  prop = RNA_def_property(srna, "dlss5_intensity", PROP_FLOAT, PROP_FACTOR);
+  RNA_def_property_float_sdna(prop, nullptr, "dlss5_intensity");
+  RNA_def_property_range(prop, 0.0f, 1.0f);
+  RNA_def_property_ui_range(prop, 0.0f, 1.0f, 0.01f, 2);
+  RNA_def_property_ui_text(prop,
+                           "DLSS Intensity",
+                           "Amount of DLSS reconstruction blended with the native frame");
+  RNA_def_property_override_flag(prop, PROPOVERRIDE_OVERRIDABLE_LIBRARY);
+  RNA_def_property_update(prop, NC_SCENE | ND_RENDER_OPTIONS, nullptr);
+
+  prop = RNA_def_property(srna, "dlss5_local_tone_strength", PROP_FLOAT, PROP_FACTOR);
+  RNA_def_property_float_sdna(prop, nullptr, "dlss5_local_tone_strength");
+  RNA_def_property_range(prop, 0.0f, 2.0f);
+  RNA_def_property_ui_range(prop, 0.0f, 2.0f, 0.01f, 2);
+  RNA_def_property_ui_text(prop,
+                           "Local Tone Strength",
+                           "DLSS local tone-mapping strength applied before the NR model");
+  RNA_def_property_override_flag(prop, PROPOVERRIDE_OVERRIDABLE_LIBRARY);
+  RNA_def_property_update(prop, NC_SCENE | ND_RENDER_OPTIONS, nullptr);
+
+  prop = RNA_def_property(srna, "dlss5_local_structure_strength", PROP_FLOAT, PROP_FACTOR);
+  RNA_def_property_float_sdna(prop, nullptr, "dlss5_local_structure_strength");
+  RNA_def_property_range(prop, 0.0f, 2.0f);
+  RNA_def_property_ui_range(prop, 0.0f, 2.0f, 0.01f, 2);
+  RNA_def_property_ui_text(prop,
+                           "Local Structure Strength",
+                           "DLSS structural preservation strength for edges and textures");
+  RNA_def_property_override_flag(prop, PROPOVERRIDE_OVERRIDABLE_LIBRARY);
+  RNA_def_property_update(prop, NC_SCENE | ND_RENDER_OPTIONS, nullptr);
+
+  prop = RNA_def_property(srna, "dlss5_skin_structure_strength", PROP_FLOAT, PROP_FACTOR);
+  RNA_def_property_float_sdna(prop, nullptr, "dlss5_skin_structure_strength");
+  RNA_def_property_range(prop, -1.0f, 2.0f);
+  RNA_def_property_ui_range(prop, -1.0f, 2.0f, 0.01f, 2);
+  RNA_def_property_ui_text(prop,
+                           "Skin Structure Strength",
+                           "DLSS skin-specific detail strength (-1 disables skin detection)");
+  RNA_def_property_override_flag(prop, PROPOVERRIDE_OVERRIDABLE_LIBRARY);
+  RNA_def_property_update(prop, NC_SCENE | ND_RENDER_OPTIONS, nullptr);
+
+  prop = RNA_def_property(srna, "dlss5_use_auto_mask", PROP_BOOLEAN, PROP_NONE);
+  RNA_def_property_boolean_sdna(prop, nullptr, "dlss5_use_auto_mask", 1);
+  RNA_def_property_ui_text(
+      prop,
+      "Auto Mask",
+      "Automatically mask high-frequency UI/text overlays from the NR reconstruction");
+  RNA_def_property_override_flag(prop, PROPOVERRIDE_OVERRIDABLE_LIBRARY);
+  RNA_def_property_update(prop, NC_SCENE | ND_RENDER_OPTIONS, nullptr);
+
+  prop = RNA_def_property(srna, "dlss5_ui_correction", PROP_BOOLEAN, PROP_NONE);
+  RNA_def_property_boolean_sdna(prop, nullptr, "dlss5_ui_correction", 1);
+  RNA_def_property_ui_text(prop,
+                           "UI Correction",
+                           "Apply HUD/UI-aware gamma and color correction after NR");
+  RNA_def_property_override_flag(prop, PROPOVERRIDE_OVERRIDABLE_LIBRARY);
+  RNA_def_property_update(prop, NC_SCENE | ND_RENDER_OPTIONS, nullptr);
+
+  static const EnumPropertyItem dlss5_style_items[] = {
+      {0, "STANDARD", 0, "Standard", "Balanced quality and speed"},
+      {1, "CINEMATIC", 0, "Cinematic", "Higher quality, slightly slower"},
+      {2, "NPR", 0, "NPR / Stylized", "Optimized for stylized / non-photoreal scenes"},
+      {0, nullptr, 0, nullptr, nullptr},
+  };
+  prop = RNA_def_property(srna, "dlss5_style", PROP_ENUM, PROP_NONE);
+  RNA_def_property_enum_sdna(prop, nullptr, "dlss5_style");
+  RNA_def_property_enum_items(prop, dlss5_style_items);
+  RNA_def_property_ui_text(
+      prop, "DLSS Style Preset", "DLSS model preset tuned for different scene types");
+  RNA_def_property_override_flag(prop, PROPOVERRIDE_OVERRIDABLE_LIBRARY);
+  RNA_def_property_update(prop, NC_SCENE | ND_RENDER_OPTIONS, nullptr);
+
+  prop = RNA_def_property(srna, "dlss5_render_scale", PROP_INT, PROP_NONE);
+  RNA_def_property_int_sdna(prop, nullptr, "dlss5_render_scale");
+  RNA_def_property_range(prop, 1, 4);
+  RNA_def_property_ui_range(prop, 1, 4, 1, 0);
+  RNA_def_property_ui_text(prop,
+                           "DLSS Render Scale",
+                           "Render divisor applied when DLSS is active (1=100%, 2=50%, etc.)");
+  RNA_def_property_override_flag(prop, PROPOVERRIDE_OVERRIDABLE_LIBRARY);
+  RNA_def_property_update(prop, NC_SCENE | ND_RENDER_OPTIONS, nullptr);
 }
 
 static void rna_def_scene_gpencil(BlenderRNA *brna)
