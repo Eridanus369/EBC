@@ -91,6 +91,7 @@ void SyncModule::sync_common_passes(const Material &material,
 {
   sync_cb(material.shadow);
   sync_cb(material.shading);
+  sync_cb(material.npr);
   sync_cb(material.prepass);
 
   sync_cb(material.capture);
@@ -252,6 +253,10 @@ void SyncModule::sync_common(const ObjectHandle &ob_handle,
     attribute_materials.append(gpu_material);
   }
   for (const Material *material : materials) {
+    /* NPR: the dedicated NPR tree material needs the attributes its nodes read. */
+    if (material->npr.gpumat != nullptr) {
+      attribute_materials.append(material->npr.gpumat);
+    }
     GPUMaterial *shell_gpumat = material->outline_shell_shading.gpumat;
     if (shell_gpumat == nullptr) {
       shell_gpumat = material->outline_shell_prepass.gpumat;
@@ -303,6 +308,9 @@ void SyncModule::sync_mesh(const ObjectRef &ob_ref)
 
   Span<gpu::Batch *> mat_geom = DRW_cache_object_surface_material_get(
       ob_handle.object, material_array.gpu_materials);
+  /* NPR: separate batches for the NPR tree materials which may need extra attributes. */
+  Span<gpu::Batch *> mat_geom_npr = DRW_cache_object_surface_material_get(
+      ob_handle.object, material_array.gpu_materials_npr);
   Span<gpu::Batch *> mat_geom_shell = DRW_cache_object_surface_material_get(
       ob_handle.object, material_array.gpu_materials_outline_shell);
   if (mat_geom.is_empty()) {
@@ -338,7 +346,9 @@ void SyncModule::sync_mesh(const ObjectRef &ob_ref)
     }
 
     sync_common_passes(material, [&](const MaterialPass &pass) {
-      geometry_call(pass.sub_pass, geom, ob_handle.res_handle);
+      gpu::Batch *geom_npr = (i < mat_geom_npr.size()) ? mat_geom_npr[i] : nullptr;
+      const bool use_npr_geom = (pass.gpumat == material.npr.gpumat) && (geom_npr != nullptr);
+      geometry_call(pass.sub_pass, use_npr_geom ? geom_npr : geom, ob_handle.res_handle);
     });
 
     gpu::Batch *geom_shell = (i < mat_geom_shell.size()) ? mat_geom_shell[i] : nullptr;
@@ -375,6 +385,9 @@ bool SyncModule::sync_sculpt(const ObjectRef &ob_ref)
 
   bool has_motion = false;
   MaterialArray &material_array = inst_.materials.material_array_get(ob_handle, has_motion);
+  /* NPR: separate batches for the NPR tree materials which may need extra attributes. */
+  Vector<SculptBatch> batches_npr = sculpt_batches_per_material_get(
+      ob_ref.object, material_array.gpu_materials_npr);
 
   Vector<Material *, 8> synced_materials;
 
@@ -387,6 +400,13 @@ bool SyncModule::sync_sculpt(const ObjectRef &ob_ref)
     }
 
     Material &material = material_array.materials[batch.material_slot];
+    gpu::Batch *geom_npr = nullptr;
+    for (const SculptBatch &batch_npr : batches_npr) {
+      if (batch_npr.material_slot == batch.material_slot) {
+        geom_npr = batch_npr.batch;
+        break;
+      }
+    }
     synced_materials.append(&material);
 
     if (material.has_volume) {
@@ -407,7 +427,8 @@ bool SyncModule::sync_sculpt(const ObjectRef &ob_ref)
     }
 
     sync_common_passes(material, [&](const MaterialPass &pass) {
-      geometry_call(pass.sub_pass, geom, ob_handle.res_handle);
+      const bool use_npr_geom = (pass.gpumat == material.npr.gpumat) && (geom_npr != nullptr);
+      geometry_call(pass.sub_pass, use_npr_geom ? geom_npr : geom, ob_handle.res_handle);
     });
 
     sync_alpha_blended_passes(ob_handle, material, [&](const MaterialPass &pass, int instance) {

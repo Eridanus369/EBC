@@ -396,6 +396,8 @@ class ShaderNodesInliner {
         add_output_type("ShaderNodeOutlineControl"_ustr);
         /* NPR: Eevee filter-domain materials root at the Filter Output node. */
         add_output_type("ShaderNodeOutputFilter"_ustr);
+        /* NPR: standalone NPR shader tree root. */
+        add_output_type("ShaderNodeNPR_Output"_ustr);
         break;
       case ID_WO:
         add_output_type("ShaderNodeOutputWorld"_ustr);

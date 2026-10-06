@@ -260,6 +260,12 @@
 #define FILTER_CRYPTOMATTE_TEX_SLOT 16    /* PLANAR_PROBE range reuse. */
 #define FILTER_GRAPH_INPUT_TEX_SLOT 21    /* OUTLINE range reuse. */
 
+/* NPR: Deferred NPR evaluation pass (runs after the deferred combine pass).
+ * These slots are only used by the `eevee_surf_deferred_npr_infos_` create info closure. */
+#define NPR_RADIANCE_TEX_SLOT 28
+#define NPR_DIRECT_RADIANCE_TEX_SLOT_1 29   /* +0..2 usampler2D. */
+#define NPR_INDIRECT_RADIANCE_TEX_SLOT_1 32 /* +0..2 sampler2D. */
+
 /* Images. */
 #define RBUFS_COLOR_SLOT 0
 #define RBUFS_VALUE_SLOT 1

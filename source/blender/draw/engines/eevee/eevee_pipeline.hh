@@ -346,6 +346,16 @@ struct DeferredLayerBase {
 
   gpu::Texture *radiance_behind_tx_ = nullptr;
 
+  /* NPR: Deferred NPR evaluation pass. Re-draws the deferred geometry after the combine pass to
+   * evaluate the NPR node tree and rewrite the combined radiance. */
+  PassMain npr_ps_ = {"NPR.Eval"};
+  PassMain::Sub *npr_double_sided_ps_ = nullptr;
+  PassMain::Sub *npr_single_sided_ps_ = nullptr;
+  PassMain::Sub *npr_front_cull_ps_ = nullptr;
+  /* Copy of the combined radiance made before the NPR pass. Only valid inside
+   * DeferredLayer::render(). */
+  TextureFromPool npr_radiance_input_tx_ = {"Deferred.NPR.Input"};
+
   /* Closures bits from the materials in this pass. */
   eClosureBits closure_bits_ = CLOSURE_NONE;
   /* Maximum closure count considering all material in this pass. */
@@ -406,6 +416,8 @@ struct DeferredLayerBase {
   }
 
   void gbuffer_pass_sync(Instance &inst);
+  /* NPR: setup the pass-level bindings and cull sub-passes for the NPR evaluation pass. */
+  void npr_pass_sync(Instance &inst, FunctionRef<void()> callback);
 };
 
 class DeferredPipeline;
@@ -480,6 +492,8 @@ class DeferredLayer : DeferredLayerBase {
   PassMain::Sub *material_add(blender::Material *blender_mat,
                               GPUMaterial *gpumat,
                               int cull_method = -1);
+  /* NPR: register a material draw-call into the deferred NPR evaluation pass. */
+  PassMain::Sub *npr_add(blender::Material *blender_mat, GPUMaterial *gpumat);
 
   bool is_empty() const
   {
@@ -536,6 +550,7 @@ class DeferredPipeline {
                               GPUMaterial *gpumat,
                               int cull_method = -1,
                               bool force_opaque_layer = false);
+  PassMain::Sub *npr_add(blender::Material *blender_mat, GPUMaterial *gpumat);
 
   void render(View &main_view,
               View &render_view,
@@ -1001,6 +1016,8 @@ class PipelineModule {
 
       case MAT_PIPE_DEFERRED:
         return deferred.material_add(blender_mat, gpumat, cull_method, state.is_outline_shell);
+      case MAT_PIPE_DEFERRED_NPR:
+        return deferred.npr_add(blender_mat, gpumat);
       case MAT_PIPE_FORWARD:
         return forward.material_opaque_add(ob, blender_mat, gpumat, cull_method);
       case MAT_PIPE_SHADOW:

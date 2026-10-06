@@ -21,6 +21,8 @@ namespace blender::eevee {
 enum eMaterialPipeline {
   /* G-Buffer pass, lighting is calculated in a separate pass. */
   MAT_PIPE_DEFERRED = 0,
+  /* NPR: Dedicated deferred pass evaluating the NPR tree's float4 output (NPR Output node). */
+  MAT_PIPE_DEFERRED_NPR,
   /* Main shading pass where lighting is calculated per-pixel during geometry submission. */
   MAT_PIPE_FORWARD,
 

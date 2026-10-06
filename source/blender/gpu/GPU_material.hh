@@ -237,7 +237,10 @@ GPUMaterialFromNodeTreeResult GPU_material_from_nodetree(
     const char *name,
     eGPUMaterialEngine engine,
     uint64_t shader_uuid,
+    bool compile_surface_graph,
+    bool compile_npr_graph,
     bool compile_light_shader_graph,
+    bool force_npr_graph,
     bool deferred_compilation,
     GPUCodegenCallbackFn callback,
     void *thunk,
@@ -731,6 +734,8 @@ struct GPUCodegenOutput {
   /* Node-tree functions calls. */
   GPUGraphOutput displacement;
   GPUGraphOutput surface;
+  /* NPR: Separate deferred NPR output graph (NPR Output node). */
+  GPUGraphOutput npr;
   GPUGraphOutput volume;
   GPUGraphOutput thickness;
   std::optional<GPUGraphOutput> light_shader;

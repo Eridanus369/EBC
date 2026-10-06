@@ -408,8 +408,9 @@ float principled_npr_rim(float3 N,
   float3 camera_x = float3(1.0f, 0.0f, 0.0f);
   float3 camera_y = float3(0.0f, 1.0f, 0.0f);
 #if defined(GPU_FRAGMENT_SHADER)
-  camera_x = principled_npr_safe_normalize(drw_view().viewinv[0].xyz, camera_x);
-  camera_y = principled_npr_safe_normalize(drw_view().viewinv[1].xyz, camera_y);
+  const ViewMatrices view = view_matrices_get();
+  camera_x = principled_npr_safe_normalize(view.viewinv[0].xyz, camera_x);
+  camera_y = principled_npr_safe_normalize(view.viewinv[1].xyz, camera_y);
 #endif
   float2 projected_normal = float2(dot(N, camera_x), dot(N, camera_y));
   float projected_length = length(projected_normal);

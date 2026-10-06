@@ -2863,6 +2863,16 @@ ENUM_OPERATORS(eSceneEEVEE_Flag)
 enum SceneEEVEEDLSS5Mode : char {
   SCE_EEVEE_DLSS5_OFF = 0,
   SCE_EEVEE_DLSSNR = 1,
+  SCE_EEVEE_DLSS_SR = 2,
+};
+
+/** #SceneEEVEE.dlss_sr_quality */
+enum SceneEEVEEDLSSRQuality : char {
+  SCE_EEVEE_DLSSR_PERFORMANCE = 0,
+  SCE_EEVEE_DLSSR_BALANCED = 1,
+  SCE_EEVEE_DLSSR_QUALITY = 2,
+  SCE_EEVEE_DLSSR_ULTRA_QUALITY = 3,
+  SCE_EEVEE_DLSSR_AUTO = 4,
 };
 
 enum FastGI_Method : char {
@@ -2958,10 +2968,18 @@ struct SceneEEVEE {
   char dlss5_style = 2;
   char _pad_dlss5[3] = {};
 
+  float dlss_sr_sharpness = 0.3f;
+  float dlss_sr_mvec_scale = 1.0f;
+  SceneEEVEEDLSSRQuality dlss_sr_quality = SCE_EEVEE_DLSSR_AUTO;
+  char dlss_sr_use_anti_ghost = true;
+  char dlss_sr_use_jitter = true;
+  char _pad_dlss_sr[1] = {};
+
   float time_limit = 0.0f;
   /** NPR: built-in screen-space outline pass (Outline Control / Freestyle edges). */
   char use_outline = true;
-  char _pad_outline[3] = {};
+  /* Pad to keep the following ListBase / pointer fields 8-byte aligned. */
+  char _pad_outline[7] = {};
 
   /** NPR: legacy scene-level filter material stack (migrated to the filter graph). */
   ListBase filter_materials = {};

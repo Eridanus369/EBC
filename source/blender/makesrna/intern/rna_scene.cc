@@ -9776,12 +9776,17 @@ static void rna_def_scene_eevee(BlenderRNA *brna)
 
   {
     static const EnumPropertyItem dlss5_mode_items[] = {
-        {SCE_EEVEE_DLSS5_OFF, "OFF", 0, "Off", "Disable DLSS Neural Rendering"},
+        {SCE_EEVEE_DLSS5_OFF, "OFF", 0, "Off", "Disable DLSS Super Resolution / Neural Rendering"},
         {SCE_EEVEE_DLSSNR,
          "NPR_DLSSNR",
          0,
          "DLSS Neural Rendering",
-         "Use NVIDIA DLSS Neural Rendering for upscaling and reconstruction"},
+         "Use NVIDIA DLSS Neural Rendering for reconstruction and stylization (same-resolution)"},
+        {SCE_EEVEE_DLSS_SR,
+         "DLSS_SR",
+         0,
+         "DLSS Super Resolution",
+         "Use NVIDIA DLSS Super Resolution for low-res to display-res upscaling"},
         {0, nullptr, 0, nullptr, nullptr},
     };
     prop = RNA_def_property(srna, "dlss5_mode", PROP_ENUM, PROP_NONE);
@@ -9873,6 +9878,80 @@ static void rna_def_scene_eevee(BlenderRNA *brna)
   RNA_def_property_ui_text(prop,
                            "DLSS Render Scale",
                            "Render divisor applied when DLSS is active (1=100%, 2=50%, etc.)");
+  RNA_def_property_override_flag(prop, PROPOVERRIDE_OVERRIDABLE_LIBRARY);
+  RNA_def_property_update(prop, NC_SCENE | ND_RENDER_OPTIONS, nullptr);
+
+  {
+    static const EnumPropertyItem dlss_sr_quality_items[] = {
+        {SCE_EEVEE_DLSSR_PERFORMANCE,
+         "PERFORMANCE",
+         0,
+         "Performance",
+         "Highest upscaling ratio, fastest (≈33% internal resolution)"},
+        {SCE_EEVEE_DLSSR_BALANCED,
+         "BALANCED",
+         0,
+         "Balanced",
+         "Balanced quality and speed (≈58% internal resolution)"},
+        {SCE_EEVEE_DLSSR_QUALITY,
+         "QUALITY",
+         0,
+         "Quality",
+         "Higher quality, slightly slower (≈66% internal resolution)"},
+        {SCE_EEVEE_DLSSR_ULTRA_QUALITY,
+         "ULTRA_QUALITY",
+         0,
+         "Ultra Quality",
+         "Highest quality upscaling (≈77% internal resolution)"},
+        {SCE_EEVEE_DLSSR_AUTO, "AUTO", 0, "Auto", "Pick quality preset from display resolution"},
+        {0, nullptr, 0, nullptr, nullptr},
+    };
+    prop = RNA_def_property(srna, "dlss_sr_quality", PROP_ENUM, PROP_NONE);
+    RNA_def_property_enum_sdna(prop, nullptr, "dlss_sr_quality");
+    RNA_def_property_enum_items(prop, dlss_sr_quality_items);
+    RNA_def_property_ui_text(
+        prop,
+        "DLSS SR Quality",
+        "DLSS Super Resolution quality preset (controls internal render resolution)");
+    RNA_def_property_override_flag(prop, PROPOVERRIDE_OVERRIDABLE_LIBRARY);
+    RNA_def_property_update(prop, NC_SCENE | ND_RENDER_OPTIONS, nullptr);
+  }
+
+  prop = RNA_def_property(srna, "dlss_sr_sharpness", PROP_FLOAT, PROP_FACTOR);
+  RNA_def_property_float_sdna(prop, nullptr, "dlss_sr_sharpness");
+  RNA_def_property_range(prop, 0.0f, 1.0f);
+  RNA_def_property_ui_range(prop, 0.0f, 1.0f, 0.01f, 2);
+  RNA_def_property_ui_text(prop,
+                           "DLSS SR Sharpness",
+                           "Post-upscale sharpness applied by the DLSS SR reconstruction filter");
+  RNA_def_property_override_flag(prop, PROPOVERRIDE_OVERRIDABLE_LIBRARY);
+  RNA_def_property_update(prop, NC_SCENE | ND_RENDER_OPTIONS, nullptr);
+
+  prop = RNA_def_property(srna, "dlss_sr_mvec_scale", PROP_FLOAT, PROP_FACTOR);
+  RNA_def_property_float_sdna(prop, nullptr, "dlss_sr_mvec_scale");
+  RNA_def_property_range(prop, 0.0f, 2.0f);
+  RNA_def_property_ui_range(prop, 0.0f, 2.0f, 0.01f, 2);
+  RNA_def_property_ui_text(prop,
+                           "DLSS SR Motion Scale",
+                           "Motion vector amplitude scale applied before DLSS SR evaluation");
+  RNA_def_property_override_flag(prop, PROPOVERRIDE_OVERRIDABLE_LIBRARY);
+  RNA_def_property_update(prop, NC_SCENE | ND_RENDER_OPTIONS, nullptr);
+
+  prop = RNA_def_property(srna, "dlss_sr_use_anti_ghost", PROP_BOOLEAN, PROP_NONE);
+  RNA_def_property_boolean_sdna(prop, nullptr, "dlss_sr_use_anti_ghost", 1);
+  RNA_def_property_ui_text(
+      prop,
+      "DLSS SR Anti-Ghost",
+      "Enable temporal anti-ghosting (reduces motion trails when SR is active)");
+  RNA_def_property_override_flag(prop, PROPOVERRIDE_OVERRIDABLE_LIBRARY);
+  RNA_def_property_update(prop, NC_SCENE | ND_RENDER_OPTIONS, nullptr);
+
+  prop = RNA_def_property(srna, "dlss_sr_use_jitter", PROP_BOOLEAN, PROP_NONE);
+  RNA_def_property_boolean_sdna(prop, nullptr, "dlss_sr_use_jitter", 1);
+  RNA_def_property_ui_text(
+      prop,
+      "DLSS SR Jittered Sampling",
+      "Use sub-pixel camera jitter to feed DLSS SR temporal history (matches NGX expectations)");
   RNA_def_property_override_flag(prop, PROPOVERRIDE_OVERRIDABLE_LIBRARY);
   RNA_def_property_update(prop, NC_SCENE | ND_RENDER_OPTIONS, nullptr);
 }

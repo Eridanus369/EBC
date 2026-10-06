@@ -197,20 +197,40 @@ void ShadingView::render()
   inst_.planar_probes.viewport_draw(render_view_, combined_fb_);
 
   gpu::Texture *combined_final_tx = render_postfx(rbufs.combined_tx);
-  Dlss5FrameInputs dlss5_inputs;
-  dlss5_inputs.color = combined_final_tx;
-  dlss5_inputs.base_color = rbufs.combined_tx;
-  dlss5_inputs.depth = rbufs.depth_tx;
-  dlss5_inputs.velocity = rbufs.vector_tx;
-  dlss5_inputs.input_extent = extent_;
-  dlss5_inputs.output_extent = inst_.film.display_extent_get();
-  dlss5_inputs.guide_extent = extent_;
-  dlss5_inputs.guide_overscan = inst_.film.render_overscan_get();
-  dlss5_inputs.guide_scale = inst_.film.scaling_factor_get();
-  dlss5_inputs.jitter = inst_.film.pixel_jitter_get();
-  dlss5_inputs.is_viewport = inst_.is_viewport();
-  gpu::Texture *dlss5_final_tx = inst_.dlss5.process(dlss5_inputs, jitter_view_);
-  inst_.film.accumulate(jitter_view_, dlss5_final_tx);
+  const SceneEEVEE &eevee = inst_.scene->eevee;
+  gpu::Texture *dlss_final_tx = combined_final_tx;
+
+  if (eevee.dlss5_mode == SCE_EEVEE_DLSS_SR) {
+    DlssSRFrameInputs sr_inputs;
+    sr_inputs.color = combined_final_tx;
+    sr_inputs.depth = rbufs.depth_tx;
+    sr_inputs.velocity = rbufs.vector_tx;
+    sr_inputs.input_extent = extent_;
+    sr_inputs.output_extent = inst_.film.display_extent_get();
+    sr_inputs.jitter = inst_.film.pixel_jitter_get();
+    sr_inputs.is_viewport = inst_.is_viewport();
+    sr_inputs.sharpness = eevee.dlss_sr_sharpness;
+    sr_inputs.mvec_scale = eevee.dlss_sr_mvec_scale;
+    sr_inputs.use_anti_ghost = eevee.dlss_sr_use_anti_ghost != 0;
+    sr_inputs.quality_preset = int(eevee.dlss_sr_quality);
+    dlss_final_tx = inst_.dlss_sr.process(sr_inputs, jitter_view_);
+  }
+  else if (eevee.dlss5_mode == SCE_EEVEE_DLSSNR) {
+    Dlss5FrameInputs dlss5_inputs;
+    dlss5_inputs.color = combined_final_tx;
+    dlss5_inputs.base_color = rbufs.combined_tx;
+    dlss5_inputs.depth = rbufs.depth_tx;
+    dlss5_inputs.velocity = rbufs.vector_tx;
+    dlss5_inputs.input_extent = extent_;
+    dlss5_inputs.output_extent = inst_.film.display_extent_get();
+    dlss5_inputs.guide_extent = extent_;
+    dlss5_inputs.guide_overscan = inst_.film.render_overscan_get();
+    dlss5_inputs.guide_scale = inst_.film.scaling_factor_get();
+    dlss5_inputs.jitter = inst_.film.pixel_jitter_get();
+    dlss5_inputs.is_viewport = inst_.is_viewport();
+    dlss_final_tx = inst_.dlss5.process(dlss5_inputs, jitter_view_);
+  }
+  inst_.film.accumulate(jitter_view_, dlss_final_tx);
 
   inst_.outline.release_result();
 

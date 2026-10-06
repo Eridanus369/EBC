@@ -18,6 +18,8 @@
 
 #include "DNA_world_types.h"
 
+#include "NOD_shader.h"
+
 #include "gpu_shader_create_info.hh"
 
 #include "eevee_shader.hh"
@@ -290,6 +292,13 @@ ShaderGroups ShaderModule::static_shaders_load(const ShaderGroups request_bits,
                                        DLSS5_DEPTH_CONVERT,
                                        DLSS5_VELOCITY_CONVERT};
     request(DLSS5_SHADERS, AS_SPAN(shader_list));
+  }
+  {
+    const eShaderType shader_list[] = {DLSS_SR_INPUT_STAGE,
+                                       DLSS_SR_DEPTH_STAGE,
+                                       DLSS_SR_VELOCITY_STAGE,
+                                       DLSS_SR_RESOLVE};
+    request(DLSS_SR_SHADERS, AS_SPAN(shader_list));
   }
 #undef AS_SPAN
   return ready;
@@ -632,6 +641,14 @@ const char *ShaderModule::static_shader_create_info_name_get(eShaderType shader_
       return "eevee_dlss5_depth_convert";
     case DLSS5_VELOCITY_CONVERT:
       return "eevee_dlss5_velocity_convert";
+    case DLSS_SR_INPUT_STAGE:
+      return "eevee_dlss_sr_input_stage";
+    case DLSS_SR_DEPTH_STAGE:
+      return "eevee_dlss_sr_depth_stage";
+    case DLSS_SR_VELOCITY_STAGE:
+      return "eevee_dlss_sr_velocity_stage";
+    case DLSS_SR_RESOLVE:
+      return "eevee_dlss_sr_resolve";
     /* To avoid compiler warning about missing case. */
     case MAX_SHADER_TYPE:
       return "";
@@ -945,6 +962,19 @@ static SlotAllocator add_pipeline_create_info(gpu::shader::ShaderCreateInfo &inf
             info.fragment_function(use_lightprobe_data ? "eevee_surf_deferred_lightprobe" :
                                                          "eevee_surf_deferred");
           }
+          /* Enable the access to `nt.crypto_hash`.
+           * Necessary workaround for static shader compilation tests. */
+          info.define("CREATE_INFO_eevee_nodetree");
+          break;
+        case MAT_PIPE_DEFERRED_NPR:
+          /* NPR: Deferred materials with an attached NPR tree evaluate it in a dedicated pass
+           * after the deferred combine. */
+          pipeline_info_name = "eevee_surf_deferred_npr_infos_";
+          info.name_ += "_deferred_npr";
+          info.compilation_constant(gpu::shader::Type::bool_t, "use_velocity", false);
+          info.compilation_constant(gpu::shader::Type::bool_t, "use_lighting_nodes", false);
+          info.fragment_source("eevee_surf_deferred_npr.bsl.hh");
+          info.fragment_function("eevee_surf_deferred_npr");
           /* Enable the access to `nt.crypto_hash`.
            * Necessary workaround for static shader compilation tests. */
           info.define("CREATE_INFO_eevee_nodetree");
@@ -1849,6 +1879,11 @@ void ShaderModule::material_create_info_amend(GPUMaterial *gpumat, GPUCodegenOut
                                        emitted_generated_sources,
                                        generated_source_block);
     material_graph_dependencies_append(gpumat,
+                                       codegen.npr.dependencies,
+                                       dependencies_set,
+                                       emitted_generated_sources,
+                                       generated_source_block);
+    material_graph_dependencies_append(gpumat,
                                        codegen.thickness.dependencies,
                                        dependencies_set,
                                        emitted_generated_sources,
@@ -1884,6 +1919,12 @@ void ShaderModule::material_create_info_amend(GPUMaterial *gpumat, GPUCodegenOut
     frag_gen << "{\n";
     frag_gen << "  closure_weights_reset(closure_rand);\n";
     frag_gen << codegen.surface.serialized_or_default("return Closure(0);\n");
+    frag_gen << "}\n\n";
+
+    /* NPR: entry point evaluated by the deferred NPR pass. */
+    frag_gen << "float4 nodetree_npr()\n";
+    frag_gen << "{\n";
+    frag_gen << codegen.npr.serialized_or_default("return float4(0.0f);\n");
     frag_gen << "}\n\n";
 
     /* TODO(fclem): Find a way to pass material parameters inside the material UBO. */
@@ -2062,6 +2103,15 @@ static GPUPass *pass_replacement_cb(void *void_thunk, GPUMaterial *mat)
   return nullptr;
 }
 
+static uint64_t shader_node_tree_key_get(const bNodeTree *tree)
+{
+  if (tree == nullptr) {
+    return 0;
+  }
+  const bNodeTree *original_tree = DEG_get_original(tree);
+  return uint64_t(original_tree ? original_tree->id.session_uid : tree->id.session_uid);
+}
+
 static void store_node_tree_errors(GPUMaterialFromNodeTreeResult &material_from_tree)
 {
   Depsgraph *depsgraph = DRW_context_get()->depsgraph;
@@ -2101,13 +2151,21 @@ GPUMaterial *ShaderModule::material_shader_get(blender::Material *blender_mat,
   const bool use_outline = !outline_shell && DRW_context_get()->scene != nullptr &&
                            DRW_context_get()->scene->eevee.use_outline != 0;
 
+  /* NPR: the dedicated deferred NPR pass only evaluates the NPR tree output graph. */
+  bNodeTree *npr_tree = outline_shell ? nullptr : npr_tree_get(nodetree);
+  const bool compile_npr_graph = (pipeline_type == MAT_PIPE_DEFERRED_NPR) &&
+                                 (npr_tree != nullptr);
+  const uint64_t npr_tree_key = compile_npr_graph ? shader_node_tree_key_get(npr_tree) : 0;
+  const bool compile_surface_graph = (pipeline_type != MAT_PIPE_DEFERRED_NPR);
+
   uint64_t shader_uuid = shader_uuid_from_material_type(pipeline_type,
                                                         geometry_type,
                                                         displacement_type,
                                                         thickness_type,
                                                         blender_mat->blend_flag,
                                                         outline_shell,
-                                                        use_outline);
+                                                        use_outline,
+                                                        npr_tree_key);
 
   bool is_default_material = default_mat == nullptr;
   BLI_assert(blender_mat != default_mat);
@@ -2121,6 +2179,9 @@ GPUMaterial *ShaderModule::material_shader_get(blender::Material *blender_mat,
       blender_mat->id.name,
       GPU_MAT_EEVEE,
       shader_uuid,
+      compile_surface_graph,
+      compile_npr_graph,
+      false,
       false,
       deferred_compilation,
       codegen_callback,
@@ -2147,6 +2208,9 @@ GPUMaterial *ShaderModule::world_shader_get(blender::World *blender_world,
       blender_world->id.name,
       GPU_MAT_EEVEE,
       shader_uuid,
+      true,
+      false,
+      false,
       false,
       deferred_compilation,
       codegen_callback,
@@ -2171,7 +2235,10 @@ GPUMaterial *ShaderModule::light_shader_get(blender::Light *blender_light,
       blender_light->id.name,
       GPU_MAT_EEVEE,
       pipeline_info.shader_uuid,
+      false,
+      false,
       true,
+      false,
       deferred_compilation,
       light_codegen_callback,
       &thunk);
@@ -2357,6 +2424,25 @@ void ShaderModule::material_create_info_pipelines_amend(eMaterialGeometry geomet
           .color_format(gpu::TextureTargetFormat::UNORM_10_10_10_2)
           .color_format(gpu::TextureTargetFormat::UNORM_10_10_10_2);
 
+      break;
+    }
+
+    case MAT_PIPE_DEFERRED_NPR: {
+      /* NPR: Deferred NPR evaluation pass. Renders into the combined radiance target using the
+       * main depth buffer for depth-equal testing. */
+      r_info.pipeline_state()
+          .primitive(prim_type)
+          .state(GPU_WRITE_COLOR,
+                 GPU_BLEND_NONE,
+                 GPU_CULL_NONE,
+                 GPU_DEPTH_EQUAL,
+                 GPU_STENCIL_NONE,
+                 GPU_STENCIL_OP_NONE,
+                 GPU_VERTEX_LAST)
+          .viewports(1)
+          .depth_format(gpu::TextureTargetFormat::SFLOAT_32_DEPTH_UINT_8)
+          .stencil_format(gpu::TextureTargetFormat::SFLOAT_32_DEPTH_UINT_8)
+          .color_format(gpu::TextureTargetFormat::SFLOAT_16_16_16_16);
       break;
     }
 

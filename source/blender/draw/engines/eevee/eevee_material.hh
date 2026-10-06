@@ -112,7 +112,8 @@ static inline uint64_t shader_uuid_from_material_type(
     eMaterialThickness thickness_type = MAT_THICKNESS_SPHERE,
     char blend_flags = 0,
     bool outline_shell = false,
-    bool use_outline = false)
+    bool use_outline = false,
+    uint64_t npr_tree_key = 0)
 {
   BLI_assert(int64_t(displacement_type) < (1 << 1));
   BLI_assert(int64_t(thickness_type) < (1 << 1));
@@ -128,6 +129,9 @@ static inline uint64_t shader_uuid_from_material_type(
   uuid |= transparent_shadows << 10;
   uuid |= uint64_t(outline_shell) << 11;
   uuid |= uint64_t(use_outline) << 12;
+  /* NPR: fold the NPR shader tree identity into the upper bits (ignored by the decoder). */
+  uuid |= uint64_t(npr_tree_key != 0) << 13;
+  uuid |= (npr_tree_key ^ (npr_tree_key >> 21)) << 14;
   return uuid;
 }
 
@@ -357,6 +361,8 @@ struct Material {
   bool has_volume;
   MaterialPass shadow;
   MaterialPass shading;
+  /* NPR: Dedicated deferred pass evaluating the attached NPR tree after the combine pass. */
+  MaterialPass npr;
   MaterialPass prepass;
   MaterialPass capture;
   MaterialPass outline_shell_prepass;
@@ -384,6 +390,8 @@ struct Material {
 struct MaterialArray {
   Vector<Material> materials;
   Vector<GPUMaterial *> gpu_materials;
+  /* Aligned with gpu_materials; empty for slots without a deferred NPR tree. */
+  Vector<GPUMaterial *> gpu_materials_npr;
   /* Aligned with gpu_materials; nullptr for slots without an Outline Shell Output node. */
   Vector<GPUMaterial *> gpu_materials_outline_shell;
 };

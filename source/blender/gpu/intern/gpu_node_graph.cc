@@ -1282,6 +1282,7 @@ void gpu_node_graph_free_nodes(GPUNodeGraph *graph)
   graph->outlink_displacement = nullptr;
   graph->outlink_thickness = nullptr;
   graph->outlink_light_shader = nullptr;
+  graph->outlink_npr = nullptr;
   graph->outlink_filter = nullptr;
 }
 
@@ -1361,6 +1362,8 @@ void gpu_node_graph_prune_unused(GPUNodeGraph *graph)
   gpu_nodes_tag(graph, graph->outlink_thickness, GPU_NODE_TAG_THICKNESS);
   /* NPR: tag the custom light shader output graph so it is serialized and not pruned. */
   gpu_nodes_tag(graph, graph->outlink_light_shader, GPU_NODE_TAG_LIGHT_SHADER);
+  /* NPR: tag the separate NPR output graph so it is serialized and not pruned. */
+  gpu_nodes_tag(graph, graph->outlink_npr, GPU_NODE_TAG_NPR);
 
   for (GPUNodeGraphOutputLink &aovlink : graph->outlink_aovs) {
     gpu_nodes_tag(graph, aovlink.outlink, GPU_NODE_TAG_AOV);

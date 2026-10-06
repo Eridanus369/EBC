@@ -868,7 +868,7 @@ class RENDER_PT_eevee_outline(RenderButtonsPanel, Panel):
 
 
 class RENDER_PT_eevee_dlss(RenderButtonsPanel, Panel):
-    bl_label = "DLSS Neural Rendering"
+    bl_label = "DLSS Super Resolution / Neural Rendering"
     bl_options = {'DEFAULT_CLOSED'}
     COMPAT_ENGINES = {'BLENDER_EEVEE'}
 
@@ -900,20 +900,38 @@ class RENDER_PT_eevee_dlss(RenderButtonsPanel, Panel):
         col.label(text=platform_note, icon='INFO')
         col.separator()
 
-        col.prop(props, "dlss5_intensity")
-        col.prop(props, "dlss5_style")
         col.prop(props, "dlss5_render_scale")
         col.separator()
 
-        col = layout.column(heading="Reconstruction", align=False)
-        col.prop(props, "dlss5_local_tone_strength")
-        col.prop(props, "dlss5_local_structure_strength")
-        col.prop(props, "dlss5_skin_structure_strength")
-        col.separator()
+        if props.dlss5_mode == 'DLSS_SR':
+            box = layout.box()
+            box.label(text="Super Resolution Upscaling", icon='FULLSCREEN_ENTER')
+            col = box.column()
+            col.active = active
+            col.prop(props, "dlss_sr_quality")
+            col.prop(props, "dlss_sr_sharpness")
+            col.prop(props, "dlss_sr_mvec_scale")
+            col.separator()
+            col.prop(props, "dlss_sr_use_jitter")
+            col.prop(props, "dlss_sr_use_anti_ghost")
+        elif props.dlss5_mode == 'NPR_DLSSNR':
+            box = layout.box()
+            box.label(text="Neural Rendering Reconstruction", icon='SHADERFX')
+            col = box.column()
+            col.active = active
+            col.prop(props, "dlss5_intensity")
+            col.prop(props, "dlss5_style")
+            col.separator()
 
-        col = layout.column(heading="Compositing", align=False)
-        col.prop(props, "dlss5_use_auto_mask")
-        col.prop(props, "dlss5_ui_correction")
+            col = box.column(heading="Reconstruction", align=False)
+            col.prop(props, "dlss5_local_tone_strength")
+            col.prop(props, "dlss5_local_structure_strength")
+            col.prop(props, "dlss5_skin_structure_strength")
+            col.separator()
+
+            col = box.column(heading="Compositing", align=False)
+            col.prop(props, "dlss5_use_auto_mask")
+            col.prop(props, "dlss5_ui_correction")
 
 
 class RENDER_PT_eevee_film(RenderButtonsPanel, Panel):

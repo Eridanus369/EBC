@@ -22,12 +22,43 @@ static void node_declare(NodeDeclarationBuilder &b)
 }
 
 static int node_shader_gpu_npr_input(GPUMaterial *mat,
-                                     bNode *node,
+                                     bNode * /*node*/,
                                      bNodeExecData * /*execdata*/,
-                                     GPUNodeStack *in,
+                                     GPUNodeStack * /*in*/,
                                      GPUNodeStack *out)
 {
-  return GPU_stack_link(mat, node, "npr_input", in, out);
+  /* All outputs are TextureHandle (SOCK_IMAGE). The generic GPU_stack_link path
+   * maps SOCK_IMAGE to GPU_NONE and would mismatch the 9 out params declared in
+   * the GLSL function, so the links are wired manually here. */
+  GPUNodeLink *combined_color = nullptr;
+  GPUNodeLink *diffuse_color = nullptr;
+  GPUNodeLink *diffuse_direct = nullptr;
+  GPUNodeLink *diffuse_indirect = nullptr;
+  GPUNodeLink *specular_color = nullptr;
+  GPUNodeLink *specular_direct = nullptr;
+  GPUNodeLink *specular_indirect = nullptr;
+  GPUNodeLink *position = nullptr;
+  GPUNodeLink *normal = nullptr;
+  GPU_link(mat, "npr_input",
+           &combined_color,
+           &diffuse_color,
+           &diffuse_direct,
+           &diffuse_indirect,
+           &specular_color,
+           &specular_direct,
+           &specular_indirect,
+           &position,
+           &normal);
+  out[0].link = combined_color;
+  out[1].link = diffuse_color;
+  out[2].link = diffuse_direct;
+  out[3].link = diffuse_indirect;
+  out[4].link = specular_color;
+  out[5].link = specular_direct;
+  out[6].link = specular_indirect;
+  out[7].link = position;
+  out[8].link = normal;
+  return true;
 }
 
 }  // namespace nodes::node_shader_npr_input_cc

@@ -34,6 +34,7 @@
 #include "eevee_debug_shared.hh"
 #include "eevee_depth_of_field.hh"
 #include "eevee_dlss5.hh"
+#include "eevee_dlss_sr.hh"
 #include "eevee_filter_material.hh"
 #include "eevee_film.hh"
 #include "eevee_gbuffer.hh"
@@ -127,6 +128,7 @@ class Instance : public DrawEngine {
   MotionBlurModule motion_blur;
   DepthOfField depth_of_field;
   Dlss5Module dlss5;
+  DlssSRModule dlss_sr;
   Cryptomatte cryptomatte;
   GBuffer gbuffer;
   HiZBuffer hiz_buffer;
@@ -245,6 +247,41 @@ class Instance : public DrawEngine {
     }
     return false;
   }
+
+  /** Cached DLSS SR settings snapshot, used to detect config changes between frames. */
+  struct {
+    int quality = 4;
+    float sharpness = 0.0f;
+    float mvec_scale = 0.0f;
+    char use_anti_ghost = 0;
+    char use_jitter = 0;
+  } dlss_sr_last_;
+  bool dlss_sr_last_valid_ = false;
+
+ public:
+  bool dlss_sr_settings_changed()
+  {
+    if (scene == nullptr) {
+      return false;
+    }
+    const SceneEEVEE &e = scene->eevee;
+    if (!dlss_sr_last_valid_ ||
+        dlss_sr_last_.quality != int(e.dlss_sr_quality) ||
+        dlss_sr_last_.sharpness != e.dlss_sr_sharpness ||
+        dlss_sr_last_.mvec_scale != e.dlss_sr_mvec_scale ||
+        dlss_sr_last_.use_anti_ghost != e.dlss_sr_use_anti_ghost ||
+        dlss_sr_last_.use_jitter != e.dlss_sr_use_jitter)
+    {
+      dlss_sr_last_.quality = int(e.dlss_sr_quality);
+      dlss_sr_last_.sharpness = e.dlss_sr_sharpness;
+      dlss_sr_last_.mvec_scale = e.dlss_sr_mvec_scale;
+      dlss_sr_last_.use_anti_ghost = e.dlss_sr_use_anti_ghost;
+      dlss_sr_last_.use_jitter = e.dlss_sr_use_jitter;
+      dlss_sr_last_valid_ = true;
+      return true;
+    }
+    return false;
+  }
   Instance()
       : shaders(*ShaderModule::module_get()),
         sync(*this),
@@ -260,6 +297,7 @@ class Instance : public DrawEngine {
         motion_blur(*this),
         depth_of_field(*this),
         dlss5(*this),
+        dlss_sr(*this),
         cryptomatte(*this),
         hiz_buffer(*this, uniform_data.data.hiz),
         sampling(*this, uniform_data.data.clamp),

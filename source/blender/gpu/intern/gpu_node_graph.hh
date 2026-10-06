@@ -72,6 +72,8 @@ enum GPUNodeTag {
   GPU_NODE_TAG_OUTLINE = (1 << 8),
   /* NPR: Eevee fullscreen filter material outputs. */
   GPU_NODE_TAG_FILTER = (1 << 9),
+  /* NPR: Separate Eevee deferred NPR output channel (NPR Output node, float4). */
+  GPU_NODE_TAG_NPR = (1 << 10),
 };
 
 ENUM_OPERATORS(GPUNodeTag)
@@ -224,6 +226,8 @@ struct GPUNodeGraph {
   GPUNodeLink *outlink_displacement;
   GPUNodeLink *outlink_thickness;
   GPUNodeLink *outlink_light_shader;
+  /* NPR: Output link of the NPR Output node (independent float4 channel). */
+  GPUNodeLink *outlink_npr;
   /* NPR: Single output link of the active Filter Output node of a filter material. */
   GPUNodeLink *outlink_filter;
   /* NPR: All outputs of Filter Output nodes (hash is the output item identifier). */

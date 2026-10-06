@@ -127,6 +127,82 @@ enum ClosureType : uchar {
   CLOSURE_BSSRDF_BURLEY_ID = 15u,
 };
 
+/* Precomputed direct lighting keeps the physical albedo available to indirect lighting and SSS.
+ * The additive term is already colored; it must not be multiplied by the albedo again. */
+struct ClosureNPRLightPolicy {
+  uint code;
+  float strength;
+  float direct_gain;
+};
+
+ClosureNPRLightPolicy closure_npr_light_policy_default()
+{
+  ClosureNPRLightPolicy policy;
+  policy.code = 0u;
+  policy.strength = 1.0f;
+  policy.direct_gain = 1.0f;
+  return policy;
+}
+
+/* controls = (shadow type, quality, samples, numeric light group).
+ * Bit 31 distinguishes an explicit No Shadows policy from ordinary native shading. */
+ClosureNPRLightPolicy closure_npr_light_policy(float4 controls, float strength, float direct_gain)
+{
+  ClosureNPRLightPolicy policy;
+  uint group = controls.w < 0.0f ? 16383u : uint(clamp(controls.w, 0.0f, 9999.0f));
+  policy.code = (1u << 31u) | uint(clamp(controls.x, 0.0f, 3.0f)) |
+                (uint(clamp(controls.y, 1.0f, 2.0f)) << 2u) |
+                (uint(clamp(controls.z, 1.0f, 32.0f)) << 4u) |
+                (group << 10u);
+  policy.strength = clamp(strength, 0.0f, 1.0f);
+  policy.direct_gain = max(direct_gain, 0.0f);
+  return policy;
+}
+
+ClosureNPRLightPolicy closure_npr_light_policy(float4 controls, float strength)
+{
+  return closure_npr_light_policy(controls, strength, 1.0f);
+}
+
+bool closure_npr_policy_enabled(ClosureNPRLightPolicy policy)
+{
+  return (policy.code & (1u << 31u)) != 0u;
+}
+uint closure_npr_policy_shadow_type(ClosureNPRLightPolicy policy)
+{
+  return policy.code & 3u;
+}
+uint closure_npr_policy_quality(ClosureNPRLightPolicy policy)
+{
+  return (policy.code >> 2u) & 3u;
+}
+uint closure_npr_policy_samples(ClosureNPRLightPolicy policy)
+{
+  return (policy.code >> 4u) & 63u;
+}
+uint closure_npr_policy_group(ClosureNPRLightPolicy policy)
+{
+  return (policy.code >> 10u) & 16383u;
+}
+
+/* Surface diffusion metadata follows the same reservoir candidate as the BSDF. */
+struct ClosureNPRDirect {
+  packed_float4 diffusion;
+  packed_float3 multiplier;
+  packed_float3 additive;
+  float indirect_weight;
+  ClosureNPRLightPolicy light_policy;
+  bool enabled;
+};
+
+ClosureNPRDirect closure_npr_direct_default()
+{
+  ClosureNPRDirect npr = {};
+  npr.indirect_weight = 1.0f;
+  npr.light_policy = closure_npr_light_policy_default();
+  return npr;
+}
+
 struct ClosureUndetermined {
   packed_float3 color;
   packed_float3 N;
@@ -134,10 +210,11 @@ struct ClosureUndetermined {
   /* Additional data different for each closure type. */
   packed_float4 data;
 
-  float weight() const
-  {
-    return reduce_add(abs(color));
-  }
+  ClosureNPRDirect npr;
+
+  /* Selection weight. Derived from the closure color amplitude unless explicitly set
+   * (e.g. by the NPR rim layer). */
+  float weight;
 };
 
 bool closure_has_transmission(const ClosureType closure)
@@ -151,7 +228,59 @@ ClosureUndetermined closure_new(ClosureType type)
 {
   ClosureUndetermined cl;
   cl.type = type;
+  cl.weight = 0.0f;
+  cl.npr = closure_npr_direct_default();
   return cl;
+}
+
+bool closure_is_anisotropic(ClosureUndetermined cl)
+{
+  return cl.type == CLOSURE_BSDF_MICROFACET_GGX_REFLECTION_ID && cl.data.y > 0.0f;
+}
+
+bool closure_is_npr_reflection(ClosureUndetermined cl)
+{
+  return cl.type == CLOSURE_BSDF_MICROFACET_GGX_REFLECTION_ID && cl.npr.enabled;
+}
+
+float3 closure_tangent_orthogonalize(float3 N, float3 T)
+{
+  T -= N * dot(N, T);
+  if (dot(T, T) < 1e-12f) {
+    float3 axis = abs(N.z) < 0.999f ? float3(0.0f, 0.0f, 1.0f) : float3(1.0f, 0.0f, 0.0f);
+    T = cross(axis, N);
+  }
+  return normalize(T);
+}
+
+/* World-space octahedral tangent, independent of the normal's packing. */
+float2 closure_tangent_pack(float3 T)
+{
+  T /= abs(T.x) + abs(T.y) + abs(T.z);
+  float2 signs = float2(T.x < 0.0f ? -1.0f : 1.0f, T.y < 0.0f ? -1.0f : 1.0f);
+  float2 oct = T.z >= 0.0f ? T.xy : (1.0f - abs(T.yx)) * signs;
+  return oct * 0.5f + 0.5f;
+}
+
+float3 closure_tangent_unpack(float2 oct)
+{
+  oct = oct * 2.0f - 1.0f;
+  float3 T = float3(oct, 1.0f - abs(oct.x) - abs(oct.y));
+  float fold = clamp(-T.z, 0.0f, 1.0f);
+  T.x += T.x >= 0.0f ? -fold : fold;
+  T.y += T.y >= 0.0f ? -fold : fold;
+  return normalize(T);
+}
+
+float3 closure_reflection_tangent(ClosureUndetermined cl)
+{
+  return closure_tangent_orthogonalize(cl.N, closure_tangent_unpack(cl.data.zw));
+}
+
+float3x3 closure_reflection_frame(ClosureUndetermined cl)
+{
+  float3 T = closure_reflection_tangent(cl);
+  return float3x3(T, cross(cl.N, T), cl.N);
 }
 
 struct ClosureOcclusion {
@@ -160,28 +289,33 @@ struct ClosureOcclusion {
 
 struct ClosureDiffuse {
   packed_float3 color;
+  float weight;
   packed_float3 N;
 };
 
 struct ClosureSubsurface {
   packed_float3 color;
+  float weight;
   packed_float3 N;
   packed_float3 sss_radius;
 };
 
 struct ClosureTranslucent {
   packed_float3 color;
+  float weight;
   packed_float3 N;
 };
 
 struct ClosureReflection {
   packed_float3 color;
+  float weight;
   packed_float3 N;
   float roughness;
 };
 
 struct ClosureRefraction {
   packed_float3 color;
+  float weight;
   packed_float3 N;
   float roughness;
   float ior;
@@ -196,24 +330,29 @@ struct ClosureHair {
 
 struct ClosureVolumeScatter {
   packed_float3 scattering;
+  float weight;
   float anisotropy;
 };
 
 struct ClosureVolumeAbsorption {
   packed_float3 absorption;
+  float weight;
 };
 
 struct ClosureEmission {
   packed_float3 emission;
+  float weight;
 };
 
 struct ClosureTransparency {
   packed_float3 transmittance;
+  float weight;
   float holdout;
 };
 
 struct ClosureThinRefraction {
   packed_float3 color;
+  float weight;
   packed_float3 N;
   float roughness;
 };

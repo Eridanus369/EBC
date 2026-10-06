@@ -196,7 +196,10 @@ GPUMaterialFromNodeTreeResult GPU_material_from_nodetree(
     const char *name,
     eGPUMaterialEngine engine,
     uint64_t shader_uuid,
+    bool compile_surface_graph,
+    bool compile_npr_graph,
     bool compile_light_shader_graph,
+    bool force_npr_graph,
     bool deferred_compilation,
     GPUCodegenCallbackFn callback,
     void *thunk,
@@ -271,13 +274,18 @@ GPUMaterialFromNodeTreeResult GPU_material_from_nodetree(
     ntreeGPULightShaderNodes(localtree, mat);
   }
   else {
-    ntreeGPUMaterialNodes(localtree, mat);
-
+    if (compile_surface_graph) {
+      ntreeGPUMaterialNodes(localtree, mat);
+    }
     /* NPR tree: an Eevee material output may reference a separate NPR shader tree which is
-     * inlined into the same GPU material graph. */
-    if (!outline_shell && npr_tree_get(ntree) != nullptr) {
-      GPU_material_flag_set(mat, GPU_MATFLAG_NPR);
-      npr_localtree = ntreeGPUNPRNodes(ntree, mat);
+     * serialized into its own output channel of the GPU material graph. */
+    if (compile_npr_graph) {
+      if (force_npr_graph || npr_tree_get(ntree) != nullptr) {
+        GPU_material_flag_set(mat, GPU_MATFLAG_NPR);
+      }
+      if (GPU_material_flag_get(mat, GPU_MATFLAG_NPR)) {
+        npr_localtree = ntreeGPUNPRNodes(ntree, mat);
+      }
     }
   }
 
@@ -1026,9 +1034,10 @@ bool GPU_material_is_time_dependent(const GPUMaterial *mat)
 void GPU_material_output_npr(GPUMaterial *material, GPUNodeLink *link)
 {
   material->has_npr_output = true;
-  if (material->graph.outlink_surface == nullptr) {
-    material->graph.outlink_surface = link;
-  }
+  /* NPR output goes to its own channel. The material surface output (CLOSURE) is kept intact so
+   * the deferred gbuffer pass still receives a valid closure, while the float4 NPR result is
+   * serialized separately for the dedicated deferred NPR pipeline. */
+  material->graph.outlink_npr = link;
 }
 
 bool GPU_material_has_npr_output(const GPUMaterial *material)

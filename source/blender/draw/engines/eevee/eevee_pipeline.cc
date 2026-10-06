@@ -850,6 +850,51 @@ void DeferredLayerBase::gbuffer_pass_sync(Instance &inst)
   radiance_behind_tx_ = nullptr;
 }
 
+void DeferredLayerBase::npr_pass_sync(Instance &inst, FunctionRef<void()> callback)
+{
+  npr_ps_.init();
+  npr_ps_.bind_texture(RBUFS_UTILITY_TEX_SLOT, inst.pipelines.utility_tx);
+  npr_ps_.bind_image(RBUFS_COLOR_SLOT, &inst.render_buffers.rp_color_tx);
+  npr_ps_.bind_image(RBUFS_VALUE_SLOT, &inst.render_buffers.rp_value_tx);
+  /* NPR: screen-space outline buffers read by NPR node trees (Outline Info etc.). */
+  npr_ps_.bind_image(OUTLINE_COLOR_SLOT, &inst.render_buffers.outline_color_tx);
+  npr_ps_.bind_image(OUTLINE_INFO_SLOT, &inst.render_buffers.outline_info_tx);
+  /* GBuffer (read back through the gbuffer::Reader resource table). Bind manually to fixed
+   * slots before the sub-pass shader is selected: `bind_resources(inst.gbuffer)` resolves
+   * sampler bindings by name from the active shader interface, which is not available yet
+   * during pass sync and would crash. */
+  npr_ps_.bind_texture(GBUF_HEADER_TEX_SLOT, &inst.gbuffer.header_tx);
+  npr_ps_.bind_texture(GBUF_CLOSURE_TEX_SLOT, &inst.gbuffer.closure_tx);
+  npr_ps_.bind_texture(GBUF_NORMAL_TEX_SLOT, &inst.gbuffer.normal_tx);
+  npr_ps_.bind_resources(inst.uniform_data);
+  npr_ps_.bind_resources(inst.sampling);
+  npr_ps_.bind_resources(inst.hiz_buffer.front);
+  npr_ps_.bind_resources(inst.lights);
+  npr_ps_.bind_resources(inst.shadows);
+  npr_ps_.bind_resources(inst.sphere_probes);
+  npr_ps_.bind_resources(inst.volume_probes);
+  if (is_probe_) {
+    npr_ps_.bind_resources(inst.planar_probes.dummy_resources);
+  }
+  else {
+    npr_ps_.bind_resources(inst.planar_probes);
+  }
+
+  callback();
+
+  DRWState state = DRW_STATE_WRITE_COLOR | DRW_STATE_DEPTH_EQUAL |
+                   DRW_STATE_CLIP_CONTROL_UNIT_RANGE;
+
+  npr_double_sided_ps_ = &npr_ps_.sub("DoubleSided");
+  npr_double_sided_ps_->state_set(state);
+
+  npr_single_sided_ps_ = &npr_ps_.sub("BackCull");
+  npr_single_sided_ps_->state_set(state | DRW_STATE_CULL_BACK);
+
+  npr_front_cull_ps_ = &npr_ps_.sub("FrontCull");
+  npr_front_cull_ps_->state_set(state | DRW_STATE_CULL_FRONT);
+}
+
 void DeferredLayer::begin_sync()
 {
   /* Make alpha hash scale sub-pixel so that it converges to a noise free image.
@@ -876,6 +921,13 @@ void DeferredLayer::begin_sync()
   }
 
   this->gbuffer_pass_sync(inst_);
+  this->npr_pass_sync(inst_, [&]() {
+    npr_ps_.bind_texture(NPR_RADIANCE_TEX_SLOT, &npr_radiance_input_tx_);
+    for (int i = 0; i < ARRAY_SIZE(direct_radiance_txs_); i++) {
+      npr_ps_.bind_texture(NPR_DIRECT_RADIANCE_TEX_SLOT_1 + i, &direct_radiance_txs_[i]);
+      npr_ps_.bind_texture(NPR_INDIRECT_RADIANCE_TEX_SLOT_1 + i, &indirect_result_.closures[i]);
+    }
+  });
 }
 
 bool DeferredLayer::do_merge_direct_indirect_eval(const Instance &inst)
@@ -1166,6 +1218,27 @@ PassMain::Sub *DeferredLayer::material_add(blender::Material *blender_mat,
   return material_pass;
 }
 
+PassMain::Sub *DeferredLayer::npr_add(blender::Material *blender_mat, GPUMaterial *gpumat)
+{
+  BLI_assert(GPU_material_flag_get(gpumat, GPU_MATFLAG_NPR));
+
+  PassMain::Sub *pass = nullptr;
+  switch (material_cull_method_resolve(*blender_mat)) {
+    case MA_SURFACE_CULL_BACK:
+      pass = npr_single_sided_ps_;
+      break;
+    case MA_SURFACE_CULL_FRONT:
+      pass = npr_front_cull_ps_;
+      break;
+    case MA_SURFACE_CULL_NONE:
+    default:
+      pass = npr_double_sided_ps_;
+      break;
+  }
+
+  return &pass->sub(GPU_material_get_name(gpumat));
+}
+
 gpu::Texture *DeferredLayer::render(View &render_view,
                                     Framebuffer &prepass_fb,
                                     Framebuffer &combined_fb,
@@ -1255,6 +1328,20 @@ gpu::Texture *DeferredLayer::render(View &render_view,
   if (use_feedback_output_ && !use_clamp_direct_) {
     /* We skip writing the radiance during the combine pass. Do a simple fast copy. */
     GPU_texture_copy(radiance_feedback_tx_, rb.combined_tx);
+  }
+
+  /* NPR: Evaluate the NPR node trees with the fully combined scene as input and overwrite the
+   * radiance of the NPR materials. Must run before the intermediate textures are released. */
+  if (!npr_ps_.is_empty()) {
+    npr_radiance_input_tx_.acquire_2d(extent, RenderBuffers::color_format, usage_rw);
+    GPU_texture_copy(npr_radiance_input_tx_, rb.combined_tx);
+
+    GPU_framebuffer_bind(combined_fb);
+    GPU_memory_barrier(GPU_BARRIER_SHADER_IMAGE_ACCESS);
+    inst_.manager->submit(npr_ps_, render_view);
+    GPU_memory_barrier(GPU_BARRIER_SHADER_IMAGE_ACCESS);
+
+    npr_radiance_input_tx_.release();
   }
 
   indirect_result_.release();
@@ -1362,6 +1449,14 @@ PassMain::Sub *DeferredPipeline::material_add(blender::Material *blender_mat,
     return refraction_layer_.material_add(blender_mat, gpumat, cull_method);
   }
   return opaque_layer_.material_add(blender_mat, gpumat, cull_method);
+}
+
+PassMain::Sub *DeferredPipeline::npr_add(blender::Material *blender_mat, GPUMaterial *gpumat)
+{
+  if (blender_mat->blend_flag & MA_BL_SS_REFRACTION) {
+    return refraction_layer_.npr_add(blender_mat, gpumat);
+  }
+  return opaque_layer_.npr_add(blender_mat, gpumat);
 }
 
 void DeferredPipeline::render(View & /*main_view*/,

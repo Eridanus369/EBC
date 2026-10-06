@@ -16,6 +16,7 @@
 #include "BKE_node_runtime.hh"
 #include "BKE_node_tree_update.hh"
 #include "BKE_scene.hh"
+#include "NOD_shader.h"
 
 #include "eevee_instance.hh"
 #include "eevee_material.hh"
@@ -217,8 +218,8 @@ MaterialPass MaterialModule::material_pass_get(Object *ob,
     }
     case GPU_MAT_QUEUED:
       queued_shaders_count++;
-      if (outline_shell) {
-        /* Shell passes have no default-material fallback; skip drawing until compiled. */
+      if (outline_shell || pipeline_type == MAT_PIPE_DEFERRED_NPR) {
+        /* No default-material fallback for these passes. Skip drawing until compiled. */
         return MaterialPass();
       }
       matpass.gpumat = inst_.shaders.material_shader_get(
@@ -226,7 +227,7 @@ MaterialPass MaterialModule::material_pass_get(Object *ob,
       break;
     case GPU_MAT_FAILED:
     default:
-      if (outline_shell) {
+      if (outline_shell || pipeline_type == MAT_PIPE_DEFERRED_NPR) {
         return MaterialPass();
       }
       matpass.gpumat = inst_.shaders.material_shader_get(
@@ -363,6 +364,15 @@ Material &MaterialModule::material_sync(const ObjectHandle &ob_handle,
         mat.shading.sub_pass = nullptr;
       }
 
+      /* NPR: Deferred materials with an attached NPR tree evaluate it in a dedicated pass after
+       * the deferred combine. */
+      const bool has_deferred_npr_tree = !hide_on_camera &&
+                                         (surface_pipe == MAT_PIPE_DEFERRED) &&
+                                         (npr_tree_get_from_mat(blender_mat) != nullptr);
+      mat.npr = has_deferred_npr_tree ?
+                    material_pass_get(ob, blender_mat, MAT_PIPE_DEFERRED_NPR, geometry_type) :
+                    MaterialPass();
+
       if (inst_.needs_lightprobe_sphere_passes() && !(ob->visibility_flag & OB_HIDE_PROBE_CUBEMAP))
       {
         mat.lightprobe_sphere_prepass = material_pass_get(
@@ -493,6 +503,7 @@ MaterialArray &MaterialModule::material_array_get(const ObjectHandle &ob_handle,
 
   material_array_.materials.clear();
   material_array_.gpu_materials.clear();
+  material_array_.gpu_materials_npr.clear();
   material_array_.gpu_materials_outline_shell.clear();
 
   const int materials_len = BKE_object_material_used_with_fallback_eval(*ob);
@@ -506,6 +517,7 @@ MaterialArray &MaterialModule::material_array_get(const ObjectHandle &ob_handle,
      * (i.e: because of its container growing) */
     material_array_.materials.append(mat);
     material_array_.gpu_materials.append(mat.shading.gpumat);
+    material_array_.gpu_materials_npr.append(mat.npr.gpumat);
     GPUMaterial *shell_gpumat = mat.outline_shell_shading.gpumat;
     if (shell_gpumat == nullptr) {
       shell_gpumat = mat.outline_shell_prepass.gpumat;

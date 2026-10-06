@@ -647,6 +647,9 @@ void GPUCodegen::generate_graphs()
       GPU_NODE_TAG_SURFACE | GPU_NODE_TAG_AOV | GPU_NODE_TAG_OUTLINE,
       graph.outlink_surface,
       "CLOSURE_DEFAULT");
+  /* NPR: Serialize the separate NPR output channel (float4). */
+  output.npr = graph_serialize(
+      GPU_NODE_TAG_NPR | GPU_NODE_TAG_OUTLINE, graph.outlink_npr, "float4(0.0f)");
   output.volume = graph_serialize(GPU_NODE_TAG_VOLUME, graph.outlink_volume, "CLOSURE_DEFAULT");
   output.displacement = graph_serialize(
       GPU_NODE_TAG_DISPLACEMENT, graph.outlink_displacement, nullptr);

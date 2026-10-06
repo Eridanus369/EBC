@@ -11,6 +11,12 @@
 #include "gpu_shader_math_vector_reduce.bsl.hh"
 
 packed_float3 g_emission;
+/* Scoped by the generated input-branch function, not shared with sibling shaders. */
+float4 g_npr_diffusion = float4(0.0f);
+float g_npr_diffusion_weight = 1.0f;
+bool g_npr_diffusion_scope = false;
+/* Art-directed radiance is not emission and must not enter the surfel emission capture. */
+packed_float3 g_npr_rim;
 packed_float3 g_transmittance;
 float g_holdout;
 
@@ -114,6 +120,7 @@ ClosureUndetermined g_closure_get_resolved(uchar i, float additional_weight)
   Reservoir<ClosureUndetermined> r = g_closure_get(i);
   ClosureUndetermined cl = r.data;
   cl.color *= r.get_final_weight() * additional_weight;
+  cl.npr.additive *= r.get_final_weight() * additional_weight;
   return cl;
 }
 
@@ -148,21 +155,49 @@ ClosureType closure_type_get(ClosureThinRefraction /*cl*/)
 }
 
 /**
- * Assign `candidate` to `destination` based on a random value and the respective weights.
+ * Assign `candidate` to the reservoir based on a random value and the respective weights.
+ * NPR surface diffusion metadata boosts the selection weight so that black source pixels still
+ * receive neighboring radiance, while the stored color and additive terms are normalized by the
+ * same factor to preserve the reservoir weighting semantics.
  */
 void closure_select(Reservoir<ClosureUndetermined> &reservoir, ClosureUndetermined candidate)
 {
-  reservoir.add(candidate, candidate.weight());
+  candidate.weight *= g_npr_diffusion_weight;
+#if defined(MAT_NPR_SURFACE_DIFFUSION) && !defined(MAT_CAPTURE) && !defined(MAT_BAKE_COLOR)
+  candidate.npr.diffusion = g_npr_diffusion;
+#endif
+  float candidate_color_weight = average(abs(candidate.color));
+#if defined(MAT_NPR_SURFACE_DIFFUSION) && !defined(MAT_CAPTURE) && !defined(MAT_BAKE_COLOR)
+  /* Black source pixels must still receive neighboring radiance. Do not discard their
+   * diffusion metadata based only on this pixel's pre-diffusion energy. */
+  if (candidate.npr.diffusion.w > 0.0f && reduce_max(candidate.npr.diffusion.xyz) > 0.0f) {
+    candidate_color_weight = max(candidate_color_weight, 1.0f);
+  }
+#endif
+#ifndef MAT_CAPTURE
+  /* Surfel capture stores physical albedo, not view-dependent surface radiance. */
+  if (candidate.npr.enabled) {
+    candidate_color_weight = max(
+        candidate_color_weight,
+        average(abs(candidate.color * candidate.npr.multiplier + candidate.npr.additive)));
+  }
+#endif
+  candidate.color /= candidate_color_weight;
+  candidate.npr.additive /= candidate_color_weight;
+  reservoir.add(candidate, candidate.weight * candidate_color_weight);
 }
 
 void closure_weights_reset(float closure_rand)
 {
   g_closure_bins[0].reset(closure_rand);
+  g_closure_bins[0].data.npr = closure_npr_direct_default();
 #if CLOSURE_BIN_COUNT > 1
   g_closure_bins[1].reset(closure_rand);
+  g_closure_bins[1].data.npr = closure_npr_direct_default();
 #endif
 #if CLOSURE_BIN_COUNT > 2
   g_closure_bins[2].reset(closure_rand);
+  g_closure_bins[2].data.npr = closure_npr_direct_default();
 #endif
 
   g_volume_scattering = float3(0.0f);
@@ -170,6 +205,7 @@ void closure_weights_reset(float closure_rand)
   g_volume_absorption = float3(0.0f);
 
   g_emission = float3(0.0f);
+  g_npr_rim = float3(0.0f);
   g_transmittance = float3(0.0f);
   g_volume_scattering = float3(0.0f);
   g_volume_absorption = float3(0.0f);
