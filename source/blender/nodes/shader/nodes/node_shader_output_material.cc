@@ -8,6 +8,9 @@
 
 #include "node_shader_util.hh"
 
+#include "UI_interface_layout.hh"
+#include "UI_interface_c.hh"
+
 namespace blender {
 
 namespace nodes::node_shader_output_material_cc {
@@ -18,6 +21,14 @@ static void node_declare(NodeDeclarationBuilder &b)
   b.add_input<decl::Shader>("Volume"_ustr).translation_context(BLT_I18NCONTEXT_ID_ID);
   b.add_input<decl::Vector>("Displacement"_ustr).hide_value();
   b.add_input<decl::Float>("Thickness"_ustr).hide_value();
+}
+
+static void node_shader_buts_output_material(ui::Layout &layout, bContext *C, PointerRNA *ptr)
+{
+  layout.use_property_split_set(false);
+  layout.use_property_decorate_set(false);
+  ui::Layout &row = layout.row(true);
+  template_id(&row, C, ptr, "nprtree", "node.npr_tree_new", nullptr, nullptr);
 }
 
 static int node_shader_gpu_output_material(GPUMaterial *mat,
@@ -90,6 +101,7 @@ void register_node_type_sh_output_material()
   ntype.enum_name_legacy = "OUTPUT_MATERIAL";
   ntype.nclass = NODE_CLASS_OUTPUT;
   ntype.declare = file_ns::node_declare;
+  ntype.draw_buttons = file_ns::node_shader_buts_output_material;
   ntype.add_ui_poll = object_shader_nodes_poll;
   ntype.gpu_fn = file_ns::node_shader_gpu_output_material;
   ntype.materialx_fn = file_ns::node_shader_materialx;

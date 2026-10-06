@@ -547,6 +547,31 @@ class SingleNodeOperator:
 
 
 # Simple basic operator for adding a node.
+class NODE_OT_npr_tree_new(Operator):
+    """Create a new NPR node tree and attach it to this Material Output node"""
+    bl_idname = "node.npr_tree_new"
+    bl_label = "New NPR Tree"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        space = context.space_data
+        if not space or getattr(space, "edit_tree", None) is None:
+            self.report({'ERROR'}, "No active node editor tree")
+            return {'CANCELLED'}
+        node = space.edit_tree.nodes.active
+        if node is None or node.bl_idname != "ShaderNodeOutputMaterial":
+            self.report({'ERROR'}, "Active node is not a Material Output")
+            return {'CANCELLED'}
+        npr = bpy.data.node_groups.new("NPR Tree", "ShaderNodeTree")
+        ni = npr.nodes.new("ShaderNodeNPR_Input")
+        no = npr.nodes.new("ShaderNodeNPR_Output")
+        ni.location = (-240.0, 40.0)
+        no.location = (180.0, 40.0)
+        npr.links.new(ni.outputs["Combined Color"], no.inputs["Color"])
+        node.nprtree = npr
+        return {'FINISHED'}
+
+
 class NODE_OT_add_node(NodeAddOperator, SingleNodeOperator, Operator):
     """Add a node to the active tree"""
     bl_idname = "node.add_node"
@@ -1718,6 +1743,7 @@ classes = (
     NODE_FH_image_node,
 
     NODE_OT_add_node,
+    NODE_OT_npr_tree_new,
     NODE_OT_filter_material_new,
     NODE_OT_filter_pass_new_material,
     NODE_OT_filter_pass_clear_material,

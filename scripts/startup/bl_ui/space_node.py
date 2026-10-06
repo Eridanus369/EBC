@@ -933,6 +933,45 @@ class NODE_PT_active_node_properties(Panel):
         layout.template_node_inputs(node)
 
 
+class NODE_PT_active_node_npr(Panel):
+    bl_space_type = 'NODE_EDITOR'
+    bl_region_type = 'UI'
+    bl_category = "Node"
+    bl_label = "NPR Tree"
+
+    @classmethod
+    def poll(cls, context):
+        node = context.active_node
+        return (node is not None and
+                node.bl_idname == "ShaderNodeOutputMaterial" and
+                node.id_data is not None and
+                node.id_data.type == 'SHADER')
+
+    def draw(self, context):
+        layout = self.layout
+        node = context.active_node
+        layout.use_property_split = True
+        layout.use_property_decorate = False
+        row = layout.row(align=True)
+        row.prop(node, "nprtree", text="")
+        op = row.operator("node.npr_tree_new", text="", icon='ADD')
+        op = row.operator("node.npr_tree_clear", text="", icon='X')
+
+
+class NODE_OT_npr_tree_clear(bpy.types.Operator):
+    """Detach the NPR tree from this Material Output node"""
+    bl_idname = "node.npr_tree_clear"
+    bl_label = "Clear NPR Tree"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        node = context.active_node
+        if node is None or node.bl_idname != "ShaderNodeOutputMaterial":
+            return {'CANCELLED'}
+        node.nprtree = None
+        return {'FINISHED'}
+
+
 class NODE_PT_active_node_custom_properties(rna_prop_ui.PropertyPanel, Panel):
     bl_space_type = 'NODE_EDITOR'
     bl_region_type = 'UI'
@@ -1340,6 +1379,8 @@ classes = (
     NODE_PT_annotation,
     NODE_PT_overlay,
     NODE_PT_active_node_properties,
+    NODE_PT_active_node_npr,
+    NODE_OT_npr_tree_clear,
     NODE_PT_active_node_custom_properties,
     NODE_PT_gizmo_display,
     NODE_AST_compositor,

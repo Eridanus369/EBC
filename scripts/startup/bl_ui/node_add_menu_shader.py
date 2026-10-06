@@ -77,6 +77,18 @@ def glsl_eevee_shader_nodes_poll(context):
             snode.shader_type in {'OBJECT', 'WORLD'})
 
 
+def npr_shader_nodes_poll(context):
+    snode = context.space_data
+    return (snode.tree_type == 'ShaderNodeTree' and
+            snode.shader_type == 'NPR')
+
+
+def filter_shader_nodes_poll(context):
+    snode = context.space_data
+    return (snode.tree_type == 'ShaderNodeTree' and
+            snode.shader_type == 'FILTER')
+
+
 class NODE_MT_shader_node_input_base(node_add_menu.NodeMenu):
     bl_label = "Input"
 
@@ -97,6 +109,9 @@ class NODE_MT_shader_node_input_base(node_add_menu.NodeMenu):
         self.node_operator(layout, "ShaderNodeEeveeLightShaderInfo", label="Light Shader Info", poll=object_light_shader_nodes_poll(context))
         self.node_operator(layout, "ShaderNodeScreenspaceInfo", poll=object_material_shader_nodes_poll(context))
         self.node_operator(layout, "ShaderNodeNPRLightInfo", poll=object_material_shader_nodes_poll(context))
+        self.node_operator(layout, "ShaderNodeNPR_Input", poll=npr_shader_nodes_poll(context))
+        self.node_operator(layout, "ShaderNodeNPRRim", poll=object_eevee_shader_nodes_poll(context))
+        self.node_operator(layout, "ShaderNodeFilterGraphInput", poll=filter_shader_nodes_poll(context))
         self.node_operator_with_outputs(
             context, layout, "ShaderNodeCameraData",
             ["View Vector", "View Z Depth", "View Distance"],
@@ -227,6 +242,16 @@ class NODE_MT_shader_node_output_base(node_add_menu.NodeMenu):
             "ShaderNodeEeveeLightShaderOutput",
             label="Light Shader Output",
             poll=object_light_shader_nodes_poll(context),
+        )
+        self.node_operator(
+            layout,
+            "ShaderNodeNPR_Output",
+            poll=npr_shader_nodes_poll(context),
+        )
+        self.node_operator(
+            layout,
+            "ShaderNodeOutputFilter",
+            poll=filter_shader_nodes_poll(context),
         )
         self.node_operator(
             layout,
@@ -371,6 +396,16 @@ class NODE_MT_shader_node_shader_base(node_add_menu.NodeMenu):
             layout,
             "ShaderNodeBsdfTransparent",
             poll=object_material_shader_nodes_poll(context),
+        )
+        self.node_operator(
+            layout,
+            "ShaderNodePrincipledNPR",
+            poll=object_eevee_shader_nodes_poll(context),
+        )
+        self.node_operator(
+            layout,
+            "ShaderNodeNPR_Refraction",
+            poll=npr_shader_nodes_poll(context),
         )
 
         layout.separator()
