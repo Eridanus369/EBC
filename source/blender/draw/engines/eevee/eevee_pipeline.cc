@@ -870,6 +870,7 @@ void DeferredLayerBase::npr_pass_sync(Instance &inst, FunctionRef<void()> callba
   npr_ps_.bind_resources(inst.sampling);
   npr_ps_.bind_resources(inst.hiz_buffer.front);
   npr_ps_.bind_resources(inst.lights);
+  inst.lights.bind_npr_front_light_shader_resources(npr_ps_);
   npr_ps_.bind_resources(inst.shadows);
   npr_ps_.bind_resources(inst.sphere_probes);
   npr_ps_.bind_resources(inst.volume_probes);
@@ -1236,7 +1237,12 @@ PassMain::Sub *DeferredLayer::npr_add(blender::Material *blender_mat, GPUMateria
       break;
   }
 
-  return &pass->sub(GPU_material_get_name(gpumat));
+  PassMain::Sub *material_pass = &pass->sub(GPU_material_get_name(gpumat));
+  material_pass->material_set(*inst_.manager, gpumat, true, inst_.anisotropic_filtering);
+  /* NPR: PrincipledNPR and light-dependent NPR nodes read the light/shadow SSBOs. */
+  material_pass->bind_resources(inst_.lights);
+  material_pass->bind_resources(inst_.shadows);
+  return material_pass;
 }
 
 gpu::Texture *DeferredLayer::render(View &render_view,

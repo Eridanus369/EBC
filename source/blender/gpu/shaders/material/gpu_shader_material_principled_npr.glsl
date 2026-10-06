@@ -762,6 +762,8 @@ void node_principled_npr_v1(float4 base_color,
   float3 result = max(direct_diffuse + direct_specular + reflection +
                           ambient + rim + emission,
                       float3(0.0f));
+  color = float4(1.0f, 0.0f, 1.0f, 1.0f); /* MAGENTA DEBUG */
+
   color = float4(result, alpha);
   alpha_out = alpha;
 

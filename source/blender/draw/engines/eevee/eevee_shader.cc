@@ -1203,8 +1203,9 @@ void ShaderModule::light_create_info_amend(GPUMaterial *gpumat,
   GPUCodegenOutput &codegen = *codegen_;
   ShaderCreateInfo &info = *reinterpret_cast<ShaderCreateInfo *>(codegen.create_info);
 
-  /* Detect GLSL light/shadow access used inside generated sources (e.g. GLSL Function nodes). */
-  bool has_glsl_light_access = false;
+  /* Detect GLSL light/shadow access used inside generated sources (e.g. GLSL Function nodes).
+   * Native nodes set the flag directly without generating a source. */
+  bool has_glsl_light_access = GPU_material_flag_get(gpumat, GPU_MATFLAG_GLSL_LIGHT_ACCESS);
   bool has_glsl_light_shadow = false;
   for (int i = 0; i < GPU_material_generated_source_count(gpumat); i++) {
     const GPUMaterialGeneratedSource *gs = GPU_material_generated_source_get(gpumat, i);
@@ -1738,8 +1739,10 @@ void ShaderModule::material_create_info_amend(GPUMaterial *gpumat, GPUCodegenOut
   std::stringstream vert_gen, frag_gen;
 
   /* NPR: if any generated source depends on the GLSL light access helper, define
-   * MAT_GLSL_LIGHT_ACCESS globally (the helper gates its implementation on that macro). */
-  bool has_glsl_light_access = false;
+   * MAT_GLSL_LIGHT_ACCESS globally (the helper gates its implementation on that macro).
+   * Native nodes (PrincipledNPR) set GPU_MATFLAG_GLSL_LIGHT_ACCESS without generating a
+   * source, so the flag must be honored as well. */
+  bool has_glsl_light_access = GPU_material_flag_get(gpumat, GPU_MATFLAG_GLSL_LIGHT_ACCESS);
   bool has_glsl_light_shadow = false;
   for (int i = 0; i < GPU_material_generated_source_count(gpumat); i++) {
     const GPUMaterialGeneratedSource *gs = GPU_material_generated_source_get(gpumat, i);

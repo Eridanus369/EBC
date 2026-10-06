@@ -336,6 +336,15 @@ class LightModule {
     pass.bind_ssbo(LIGHT_TILE_BUF_SLOT, &culling_tile_buf_);
   }
 
+  /* NPR: bind the light-shader eval resources consumed by GLSL light access in the
+   * deferred NPR pass (LightShaderEvalData resource table). */
+  template<typename PassType> void bind_npr_front_light_shader_resources(PassType &pass)
+  {
+    pass.bind_texture(LIGHT_SHADER_TEX_SLOT, &front_light_shader_tx_);
+    pass.bind_ssbo(LIGHT_SHADER_INDEX_BUF_SLOT, &front_light_shader_index_buf_);
+    pass.bind_ssbo(LIGHT_SHADER_UNIFORM_BUF_SLOT, &uniform_light_shader_buf_);
+  }
+
  private:
   void culling_pass_sync();
   void update_pass_sync();

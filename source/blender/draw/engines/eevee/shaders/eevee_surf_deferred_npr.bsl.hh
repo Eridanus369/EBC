@@ -17,6 +17,7 @@
 #include "draw_view.bsl.hh" /* IWYU pragma: export. For nodetree functions. */
 #include "eevee_colorspace_lib.bsl.hh"
 #include "eevee_gbuffer_read.bsl.hh"
+#include "eevee_light_data.bsl.hh"
 #include "eevee_hiz.bsl.hh"
 #include "eevee_lightprobe.bsl.hh"
 #include "eevee_nodetree_frag_lib.glsl"
@@ -508,6 +509,8 @@ float4 closure_to_rgba(Closure /*cl*/)
 
 [[fragment]] [[early_fragment_tests]]
 void surf_deferred_npr([[resource_table]] NprDeferred &srt,
+                    [[resource_table]] const eevee::LightRenderData &light_data,
+                    [[resource_table]] const eevee::LightShaderEvalData &light_shader_data,
                     [[resource_table]] gbuffer::Reader &reader,
                     [[resource_table]] RenderPassOutput &render_passes,
                     [[resource_table]] eevee::LightprobeRenderData & /*lightprobes*/,
