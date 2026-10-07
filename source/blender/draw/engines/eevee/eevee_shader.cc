@@ -1738,6 +1738,18 @@ void ShaderModule::material_create_info_amend(GPUMaterial *gpumat, GPUCodegenOut
 
   std::stringstream vert_gen, frag_gen;
 
+  /* NPR: map PrincipledNPR feature flags to shader defines. */
+  {
+    eGPUMaterialNPRFeature npr_flags = GPU_material_npr_features_get(gpumat);
+    if (npr_flags & GPU_MAT_NPR_MAP_PER_LIGHT) info.define("MAT_NPR_MAP_PER_LIGHT");
+    if (npr_flags & GPU_MAT_NPR_MAP_COMBINED) info.define("MAT_NPR_MAP_COMBINED");
+    if (npr_flags & GPU_MAT_NPR_MAP_TOTAL) info.define("MAT_NPR_MAP_TOTAL");
+    if (npr_flags & GPU_MAT_NPR_FINITE_HIGHLIGHT) info.define("MAT_NPR_FINITE_HIGHLIGHT");
+    if (npr_flags & GPU_MAT_NPR_REFERENCE_HIGHLIGHT) info.define("MAT_NPR_REFERENCE_HIGHLIGHT");
+    if (npr_flags & GPU_MAT_NPR_SHARED_ENERGY) info.define("MAT_NPR_SHARED_ENERGY");
+    if (npr_flags & GPU_MAT_NPR_RIM_DEPTH) info.define("MAT_NPR_DEPTH_RIM");
+    if (npr_flags & GPU_MAT_NPR_DRIVEN_RAMP) info.define("MAT_NPR_DRIVEN_RAMP");
+  }
   /* NPR: if any generated source depends on the GLSL light access helper, define
    * MAT_GLSL_LIGHT_ACCESS globally (the helper gates its implementation on that macro).
    * Native nodes (PrincipledNPR) set GPU_MATFLAG_GLSL_LIGHT_ACCESS without generating a
