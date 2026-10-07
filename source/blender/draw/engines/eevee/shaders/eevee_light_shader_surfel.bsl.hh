@@ -9,6 +9,7 @@
 #pragma once
 
 #include "draw_view.bsl.hh"
+#include "eevee_light_data.bsl.hh"
 #include "eevee_light_shader_common.bsl.hh"
 #include "eevee_surfel.bsl.hh"
 #include "gpu_shader_codegen_lib.glsl"
@@ -24,6 +25,7 @@ struct SurfelCompute {
 
 [[compute, local_size(SURFEL_GROUP_SIZE)]]
 void light_shader_surfel_comp([[resource_table]] SurfelCompute &data,
+                              [[resource_table]] const LightRenderData &lrd,
                               [[resource_table]] const draw::View &views,
                               [[global_invocation_id]] const uint3 global_id)
 {

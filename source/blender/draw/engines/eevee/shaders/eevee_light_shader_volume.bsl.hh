@@ -9,6 +9,7 @@
 #pragma once
 
 #include "draw_view.bsl.hh"
+#include "eevee_light_data.bsl.hh"
 #include "eevee_light_shader_common.bsl.hh"
 #include "eevee_sampling_lib.bsl.hh"
 #include "eevee_uniform.bsl.hh"
@@ -27,6 +28,7 @@ struct VolumeData {
 void light_shader_volume_comp([[resource_table]] VolumeData &data,
                               [[resource_table]] const Uniform &uni,
                               [[resource_table]] const Sampling &sampling,
+                              [[resource_table]] const LightRenderData &lrd,
                               [[resource_table]] const draw::View &views,
                               [[global_invocation_id]] const uint3 global_id)
 {

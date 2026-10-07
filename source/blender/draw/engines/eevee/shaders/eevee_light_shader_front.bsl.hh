@@ -13,6 +13,7 @@
 
 #include "draw_view.bsl.hh"
 #include "eevee_hiz.bsl.hh"
+#include "eevee_light_data.bsl.hh"
 #include "eevee_light_shader_common.bsl.hh"
 #include "gpu_shader_codegen_lib.glsl"
 
@@ -20,12 +21,14 @@ namespace eevee::light_shader {
 
 
 struct FrontData {
+  [[push_constant]] const int light_index;
   [[sampler(PREPASS_NORMAL_TEX_SLOT)]] sampler2D prepass_normal_tx;
 };
 
 [[fragment]]
 void light_shader_front_frag([[resource_table]] const HiZ &hiz,
                              [[resource_table]] const FrontData &data,
+                             [[resource_table]] const LightRenderData &lrd,
                              [[resource_table]] const draw::View &views,
                              [[frag_coord]] const float4 frag_co,
                              [[in]] const VertOut v_out,
