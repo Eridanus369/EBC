@@ -74,6 +74,7 @@ set(SRC
   nodes/node_shader_normal.cc
   nodes/node_shader_normal_map.cc
   nodes/node_shader_object_info.cc
+  nodes/node_shader_input_aov.cc
   nodes/node_shader_output_aov.cc
   nodes/node_shader_output_filter.cc
   nodes/node_shader_scene_color.cc
