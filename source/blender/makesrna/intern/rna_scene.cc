@@ -1342,6 +1342,162 @@ static void rna_Scene_eevee_filter_graph_set(PointerRNA *ptr,
   }
 }
 
+static void rna_SceneEEVEE_render_texture_tag_update(Scene *scene)
+{
+  DEG_id_tag_update(&scene->id, ID_RECALC_SYNC_TO_EVAL);
+  WM_main_add_notifier(NC_SCENE | ND_RENDER_OPTIONS, scene);
+}
+
+static void rna_SceneEEVEE_render_texture_update(Main * /*bmain*/,
+                                                 Scene * /*scene*/,
+                                                 PointerRNA *ptr)
+{
+  Scene *scene = reinterpret_cast<Scene *>(ptr->owner_id);
+  rna_SceneEEVEE_render_texture_tag_update(scene);
+}
+
+static int rna_SceneEEVEE_render_texture_active_index_max(const SceneEEVEE *eevee)
+{
+  return max_ii(-1, BLI_listbase_count(&eevee->render_textures) - 1);
+}
+
+static void rna_SceneEEVEE_active_render_texture_index_range(
+    PointerRNA *ptr, int *min, int *max, int * /*softmin*/, int * /*softmax*/)
+{
+  SceneEEVEE *eevee = static_cast<SceneEEVEE *>(ptr->data);
+  *min = -1;
+  *max = rna_SceneEEVEE_render_texture_active_index_max(eevee);
+}
+
+static int rna_SceneEEVEE_active_render_texture_index_get(PointerRNA *ptr)
+{
+  SceneEEVEE *eevee = static_cast<SceneEEVEE *>(ptr->data);
+  return std::clamp(
+      eevee->active_render_texture_index, -1, rna_SceneEEVEE_render_texture_active_index_max(eevee));
+}
+
+static void rna_SceneEEVEE_active_render_texture_index_set(PointerRNA *ptr, int value)
+{
+  SceneEEVEE *eevee = static_cast<SceneEEVEE *>(ptr->data);
+  eevee->active_render_texture_index = std::clamp(
+      value, -1, rna_SceneEEVEE_render_texture_active_index_max(eevee));
+}
+
+static std::optional<std::string> rna_SceneRenderTexture_path(const PointerRNA *ptr)
+{
+  const SceneRenderTexture *rt = static_cast<SceneRenderTexture *>(ptr->data);
+  char name_esc[sizeof(rt->name) * 2];
+  BLI_str_escape(name_esc, rt->name, sizeof(name_esc));
+  return fmt::format("eevee.render_textures[\"{}\"]", name_esc);
+}
+
+static int rna_SceneRenderTexture_source_normalize(const int value)
+{
+  if (value == SCE_EEVEE_RENDER_TEXTURE_SOURCE_GRAYSCALE) {
+    return SCE_EEVEE_RENDER_TEXTURE_SOURCE_COLOR;
+  }
+  return value;
+}
+
+static int rna_SceneRenderTexture_source_get(PointerRNA *ptr)
+{
+  const SceneRenderTexture *rt = static_cast<const SceneRenderTexture *>(ptr->data);
+  return rna_SceneRenderTexture_source_normalize(rt->source);
+}
+
+static void rna_SceneRenderTexture_source_set(PointerRNA *ptr, int value)
+{
+  SceneRenderTexture *rt = static_cast<SceneRenderTexture *>(ptr->data);
+  rt->source = rna_SceneRenderTexture_source_normalize(value);
+}
+
+static void rna_SceneRenderTexture_name_set(PointerRNA *ptr, const char *value)
+{
+  Scene *scene = reinterpret_cast<Scene *>(ptr->owner_id);
+  SceneRenderTexture *rt = static_cast<SceneRenderTexture *>(ptr->data);
+  STRNCPY_UTF8(rt->name, value);
+  BLI_uniquename(&scene->eevee.render_textures,
+                 rt,
+                 "Render Texture",
+                 '.',
+                 offsetof(SceneRenderTexture, name),
+                 sizeof(rt->name));
+}
+
+static SceneRenderTexture *rna_SceneEEVEE_render_texture_add(ID *id, SceneEEVEE *eevee)
+{
+  if (BLI_listbase_count(&eevee->render_textures) >= 4) {
+    return nullptr;
+  }
+  Scene *scene = reinterpret_cast<Scene *>(id);
+  SceneRenderTexture *rt = MEM_new_zeroed<SceneRenderTexture>(__func__);
+  rt->uid = max_ii(eevee->next_render_texture_uid, 1);
+  eevee->next_render_texture_uid = rt->uid + 1;
+  rt->resolution_x = 1024;
+  rt->resolution_y = 1024;
+  rt->source = SCE_EEVEE_RENDER_TEXTURE_SOURCE_COLOR;
+  rt->update_mode = SCE_EEVEE_RENDER_TEXTURE_UPDATE_EVERY_FRAME;
+  rt->format = SCE_EEVEE_RENDER_TEXTURE_FORMAT_RGBA16F;
+  STRNCPY(rt->name, "Render Texture");
+  BLI_uniquename(&eevee->render_textures,
+                 rt,
+                 "Render Texture",
+                 '.',
+                 offsetof(SceneRenderTexture, name),
+                 sizeof(rt->name));
+  BLI_addtail(&eevee->render_textures, rt);
+  eevee->active_render_texture_index = BLI_findindex(&eevee->render_textures, rt);
+  rna_SceneEEVEE_render_texture_tag_update(scene);
+  return rt;
+}
+
+static void rna_SceneEEVEE_render_texture_remove(ID *id,
+                                                 SceneEEVEE *eevee,
+                                                 ReportList *reports,
+                                                 int index)
+{
+  Scene *scene = reinterpret_cast<Scene *>(id);
+  SceneRenderTexture *rt = static_cast<SceneRenderTexture *>(
+      BLI_findlink(&eevee->render_textures, index));
+  if (rt == nullptr) {
+    BKE_reportf(reports, RPT_ERROR, "Render Texture index '%d' not found", index);
+    return;
+  }
+  BLI_remlink(&eevee->render_textures, rt);
+  MEM_delete(rt);
+  eevee->active_render_texture_index = std::clamp(
+      eevee->active_render_texture_index, -1, rna_SceneEEVEE_render_texture_active_index_max(eevee));
+  rna_SceneEEVEE_render_texture_tag_update(scene);
+}
+
+static void rna_SceneEEVEE_render_texture_move(ID *id,
+                                               SceneEEVEE *eevee,
+                                               ReportList *reports,
+                                               int from,
+                                               int to)
+{
+  if (from == to) {
+    return;
+  }
+  if (!BLI_listbase_move_index(&eevee->render_textures, from, to)) {
+    BKE_reportf(reports, RPT_ERROR, "Could not move render texture from %d to %d", from, to);
+    return;
+  }
+  if (eevee->active_render_texture_index == from) {
+    eevee->active_render_texture_index = to;
+  }
+  else if (from < to && eevee->active_render_texture_index > from &&
+           eevee->active_render_texture_index <= to) {
+    eevee->active_render_texture_index--;
+  }
+  else if (to < from && eevee->active_render_texture_index >= to &&
+           eevee->active_render_texture_index < from) {
+    eevee->active_render_texture_index++;
+  }
+  Scene *scene = reinterpret_cast<Scene *>(id);
+  rna_SceneEEVEE_render_texture_tag_update(scene);
+}
+
 static std::optional<std::string> rna_SceneEEVEE_path(const PointerRNA * /*ptr*/)
 {
   return "eevee";
@@ -9192,6 +9348,127 @@ static void rna_def_raytrace_eevee(BlenderRNA *brna)
   RNA_def_property_update(prop, NC_SCENE | ND_RENDER_OPTIONS, nullptr);
 }
 
+static void rna_def_scene_eevee_render_textures(BlenderRNA *brna, PropertyRNA *cprop)
+{
+  StructRNA *srna;
+  FunctionRNA *func;
+  PropertyRNA *parm;
+
+  RNA_def_property_srna(cprop, "SceneRenderTextures");
+  srna = RNA_def_struct(brna, "SceneRenderTextures", nullptr);
+  RNA_def_struct_sdna(srna, "SceneEEVEE");
+  RNA_def_struct_ui_text(srna, "Scene Render Textures", "Collection of Eevee render textures");
+
+  func = RNA_def_function(srna, "add", "rna_SceneEEVEE_render_texture_add");
+  RNA_def_function_ui_description(func, "Add a render texture entry");
+  RNA_def_function_flag(func, FUNC_USE_SELF_ID);
+  parm = RNA_def_pointer(
+      func, "render_texture", "SceneRenderTexture", "", "Newly created render texture");
+  RNA_def_function_return(func, parm);
+
+  func = RNA_def_function(srna, "remove", "rna_SceneEEVEE_render_texture_remove");
+  RNA_def_function_ui_description(func, "Remove a render texture entry");
+  RNA_def_function_flag(func, FUNC_USE_SELF_ID | FUNC_USE_REPORTS);
+  parm = RNA_def_int(func, "index", -1, INT_MIN, INT_MAX, "Index", "Index to remove", -1, INT_MAX);
+  RNA_def_parameter_flags(parm, PropertyFlag(0), PARM_REQUIRED);
+
+  func = RNA_def_function(srna, "move", "rna_SceneEEVEE_render_texture_move");
+  RNA_def_function_ui_description(func, "Move a render texture entry");
+  RNA_def_function_flag(func, FUNC_USE_SELF_ID | FUNC_USE_REPORTS);
+  parm = RNA_def_int(func, "from_index", -1, INT_MIN, INT_MAX, "From Index", "", -1, INT_MAX);
+  RNA_def_parameter_flags(parm, PropertyFlag(0), PARM_REQUIRED);
+  parm = RNA_def_int(func, "to_index", -1, INT_MIN, INT_MAX, "To Index", "", -1, INT_MAX);
+  RNA_def_parameter_flags(parm, PropertyFlag(0), PARM_REQUIRED);
+}
+
+static void rna_def_scene_eevee_render_texture_struct(BlenderRNA *brna)
+{
+  StructRNA *srna;
+  PropertyRNA *prop;
+
+  static const EnumPropertyItem source_items[] = {
+      {SCE_EEVEE_RENDER_TEXTURE_SOURCE_COLOR, "COLOR", 0, "Color", "Capture final color buffer"},
+      {SCE_EEVEE_RENDER_TEXTURE_SOURCE_DEPTH, "DEPTH", 0, "Depth", "Capture scene depth"},
+      {SCE_EEVEE_RENDER_TEXTURE_SOURCE_NORMAL, "NORMAL", 0, "Normal", "Capture GBuffer normal"},
+      {0, nullptr, 0, nullptr, nullptr},
+  };
+  static const EnumPropertyItem update_mode_items[] = {
+      {SCE_EEVEE_RENDER_TEXTURE_UPDATE_EVERY_SAMPLE, "EVERY_SAMPLE", 0, "Every Sample", ""},
+      {SCE_EEVEE_RENDER_TEXTURE_UPDATE_EVERY_FRAME, "EVERY_FRAME", 0, "Every Frame", ""},
+      {SCE_EEVEE_RENDER_TEXTURE_UPDATE_MANUAL, "MANUAL", 0, "Manual", ""},
+      {0, nullptr, 0, nullptr, nullptr},
+  };
+  static const EnumPropertyItem format_items[] = {
+      {SCE_EEVEE_RENDER_TEXTURE_FORMAT_RGBA16F, "RGBA16F", 0, "RGBA16F", ""},
+      {SCE_EEVEE_RENDER_TEXTURE_FORMAT_RGBA32F, "RGBA32F", 0, "RGBA32F", ""},
+      {SCE_EEVEE_RENDER_TEXTURE_FORMAT_R16F, "R16F", 0, "R16F", ""},
+      {SCE_EEVEE_RENDER_TEXTURE_FORMAT_R32F, "R32F", 0, "R32F", ""},
+      {0, nullptr, 0, nullptr, nullptr},
+  };
+
+  srna = RNA_def_struct(brna, "SceneRenderTexture", nullptr);
+  RNA_def_struct_sdna(srna, "SceneRenderTexture");
+  RNA_def_struct_path_func(srna, "rna_SceneRenderTexture_path");
+  RNA_def_struct_ui_text(srna, "Scene Render Texture", "Scene-level Eevee render texture entry");
+
+  prop = RNA_def_property(srna, "name", PROP_STRING, PROP_NONE);
+  RNA_def_property_string_funcs(prop, nullptr, nullptr, "rna_SceneRenderTexture_name_set");
+  RNA_def_property_clear_flag(prop, PROP_ANIMATABLE);
+  RNA_def_property_ui_text(prop, "Name", "Display name");
+  RNA_def_property_update(prop, NC_SCENE | ND_RENDER_OPTIONS, "rna_SceneEEVEE_render_texture_update");
+  RNA_def_struct_name_property(srna, prop);
+
+  prop = RNA_def_property(srna, "uid", PROP_INT, PROP_NONE);
+  RNA_def_property_int_sdna(prop, nullptr, "uid");
+  RNA_def_property_clear_flag(prop, PROP_EDITABLE);
+  RNA_def_property_ui_text(prop, "UID", "Stable identifier");
+
+  prop = RNA_def_property(srna, "enabled", PROP_BOOLEAN, PROP_NONE);
+  RNA_def_property_boolean_sdna(prop, nullptr, "enabled", 1);
+  RNA_def_property_ui_text(prop, "Enabled", "Render this render texture");
+  RNA_def_property_update(prop, NC_SCENE | ND_RENDER_OPTIONS, "rna_SceneEEVEE_render_texture_update");
+
+  prop = RNA_def_property(srna, "source", PROP_ENUM, PROP_NONE);
+  RNA_def_property_enum_sdna(prop, nullptr, "source");
+  RNA_def_property_enum_items(prop, source_items);
+  RNA_def_property_enum_funcs(
+      prop, "rna_SceneRenderTexture_source_get", "rna_SceneRenderTexture_source_set", nullptr);
+  RNA_def_property_ui_text(prop, "Source", "What data this render texture captures");
+  RNA_def_property_update(prop, NC_SCENE | ND_RENDER_OPTIONS, "rna_SceneEEVEE_render_texture_update");
+
+  prop = RNA_def_property(srna, "camera", PROP_POINTER, PROP_NONE);
+  RNA_def_property_pointer_sdna(prop, nullptr, "camera");
+  RNA_def_property_struct_type(prop, "Object");
+  RNA_def_property_flag(prop, PROP_EDITABLE);
+  RNA_def_property_pointer_funcs(prop, nullptr, nullptr, nullptr, "rna_Camera_object_poll");
+  RNA_def_property_ui_text(prop, "Camera", "Camera used to render");
+  RNA_def_property_update(prop, NC_SCENE | ND_RENDER_OPTIONS, "rna_SceneEEVEE_render_texture_update");
+
+  prop = RNA_def_property(srna, "resolution_x", PROP_INT, PROP_PIXEL);
+  RNA_def_property_int_sdna(prop, nullptr, "resolution_x");
+  RNA_def_property_range(prop, 1, 65536);
+  RNA_def_property_ui_text(prop, "Resolution X", "");
+  RNA_def_property_update(prop, NC_SCENE | ND_RENDER_OPTIONS, "rna_SceneEEVEE_render_texture_update");
+
+  prop = RNA_def_property(srna, "resolution_y", PROP_INT, PROP_PIXEL);
+  RNA_def_property_int_sdna(prop, nullptr, "resolution_y");
+  RNA_def_property_range(prop, 1, 65536);
+  RNA_def_property_ui_text(prop, "Resolution Y", "");
+  RNA_def_property_update(prop, NC_SCENE | ND_RENDER_OPTIONS, "rna_SceneEEVEE_render_texture_update");
+
+  prop = RNA_def_property(srna, "update_mode", PROP_ENUM, PROP_NONE);
+  RNA_def_property_enum_sdna(prop, nullptr, "update_mode");
+  RNA_def_property_enum_items(prop, update_mode_items);
+  RNA_def_property_ui_text(prop, "Update Mode", "");
+  RNA_def_property_update(prop, NC_SCENE | ND_RENDER_OPTIONS, "rna_SceneEEVEE_render_texture_update");
+
+  prop = RNA_def_property(srna, "format", PROP_ENUM, PROP_NONE);
+  RNA_def_property_enum_sdna(prop, nullptr, "format");
+  RNA_def_property_enum_items(prop, format_items);
+  RNA_def_property_ui_text(prop, "Format", "");
+  RNA_def_property_update(prop, NC_SCENE | ND_RENDER_OPTIONS, "rna_SceneEEVEE_render_texture_update");
+}
+
 static void rna_def_scene_eevee(BlenderRNA *brna)
 {
   StructRNA *srna;
@@ -9671,6 +9948,20 @@ static void rna_def_scene_eevee(BlenderRNA *brna)
                                  "rna_Scene_eevee_filter_graph_set",
                                  nullptr,
                                  "rna_Scene_eevee_filter_graph_poll");
+
+  prop = RNA_def_property(srna, "render_textures", PROP_COLLECTION, PROP_NONE);
+  RNA_def_property_collection_sdna(prop, nullptr, "render_textures", nullptr);
+  RNA_def_property_struct_type(prop, "SceneRenderTexture");
+  RNA_def_property_ui_text(prop, "Render Textures", "Scene-level Eevee render textures");
+  rna_def_scene_eevee_render_textures(brna, prop);
+
+  prop = RNA_def_property(srna, "active_render_texture_index", PROP_INT, PROP_NONE);
+  RNA_def_property_int_funcs(prop,
+                             "rna_SceneEEVEE_active_render_texture_index_get",
+                             "rna_SceneEEVEE_active_render_texture_index_set",
+                             "rna_SceneEEVEE_active_render_texture_index_range");
+  RNA_def_property_ui_text(prop, "Active Render Texture Index", "");
+  RNA_def_property_update(prop, NC_SCENE | ND_RENDER_OPTIONS, nullptr);
 
   prop = RNA_def_property(srna, "shadow_pool_size", PROP_ENUM, PROP_NONE);
   RNA_def_property_enum_items(prop, eevee_shadow_pool_size_items);
@@ -10819,6 +11110,7 @@ void RNA_def_scene(BlenderRNA *brna)
   rna_def_display_safe_areas(brna);
   rna_def_scene_display(brna);
   rna_def_raytrace_eevee(brna);
+  rna_def_scene_eevee_render_texture_struct(brna);
   rna_def_scene_eevee(brna);
   rna_def_scene_hydra(brna);
   rna_def_view_layer_aov(brna);

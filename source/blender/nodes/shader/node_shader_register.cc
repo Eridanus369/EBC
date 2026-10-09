@@ -80,6 +80,7 @@ void register_shader_nodes()
   register_node_type_sh_input_aov();
   register_node_type_sh_shader_info();
   register_node_type_sh_parallax();
+  register_node_type_sh_render_texture();
   register_node_type_sh_output_aov();
   register_node_type_sh_output_light();
   register_node_type_sh_output_linestyle();

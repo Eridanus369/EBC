@@ -751,6 +751,7 @@ set(GLSL_SRC
   shaders/material/gpu_shader_material_shader_info_shared.glsl
   shaders/material/gpu_shader_material_shader_info.glsl
   shaders/material/gpu_shader_material_parallax.glsl
+  shaders/material/gpu_shader_material_render_texture.glsl
   shaders/material/gpu_shader_material_oklab_colorramp.glsl
   shaders/material/gpu_shader_material_glsl_light_access.glsl
   shaders/material/gpu_shader_material_light_probe_color.glsl

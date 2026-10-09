@@ -77,6 +77,7 @@ set(SRC
   nodes/node_shader_input_aov.cc
   nodes/node_shader_shader_info.cc
   nodes/node_shader_parallax.cc
+  nodes/node_shader_render_texture.cc
   nodes/node_shader_output_aov.cc
   nodes/node_shader_output_filter.cc
   nodes/node_shader_scene_color.cc

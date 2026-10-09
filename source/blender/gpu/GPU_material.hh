@@ -141,6 +141,7 @@ enum eGPUMaterialFlag : uint64_t {
   /* NPR refraction buffers requested by the NPR Refraction node. */
   GPU_MATFLAG_NPR_REFRACTION = (1u << 31),
   GPU_MATFLAG_SHADER_INFO = (1ull << 32),
+  GPU_MATFLAG_RENDER_TEXTURE = (1ull << 33),
 };
 
 /** Principled NPR code needed by the consumed nodes in one material. */

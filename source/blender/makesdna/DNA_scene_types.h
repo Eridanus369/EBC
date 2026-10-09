@@ -2808,6 +2808,40 @@ struct RaytraceEEVEE {
 };
 
 /* NPR Eevee filter materials. */
+enum SceneEEVEERenderTextureSource {
+  SCE_EEVEE_RENDER_TEXTURE_SOURCE_COLOR = 0,
+  SCE_EEVEE_RENDER_TEXTURE_SOURCE_GRAYSCALE = 1,
+  SCE_EEVEE_RENDER_TEXTURE_SOURCE_DEPTH = 2,
+  SCE_EEVEE_RENDER_TEXTURE_SOURCE_NORMAL = 3,
+};
+
+enum SceneEEVEERenderTextureUpdateMode {
+  SCE_EEVEE_RENDER_TEXTURE_UPDATE_EVERY_SAMPLE = 0,
+  SCE_EEVEE_RENDER_TEXTURE_UPDATE_EVERY_FRAME = 1,
+  SCE_EEVEE_RENDER_TEXTURE_UPDATE_MANUAL = 2,
+};
+
+enum SceneEEVEERenderTextureFormat {
+  SCE_EEVEE_RENDER_TEXTURE_FORMAT_RGBA16F = 0,
+  SCE_EEVEE_RENDER_TEXTURE_FORMAT_RGBA32F = 1,
+  SCE_EEVEE_RENDER_TEXTURE_FORMAT_R16F = 2,
+  SCE_EEVEE_RENDER_TEXTURE_FORMAT_R32F = 3,
+};
+
+struct SceneRenderTexture {
+  SceneRenderTexture *next, *prev;
+  char name[64];
+  struct Object *camera;
+  int uid;
+  int resolution_x;
+  int resolution_y;
+  char enabled;
+  char source;
+  char update_mode;
+  char format;
+  char _pad[8];
+};
+
 enum SceneEEVEEFilterExecutionStage {
   SCE_EEVEE_FILTER_STAGE_BEFORE_DEPTH_OF_FIELD = 0,
   SCE_EEVEE_FILTER_STAGE_BEFORE_COMPOSITE = 1,
@@ -2987,6 +3021,10 @@ struct SceneEEVEE {
   struct bNodeTree *filter_graph = nullptr;
   int active_filter_material_index = -1;
   int next_filter_material_uid = 1;
+  /** NPR: scene-level render textures (Render Texture node). */
+  ListBase render_textures = {};
+  int active_render_texture_index = -1;
+  int next_render_texture_uid = 1;
   void *_pad = nullptr;
 };
 
