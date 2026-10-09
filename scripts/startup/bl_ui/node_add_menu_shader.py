@@ -109,6 +109,7 @@ class NODE_MT_shader_node_input_base(node_add_menu.NodeMenu):
         self.node_operator(layout, "ShaderNodeEeveeLightShaderInfo", label="Light Shader Info", poll=object_light_shader_nodes_poll(context))
         self.node_operator(layout, "ShaderNodeScreenspaceInfo", poll=object_material_shader_nodes_poll(context))
         self.node_operator(layout, "ShaderNodeNPRLightInfo", poll=object_material_shader_nodes_poll(context))
+        self.node_operator(layout, "ShaderNodeShaderInfo", poll=object_eevee_shader_nodes_poll(context))
         self.node_operator(layout, "ShaderNodeNPR_Input", poll=npr_shader_nodes_poll(context))
         self.node_operator(layout, "ShaderNodeNPRRim", poll=object_eevee_shader_nodes_poll(context))
         self.node_operator(layout, "ShaderNodeFilterGraphInput", poll=filter_shader_nodes_poll(context))

@@ -88,7 +88,7 @@ inline constexpr const char *GPU_GLSL_FUNCTION_LIGHTPROBE_HELPER_FILENAME =
 inline constexpr const char *GPU_GLSL_FUNCTION_MATRIX_HELPER_FILENAME =
     "__glsl_function_matrix_helpers.glsl";
 
-enum eGPUMaterialFlag : uint32_t {
+enum eGPUMaterialFlag : uint64_t {
   GPU_MATFLAG_DIFFUSE = (1 << 0),
   GPU_MATFLAG_SUBSURFACE = (1 << 1),
   GPU_MATFLAG_GLOSSY = (1 << 2),
@@ -140,6 +140,7 @@ enum eGPUMaterialFlag : uint32_t {
 
   /* NPR refraction buffers requested by the NPR Refraction node. */
   GPU_MATFLAG_NPR_REFRACTION = (1u << 31),
+  GPU_MATFLAG_SHADER_INFO = (1ull << 32),
 };
 
 /** Principled NPR code needed by the consumed nodes in one material. */

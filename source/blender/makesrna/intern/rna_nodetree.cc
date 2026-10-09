@@ -8745,6 +8745,49 @@ static void def_sh_input_aov(BlenderRNA * /*brna*/, StructRNA *srna)
   RNA_def_struct_sdna_from(srna, "bNode", nullptr);
 }
 
+static void def_sh_shader_info(BlenderRNA * /*brna*/, StructRNA *srna)
+{
+  static const EnumPropertyItem shadow_mode_items[] = {
+      {SHD_SHADER_INFO_SHADOW_SOFT_FILTERED,
+       "SOFT_FILTERED",
+       0,
+       "Soft Filtered",
+       "Deterministic shadow sampling"},
+      {SHD_SHADER_INFO_SHADOW_TEMPORAL,
+       "TEMPORAL",
+       0,
+       "Built-in",
+       "Eevee built-in shadow evaluation"},
+      {0, nullptr, 0, nullptr, nullptr},
+  };
+
+  PropertyRNA *prop;
+
+  prop = RNA_def_property(srna, "shadow_mode", PROP_ENUM, PROP_NONE);
+  RNA_def_property_enum_sdna(prop, nullptr, "custom1");
+  RNA_def_property_enum_items(prop, shadow_mode_items);
+  RNA_def_property_enum_default(prop, SHD_SHADER_INFO_SHADOW_TEMPORAL);
+  RNA_def_property_ui_text(prop, "Shadow Mode", "How the Shadow output is evaluated");
+  RNA_def_property_update(prop, NC_NODE | NA_EDITED, "rna_Node_update");
+
+  prop = RNA_def_property(srna, "stable_shadow_samples", PROP_INT, PROP_NONE);
+  RNA_def_property_int_sdna(prop, nullptr, "custom2");
+  RNA_def_property_range(prop, 1, 32);
+  RNA_def_property_ui_range(prop, 1, 32, 1, 3);
+  RNA_def_property_ui_text(prop, "Shadow Samples", "Number of fixed shadow rays");
+  RNA_def_property_update(prop, NC_NODE | NA_EDITED, "rna_Node_update");
+
+  RNA_def_struct_sdna_from(srna, "NodeShaderShaderInfo", "storage");
+
+  prop = RNA_def_property(srna, "lightgroup_id", PROP_INT, PROP_UNSIGNED);
+  RNA_def_property_int_sdna(prop, nullptr, "lightgroup_id");
+  RNA_def_property_range(prop, 0, INT_MAX);
+  RNA_def_property_ui_text(prop, "Lightgroup", "Only lights with same group contribute");
+  RNA_def_property_update(prop, NC_NODE | NA_EDITED, "rna_Node_update");
+
+  RNA_def_struct_sdna_from(srna, "bNode", nullptr);
+}
+
 static void def_sh_output_aov(BlenderRNA * /*brna*/, StructRNA *srna)
 {
   PropertyRNA *prop;
@@ -13671,6 +13714,7 @@ static void rna_def_nodes(BlenderRNA *brna)
   define("ShaderNode", "ShaderNodeNormalMap", def_sh_normal_map);
   define("ShaderNode", "ShaderNodeObjectInfo");
   define("ShaderNode", "ShaderNodeInputAOV", def_sh_input_aov);
+  define("ShaderNode", "ShaderNodeShaderInfo", def_sh_shader_info);
   define("ShaderNode", "ShaderNodeOutputAOV", def_sh_output_aov);
   define("ShaderNode", "ShaderNodeOutputFilter", def_sh_output_filter);
   define("ShaderNode", "ShaderNodeOutputLight", def_sh_output);

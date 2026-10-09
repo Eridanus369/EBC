@@ -3388,6 +3388,12 @@ struct NodeShaderNormalMap {
   char _pad[6];
 };
 
+struct NodeShaderShaderInfo {
+  DNA_DEFINE_CXX_METHODS(NodeShaderShaderInfo)
+  int lightgroup_id = 0;
+  int _pad = 0;
+};
+
 struct NodeRadialTiling {
   DNA_DEFINE_CXX_METHODS(NodeRadialTiling)
 

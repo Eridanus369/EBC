@@ -1363,6 +1363,7 @@ void ShaderModule::material_create_info_amend(GPUMaterial *gpumat, GPUCodegenOut
   /* WORKAROUND: Add new ob attr buffer. */
   if (GPU_material_uniform_attributes(gpumat) != nullptr ||
       GPU_material_flag_get(gpumat, GPU_MATFLAG_LIGHT_ATTRIBUTE) ||
+      GPU_material_flag_get(gpumat, GPU_MATFLAG_SHADER_INFO) ||
       /* NPR: Light Info node and other referenced-object data readers. */
       GPU_material_uses_referenced_object_data(gpumat))
   {
