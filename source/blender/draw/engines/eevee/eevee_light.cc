@@ -606,6 +606,13 @@ void LightModule::sync_light(const ObjectRef &ob_ref)
   local_lights_len_ += int(!is_sun_light(light.type));
 }
 
+void LightModule::sync_render_extent(const int2 /*render_extent*/)
+{
+  /* NPR: stub for RenderTextureModule camera override. EBC's culling uses
+   * inst_.film.render_extent_get() directly; a full override would require
+   * reworking culling_extent_sync. */
+}
+
 void LightModule::end_sync()
 {
   /* IMPORTANT: We cannot add new lights here since the shadow module already executed its

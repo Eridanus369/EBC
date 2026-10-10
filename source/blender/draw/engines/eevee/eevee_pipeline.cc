@@ -67,6 +67,7 @@ void BackgroundPipeline::sync(GPUMaterial *gpumat,
   world_ps_.bind_resources(inst_.cryptomatte);
   world_ps_.bind_resources(inst_.uniform_data);
   world_ps_.bind_resources(inst_.sampling);
+  world_ps_.bind_resources(inst_.render_textures);
   world_ps_.bind_resources(inst_.sphere_probes);
   world_ps_.bind_resources(inst_.volume_probes);
   world_ps_.draw_procedural(GPU_PRIM_TRIS, 1, 3);
@@ -126,6 +127,7 @@ void WorldPipeline::sync(GPUMaterial *gpumat)
   pass.bind_resources(inst_.cryptomatte);
   pass.bind_resources(inst_.uniform_data);
   pass.bind_resources(inst_.sampling);
+  pass.bind_resources(inst_.render_textures);
   pass.bind_resources(inst_.sphere_probes);
   pass.bind_resources(inst_.volume_probes);
   pass.draw_procedural(GPU_PRIM_TRIS, 1, 3);
@@ -161,6 +163,7 @@ void WorldVolumePipeline::sync(GPUMaterial *gpumat)
   world_ps_.bind_resources(inst_.uniform_data);
   world_ps_.bind_resources(inst_.volume.properties);
   world_ps_.bind_resources(inst_.sampling);
+  world_ps_.bind_resources(inst_.render_textures);
 
   world_ps_.material_set(*inst_.manager, gpumat, false, inst_.anisotropic_filtering);
   /* Bind correct dummy texture for attributes defaults. */
@@ -212,6 +215,7 @@ void ShadowPipeline::sync()
     pass.bind_ssbo(SHADOW_PAGE_INFO_SLOT, &inst_.shadows.pages_infos_data_);
     pass.bind_resources(inst_.uniform_data);
     pass.bind_resources(inst_.sampling);
+    pass.bind_resources(inst_.render_textures);
     surface_double_sided_ps_ = &pass.sub("Shadow.Surface.Double-Sided");
     surface_single_sided_ps_ = &pass.sub("Shadow.Surface.Single-Sided");
     surface_single_sided_ps_->state_set(state | DRW_STATE_CULL_BACK);
@@ -258,6 +262,7 @@ void Prepass::init(DRWState extra_state,
   pass_.bind_resources(inst_.uniform_data);
   pass_.bind_resources(inst_.velocity);
   pass_.bind_resources(inst_.sampling);
+  pass_.bind_resources(inst_.render_textures);
   if (pass_setup_cb) {
     pass_setup_cb(pass_);
   }
@@ -432,6 +437,7 @@ void ForwardPipeline::sync()
       opaque_ps_.bind_resources(inst_.shadows);
       opaque_ps_.bind_resources(inst_.volume.result);
       opaque_ps_.bind_resources(inst_.sampling);
+      opaque_ps_.bind_resources(inst_.render_textures);
       opaque_ps_.bind_resources(inst_.hiz_buffer.front);
       opaque_ps_.bind_resources(inst_.volume_probes);
       opaque_ps_.bind_resources(inst_.sphere_probes);
@@ -479,6 +485,7 @@ void ForwardPipeline::sync()
     sub.bind_resources(inst_.shadows);
     sub.bind_resources(inst_.volume.result);
     sub.bind_resources(inst_.sampling);
+    sub.bind_resources(inst_.render_textures);
     sub.bind_resources(inst_.hiz_buffer.front);
     sub.bind_resources(inst_.volume_probes);
     sub.bind_resources(inst_.sphere_probes);
@@ -490,6 +497,7 @@ void ForwardPipeline::sync()
     outline_occlusion_ps_.bind_texture(RBUFS_UTILITY_TEX_SLOT, inst_.pipelines.utility_tx);
     outline_occlusion_ps_.bind_resources(inst_.uniform_data);
     outline_occlusion_ps_.bind_resources(inst_.sampling);
+    outline_occlusion_ps_.bind_resources(inst_.render_textures);
   }
   {
     gpu::Shader *sh = inst_.shaders.static_shader_get(TRANSPARENCY_RESOLVE);
@@ -797,6 +805,7 @@ void DeferredLayerBase::gbuffer_pass_sync(Instance &inst)
 
   gbuffer_ps_.bind_resources(inst.uniform_data);
   gbuffer_ps_.bind_resources(inst.sampling);
+  gbuffer_ps_.bind_resources(inst.render_textures);
   gbuffer_ps_.bind_resources(inst.hiz_buffer.front);
   gbuffer_ps_.bind_resources(inst.cryptomatte);
 
@@ -868,6 +877,7 @@ void DeferredLayerBase::npr_pass_sync(Instance &inst, FunctionRef<void()> callba
   npr_ps_.bind_texture(GBUF_NORMAL_TEX_SLOT, &inst.gbuffer.normal_tx);
   npr_ps_.bind_resources(inst.uniform_data);
   npr_ps_.bind_resources(inst.sampling);
+  npr_ps_.bind_resources(inst.render_textures);
   npr_ps_.bind_resources(inst.hiz_buffer.front);
   npr_ps_.bind_resources(inst.lights);
   inst.lights.bind_npr_front_light_shader_resources(npr_ps_);
@@ -1039,6 +1049,7 @@ void DeferredLayer::end_sync(bool is_first_pass,
         sub.bind_resources(inst_.hiz_buffer.front);
         sub.bind_resources(inst_.uniform_data);
         sub.bind_resources(inst_.sampling);
+        sub.bind_resources(inst_.render_textures);
         sub.bind_texture("utility_tx", &inst_.pipelines.utility_tx);
         sub.bind_texture("gbuf_header_tx", &inst_.gbuffer.header_tx);
         sub.bind_image("gbuf_normal_img", &inst_.gbuffer.normal_tx);
@@ -1091,6 +1102,7 @@ void DeferredLayer::end_sync(bool is_first_pass,
           sub.bind_resources(inst_.lights);
           sub.bind_resources(inst_.shadows);
           sub.bind_resources(inst_.sampling);
+          sub.bind_resources(inst_.render_textures);
           sub.bind_resources(inst_.hiz_buffer.front);
           inst_.lights.bind_light_shader_resources(sub);
           sub.bind_resources(inst_.sphere_probes);
@@ -1472,7 +1484,8 @@ void DeferredPipeline::render(View & /*main_view*/,
                               Framebuffer &gbuffer_fb,
                               int2 extent,
                               RayTraceBuffer &rt_buffer_opaque_layer,
-                              RayTraceBuffer &rt_buffer_refract_layer)
+                              RayTraceBuffer &rt_buffer_refract_layer,
+                              bool & /*volume_compute_done*/)
 {
   gpu::Texture *feedback_tx = nullptr;
 
@@ -1524,6 +1537,7 @@ void VolumeLayer::sync()
     pass.bind_resources(inst_.uniform_data);
     pass.bind_resources(inst_.volume.occupancy);
     pass.bind_resources(inst_.sampling);
+    pass.bind_resources(inst_.render_textures);
     occupancy_ps_ = &pass;
   }
   {
@@ -1536,6 +1550,7 @@ void VolumeLayer::sync()
     pass.bind_resources(inst_.uniform_data);
     pass.bind_resources(inst_.volume.properties);
     pass.bind_resources(inst_.sampling);
+    pass.bind_resources(inst_.render_textures);
     material_ps_ = &pass;
   }
 }
@@ -1746,6 +1761,7 @@ void DeferredProbePipeline::end_sync()
     pass.bind_resources(inst_.lights);
     pass.bind_resources(inst_.shadows);
     pass.bind_resources(inst_.sampling);
+    pass.bind_resources(inst_.render_textures);
     pass.bind_resources(inst_.hiz_buffer.front);
     inst_.lights.bind_light_shader_resources(pass);
     pass.bind_resources(inst_.volume_probes);
@@ -1851,6 +1867,7 @@ void PlanarProbePipeline::end_sync()
     pass.bind_resources(inst_.lights);
     pass.bind_resources(inst_.shadows);
     pass.bind_resources(inst_.sampling);
+    pass.bind_resources(inst_.render_textures);
     pass.bind_resources(inst_.hiz_buffer.front);
     inst_.lights.bind_light_shader_resources(pass);
     pass.bind_resources(inst_.sphere_probes);

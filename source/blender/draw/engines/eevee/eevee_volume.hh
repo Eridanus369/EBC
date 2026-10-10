@@ -169,6 +169,7 @@ class VolumeModule {
   void end_sync();
 
   void set_view(View &main_view, int2 render_extent);
+  void set_view(View &main_view, int2 render_extent, bool use_history);
 
   /* Render material properties. Needs to be called after `set_view`. */
   void draw_prepass(View &main_view);

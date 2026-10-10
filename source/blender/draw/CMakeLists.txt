@@ -110,6 +110,7 @@ set(SRC
   engines/eevee/eevee_cryptomatte.cc
   engines/eevee/eevee_depth_of_field.cc
   engines/eevee/eevee_dlss5.cc
+  engines/eevee/eevee_render_texture.cc
   engines/eevee/eevee_dlss_sr.cc
   engines/eevee/dlss5_d3d12.cc
   engines/eevee/eevee_engine.cc
@@ -221,6 +222,8 @@ set(SRC
   engines/eevee/eevee_cryptomatte.hh
   engines/eevee/eevee_depth_of_field.hh
   engines/eevee/eevee_dlss5.hh
+  engines/eevee/eevee_render_texture.hh
+  engines/eevee/eevee_render_texture_shared.hh
   engines/eevee/eevee_dlss_sr.hh
   engines/eevee/dlss5_d3d12.hh
   engines/eevee/eevee_engine.h
@@ -357,6 +360,7 @@ set(GLSL_SRC
   engines/eevee/shaders/infos/eevee_common_infos.hh
   engines/eevee/shaders/infos/eevee_geom_infos.hh
   engines/eevee/shaders/infos/eevee_nodetree_infos.hh
+  engines/eevee/shaders/infos/eevee_render_texture_infos.hh
 
   engines/image/shaders/infos/engine_image_infos.hh
 
@@ -476,6 +480,8 @@ set(GLSL_SRC
   engines/eevee/shaders/eevee_occupancy_lib.bsl.hh
   engines/eevee/shaders/eevee_octahedron_lib.bsl.hh
   engines/eevee/shaders/eevee_outline.bsl.hh
+  engines/eevee/shaders/eevee_render_texture_extract_comp.glsl
+  engines/eevee/shaders/eevee_reverse_z_lib.glsl
   engines/eevee/shaders/eevee_outline_freestyle.bsl.hh
   engines/eevee/shaders/eevee_outline_post.bsl.hh
   engines/eevee/shaders/eevee_pipeline.bsl.hh
@@ -546,6 +552,7 @@ set(GLSL_SRC
   engines/eevee/eevee_motion_blur_shared.hh
   engines/eevee/eevee_precompute_shared.hh
   engines/eevee/eevee_raytrace_shared.hh
+  engines/eevee/eevee_render_texture_shared.hh
   engines/eevee/eevee_renderbuffers_shared.hh
   engines/eevee/eevee_sampling_shared.hh
   engines/eevee/eevee_shadow_shared.hh

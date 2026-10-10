@@ -14,12 +14,31 @@
 #  define MAT_RAYCAST
 #endif
 
+
+#ifdef GPU_SHADER
+#  include "eevee_render_texture_shared.hh"
+#endif
+
 #include "eevee_defines.hh"
+
 #include "gpu_shader_create_info.hh"
 
 /* -------------------------------------------------------------------- */
 /** \name Common
  * \{ */
+
+GPU_SHADER_CREATE_INFO(eevee_render_texture_data)
+TYPEDEF_SOURCE("eevee_render_texture_shared.hh")
+STORAGE_BUF(RENDER_TEXTURE_BUF_SLOT, read, RenderTextureData, render_texture_buf[])
+SAMPLER(RENDER_TEXTURE_COLOR_TX_SLOT_0, sampler2D, render_texture_color_tx_0)
+SAMPLER(RENDER_TEXTURE_COLOR_TX_SLOT_1, sampler2D, render_texture_color_tx_1)
+SAMPLER(RENDER_TEXTURE_COLOR_TX_SLOT_2, sampler2D, render_texture_color_tx_2)
+SAMPLER(RENDER_TEXTURE_COLOR_TX_SLOT_3, sampler2D, render_texture_color_tx_3)
+SAMPLER(RENDER_TEXTURE_HISTORY_TX_SLOT_0, sampler2D, render_texture_color_history_tx_0)
+SAMPLER(RENDER_TEXTURE_HISTORY_TX_SLOT_1, sampler2D, render_texture_color_history_tx_1)
+SAMPLER(RENDER_TEXTURE_HISTORY_TX_SLOT_2, sampler2D, render_texture_color_history_tx_2)
+SAMPLER(RENDER_TEXTURE_HISTORY_TX_SLOT_3, sampler2D, render_texture_color_history_tx_3)
+GPU_SHADER_CREATE_END()
 
 GPU_SHADER_CREATE_INFO(eevee_raycast)
 DEFINE("MAT_RAYCAST")

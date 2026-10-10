@@ -36,6 +36,7 @@
 #include "eevee_dlss5.hh"
 #include "eevee_dlss_sr.hh"
 #include "eevee_filter_material.hh"
+#include "eevee_render_texture.hh"
 #include "eevee_film.hh"
 #include "eevee_gbuffer.hh"
 #include "eevee_hizbuffer.hh"
@@ -117,6 +118,10 @@ class Instance : public DrawEngine {
   SyncModule sync;
   UniformDataModule uniform_data;
   MaterialModule materials;
+  /* NPR: Render Texture override extent. When set (>0), Instance::render_extent_get()
+   * returns this instead of film.render_extent_get(). */
+  int2 render_extent_override_ = int2(-1);
+  RenderTextureModule render_textures;
   FilterMaterialModule filter_materials;
   SubsurfaceModule subsurface;
   PipelineModule pipelines;
@@ -286,6 +291,7 @@ class Instance : public DrawEngine {
       : shaders(*ShaderModule::module_get()),
         sync(*this),
         materials(*this),
+        render_textures(*this),
         filter_materials(*this),
         subsurface(*this),
         pipelines(*this, uniform_data.pipeline),
@@ -341,6 +347,22 @@ class Instance : public DrawEngine {
             const RegionView3D *rv3d = nullptr);
 
   void init() final;
+
+  int2 render_extent_get() const
+  {
+    if (render_extent_override_.x > 0 && render_extent_override_.y > 0) {
+      return render_extent_override_;
+    }
+    return film.render_extent_get();
+  }
+  void render_extent_override_set(const int2 &extent)
+  {
+    render_extent_override_ = extent;
+  }
+  void render_extent_override_clear()
+  {
+    render_extent_override_ = int2(-1);
+  }
 
   void begin_sync() final;
   void object_sync(ObjectRef &ob_ref, Manager &manager) final;

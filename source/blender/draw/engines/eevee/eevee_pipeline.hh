@@ -559,7 +559,8 @@ class DeferredPipeline {
               Framebuffer &gbuffer_fb,
               int2 extent,
               RayTraceBuffer &rt_buffer_opaque_layer,
-              RayTraceBuffer &rt_buffer_refract_layer);
+              RayTraceBuffer &rt_buffer_refract_layer,
+              bool &volume_compute_done);
 
   /* Return the maximum amount of gbuffer layer needed. */
   int header_layer_count() const

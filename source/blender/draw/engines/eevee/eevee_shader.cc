@@ -132,6 +132,10 @@ ShaderGroups ShaderModule::static_shaders_load(const ShaderGroups request_bits,
   }
   {
     const eShaderType shader_list[] = {RENDERPASS_CLEAR,
+                                       RENDER_TEXTURE_EXTRACT_RGBA16F,
+                                       RENDER_TEXTURE_EXTRACT_RGBA32F,
+                                       RENDER_TEXTURE_EXTRACT_R16F,
+                                       RENDER_TEXTURE_EXTRACT_R32F,
                                        FILM_COPY,
                                        FILM_COMP,
                                        FILM_COMP_PANORAMIC,
@@ -649,6 +653,14 @@ const char *ShaderModule::static_shader_create_info_name_get(eShaderType shader_
       return "eevee_dlss_sr_velocity_stage";
     case DLSS_SR_RESOLVE:
       return "eevee_dlss_sr_resolve";
+    case RENDER_TEXTURE_EXTRACT_RGBA16F:
+      return "eevee_render_texture_extract_rgba16f";
+    case RENDER_TEXTURE_EXTRACT_RGBA32F:
+      return "eevee_render_texture_extract_rgba32f";
+    case RENDER_TEXTURE_EXTRACT_R16F:
+      return "eevee_render_texture_extract_r16f";
+    case RENDER_TEXTURE_EXTRACT_R32F:
+      return "eevee_render_texture_extract_r32f";
     /* To avoid compiler warning about missing case. */
     case MAX_SHADER_TYPE:
       return "";
@@ -1445,6 +1457,9 @@ void ShaderModule::material_create_info_amend(GPUMaterial *gpumat, GPUCodegenOut
                                   GPU_material_flag_get(gpumat, GPU_MATFLAG_LIGHTPROBE_ACCESS);
 
   /* NPR: Screenspace Info needs the hybrid pipeline (previous-layer color/depth buffers). */
+  if (GPU_material_flag_get(gpumat, GPU_MATFLAG_RENDER_TEXTURE)) {
+    info.additional_info("eevee_render_texture_data");
+  }
   const bool use_screenspace_info = ELEM(pipeline_type, MAT_PIPE_DEFERRED, MAT_PIPE_FORWARD) &&
                                    GPU_material_flag_get(gpumat,
                                                          GPU_MATFLAG_SCREENSPACE_INFO);

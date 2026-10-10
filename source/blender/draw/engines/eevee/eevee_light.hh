@@ -278,6 +278,7 @@ class LightModule {
     return has_time_dependent_light_shaders_;
   }
 
+  void sync_render_extent(const int2 render_extent);
   bool needs_front_light_shader() const
   {
     return front_light_shader_needed_ && !front_light_shader_materials_.is_empty();

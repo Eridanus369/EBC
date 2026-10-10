@@ -107,6 +107,11 @@ bool VolumeModule::will_enable() const
          inst_.film.get_data().volume_light_id != -1;
 }
 
+void VolumeModule::set_view(View &main_view, int2 render_extent, bool /*use_history*/)
+{
+  set_view(main_view, render_extent);
+}
+
 void VolumeModule::end_sync()
 {
   enabled_ = will_enable();

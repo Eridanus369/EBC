@@ -19,6 +19,9 @@
 
 namespace blender::eevee {
 
+enum eClosureBits : uint32_t;
+
+
 class Instance;
 
 using RayTraceTileBuf = draw::StorageArrayBuffer<uint, 1024, true>;
