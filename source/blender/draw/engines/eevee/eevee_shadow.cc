@@ -802,6 +802,11 @@ void ShadowModule::sync_object(const ObjectHandle &ob_handle,
   }
 }
 
+void ShadowModule::sync_bake_receiver_bounds(const ResourceHandleRange & /*resource_handle*/)
+{
+  /* TODO: register receiver bounds to tag shadow pages for Color Bake. */
+}
+
 void ShadowModule::end_sync()
 {
   /* Delete unused shadows first to release tile-maps that could be reused for new lights. */

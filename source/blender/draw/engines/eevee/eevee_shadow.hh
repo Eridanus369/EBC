@@ -354,6 +354,8 @@ class ShadowModule {
                    bool has_time_dependent_shadows,
                    bool has_offset_shadows);
   void end_sync();
+  /** Conservatively tag shadow pages needed by a color-bake receiver bounds. */
+  void sync_bake_receiver_bounds(const ResourceHandleRange &resource_handle);
 
   void set_lights_data();
 

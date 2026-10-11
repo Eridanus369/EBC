@@ -225,6 +225,7 @@ class Manager {
    * Collect necessary View Layer attributes.
    */
   void register_layer_attributes(GPUMaterial *material);
+  void register_material_resources(GPUMaterial *material);
 
   /**
    * Compute <-> Graphic queue transition is quite slow on some backend. To avoid unnecessary
@@ -644,6 +645,12 @@ inline void Manager::register_layer_attributes(GPUMaterial *material)
     GPUReferencedObject &entry = referenced_objects_.lookup_or_add(request->session_uid, *request);
     entry.flags |= request->flags;
   }
+
+}
+
+inline void Manager::register_material_resources(GPUMaterial *material)
+{
+  this->register_layer_attributes(material);
 }
 
 }  // namespace draw
