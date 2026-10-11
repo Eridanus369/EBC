@@ -58,6 +58,8 @@ class DepthOfField {
   /** Input/Output texture references. */
   gpu::Texture *input_color_tx_ = nullptr;
   gpu::Texture *output_color_tx_ = nullptr;
+  gpu::Texture *depth_tx_ = nullptr;
+  gpu::Texture *velocity_tx_ = nullptr;
 
   /** Bokeh LUT precompute pass. */
   TextureFromPool bokeh_gather_lut_tx_ = {"dof_bokeh_gather_lut"};
@@ -182,7 +184,9 @@ class DepthOfField {
   void render(View &view,
               gpu::Texture **input_tx,
               gpu::Texture **output_tx,
-              DepthOfFieldBuffer &dof_buffer);
+              DepthOfFieldBuffer &dof_buffer,
+              gpu::Texture *depth_tx = nullptr,
+              gpu::Texture *velocity_tx = nullptr);
 
   bool postfx_enabled() const
   {

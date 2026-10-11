@@ -136,6 +136,9 @@ ShaderGroups ShaderModule::static_shaders_load(const ShaderGroups request_bits,
                                        RENDER_TEXTURE_EXTRACT_RGBA32F,
                                        RENDER_TEXTURE_EXTRACT_R16F,
                                        RENDER_TEXTURE_EXTRACT_R32F,
+                                       NATIVE_POSTFX_OUTPUT_EXTRACT,
+                                       NATIVE_POSTFX_OUTPUT_PACK_COLOR,
+                                       NATIVE_POSTFX_OUTPUT_PACK_VALUE,
                                        FILM_COPY,
                                        FILM_COMP,
                                        FILM_COMP_PANORAMIC,
@@ -661,6 +664,12 @@ const char *ShaderModule::static_shader_create_info_name_get(eShaderType shader_
       return "eevee_render_texture_extract_r16f";
     case RENDER_TEXTURE_EXTRACT_R32F:
       return "eevee_render_texture_extract_r32f";
+    case NATIVE_POSTFX_OUTPUT_EXTRACT:
+      return "eevee_native_postfx_output_extract";
+    case NATIVE_POSTFX_OUTPUT_PACK_COLOR:
+      return "eevee_native_postfx_output_pack_color";
+    case NATIVE_POSTFX_OUTPUT_PACK_VALUE:
+      return "eevee_native_postfx_output_pack_value";
     /* To avoid compiler warning about missing case. */
     case MAX_SHADER_TYPE:
       return "";

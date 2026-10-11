@@ -38,6 +38,7 @@ enum [[host_shared]] PassCategory : uint32_t {
   PASS_CATEGORY_AOV = 1u << 4,
   PASS_CATEGORY_CRYPTOMATTE = 1u << 5,
   PASS_CATEGORY_DENOISE = 1u << 6,
+  PASS_CATEGORY_NATIVE_POSTFX = 1u << 7,
 };
 #ifndef GPU_SHADER
 ENUM_OPERATORS(PassCategory)
@@ -111,6 +112,11 @@ struct [[host_shared]] FilmData {
   int aov_color_len;
   int aov_value_id;
   int aov_value_len;
+  /** Start and number of generated native camera post-FX outputs. */
+  int native_postfx_color_id;
+  int native_postfx_color_len;
+  int native_postfx_value_id;
+  int native_postfx_value_len;
   /** Start of cryptomatte per layer (-1 if pass is not enabled). */
   int cryptomatte_object_id;
   int cryptomatte_asset_id;

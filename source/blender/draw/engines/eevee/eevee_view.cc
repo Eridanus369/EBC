@@ -189,6 +189,9 @@ void ShadingView::render()
     inst_.gbuffer.release();
   }
 
+  /* Native camera post-FX outputs (motion blur / DoF) applied to render pass sources. */
+  inst_.native_postfx_outputs.render(render_view_);
+
   inst_.lights.shape_display_draw(render_view_, combined_fb_);
 
   inst_.lights.debug_draw(render_view_, combined_fb_);
@@ -235,6 +238,7 @@ void ShadingView::render()
   inst_.film.accumulate(jitter_view_, dlss_final_tx);
 
   inst_.outline.release_result();
+  inst_.native_postfx_outputs.release();
 
   rbufs.release();
   postfx_tx_.release();

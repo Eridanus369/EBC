@@ -48,6 +48,7 @@
 #include "eevee_lookdev.hh"
 #include "eevee_material.hh"
 #include "eevee_motion_blur.hh"
+#include "eevee_native_postfx_output.hh"
 #include "eevee_pipeline.hh"
 #include "eevee_raytrace.hh"
 #include "eevee_outline.hh"
@@ -123,6 +124,7 @@ class Instance : public DrawEngine {
   int2 render_extent_override_ = int2(-1);
   RenderTextureModule render_textures;
   FilterMaterialModule filter_materials;
+  NativePostFXOutputModule native_postfx_outputs;
   SubsurfaceModule subsurface;
   PipelineModule pipelines;
   ShadowModule shadows;
@@ -293,6 +295,7 @@ class Instance : public DrawEngine {
         materials(*this),
         render_textures(*this),
         filter_materials(*this),
+        native_postfx_outputs(*this),
         subsurface(*this),
         pipelines(*this, uniform_data.pipeline),
         shadows(*this, uniform_data.data.shadow),

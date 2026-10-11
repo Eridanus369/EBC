@@ -113,8 +113,10 @@ void RenderBuffers::acquire(int2 extent, gpu::TextureFormat raycast_depth_format
     GPU_texture_swizzle_set(vector_tx, "rgrg");
   }
 
-  int color_len = data.color_len + data.aovs.color_len;
-  int value_len = data.value_len + data.aovs.value_len;
+  int color_len = data.color_len + data.aovs.color_len +
+                  inst_.native_postfx_outputs.color_len_get();
+  int value_len = data.value_len + data.aovs.value_len +
+                  inst_.native_postfx_outputs.value_len_get();
 
   rp_color_tx.ensure_2d_array(color_format,
                               (color_len > 0) ? extent : int2(1),
