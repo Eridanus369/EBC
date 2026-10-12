@@ -811,6 +811,9 @@ set(GLSL_SRC
 
   engines/image/image_shader_shared.hh
 
+  engines/eevee/shaders/eevee_geom_bake_mesh_basic_vert.glsl
+  engines/eevee/shaders/eevee_geom_bake_mesh_vert.glsl
+
   # This test doesn't depend on gpu_shader_test, so it's always included.
   intern/shaders/draw_curves_test.glsl
 )
@@ -830,12 +833,6 @@ if(WITH_GTESTS)
     list(APPEND GLSL_SRC ${GLSL_TEST_SRC})
   endif()
 endif()
-  engines/eevee/shaders/infos/eevee_surf_bake_infos.hh
-  engines/eevee/shaders/eevee_bake_light_shader_surface_frag.glsl
-  engines/eevee/shaders/eevee_geom_bake_mesh_basic_vert.glsl
-  engines/eevee/shaders/eevee_geom_bake_mesh_vert.glsl
-  engines/eevee/shaders/eevee_light_shader_bake_frag.glsl
-  engines/eevee/shaders/eevee_surf_bake_color_frag.glsl
 
 set(GLSL_INC
   ../gpu
