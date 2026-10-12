@@ -521,6 +521,7 @@ set(GLSL_SRC
   engines/eevee/shaders/eevee_subsurface.bsl.hh
   engines/eevee/shaders/eevee_subsurface_lib.bsl.hh
   engines/eevee/shaders/eevee_surf_capture.bsl.hh
+  engines/eevee/shaders/eevee_surf_bake_color.bsl.hh
   engines/eevee/shaders/eevee_surf_common.bsl.hh
   engines/eevee/shaders/eevee_surf_deferred.bsl.hh
   engines/eevee/shaders/eevee_surf_deferred_npr.bsl.hh

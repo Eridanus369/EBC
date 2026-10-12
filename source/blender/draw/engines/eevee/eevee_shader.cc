@@ -946,8 +946,14 @@ static SlotAllocator add_pipeline_create_info(gpu::shader::ShaderCreateInfo &inf
           info.fragment_function("eevee_surf_capture");
           break;
         case MAT_PIPE_BAKE_COLOR:
-          pipeline_info_name = "eevee_surf_bake_color";
+          pipeline_info_name = "eevee_surf_bake_color_infos_";
           info.name_ += "_bake_color";
+          info.define("MAT_BAKE_COLOR");
+          info.compilation_constant(gpu::shader::Type::bool_t, "use_velocity", false);
+          info.compilation_constant(gpu::shader::Type::bool_t, "use_lighting_nodes", false);
+          info.define("closure_to_rgba", "closure_to_rgba_bake_color");
+          info.fragment_source("eevee_surf_bake_color.bsl.hh");
+          info.fragment_function("eevee_surf_bake_color");
           break;
         case MAT_PIPE_DEFERRED:
           /* NPR: material node shaders (Curvature, Bevel, Light Probe Color, World Environment,
