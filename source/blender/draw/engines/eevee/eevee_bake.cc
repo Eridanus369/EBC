@@ -25,7 +25,7 @@
 #include "BLI_map.hh"
 #include "BLI_offset_indices.hh"
 #include "BLI_set.hh"
-#include "BLI_string.h"
+#include "BLI_string.hh"
 #include "BLI_vector.hh"
 #include "BLI_vector_set.hh"
 
@@ -1449,14 +1449,8 @@ static GPUMaterial *compile_bake_material(RenderEngine *engine,
   GPUMaterial *gpumat = nullptr;
 
   for (int attempt = 0; attempt < 2; attempt++) {
-    gpumat = inst.shaders.material_shader_get(material,
-                                              ntree,
-                                              MAT_PIPE_BAKE_COLOR,
-                                              MAT_GEOM_MESH,
-                                              MAT_PROBE_NONE,
-                                              false,
-                                              default_material,
-                                              false);
+    gpumat = inst.shaders.material_shader_get(
+        material, ntree, MAT_PIPE_BAKE_COLOR, MAT_GEOM_MESH, false, default_material, false);
     if (gpumat == nullptr) {
       break;
     }
@@ -1637,7 +1631,7 @@ static bool draw_bake_groups(RenderEngine *engine,
 
     inst.volume_probes.set_view(view);
     inst.sphere_probes.set_view(view);
-    inst.shadows.set_view(view, int2(width, height), TelemetryShadowContext::Bake);
+    inst.shadows.set_view(view, int2(width, height));
     inst.uniform_data.data.push_update();
     inst.lights.set_view(view, int2(width, height));
     inst.shadows.render(view, int2(width, height));
@@ -1941,12 +1935,12 @@ void eevee_bake(RenderEngine *engine,
   SNPRINTF(layer_name, "Eevee Color Bake %d", engine->bake.image_id);
 
   RenderResult *result = RE_engine_begin_result(engine, 0, 0, width, height, layer_name, nullptr);
-  if (result == nullptr || result->layers.first == nullptr) {
+  if (result == nullptr || result->layers.first_ == nullptr) {
     eevee_bake_report_error(engine, "Eevee Color Bake failed to allocate render result");
     return;
   }
 
-  RenderLayer *layer = static_cast<RenderLayer *>(result->layers.first);
+  RenderLayer *layer = static_cast<RenderLayer *>(result->layers.first_);
   RenderPass *combined_pass = RE_pass_find_by_name(layer, RE_PASSNAME_COMBINED, "");
   if (combined_pass == nullptr || combined_pass->ibuf == nullptr ||
       combined_pass->ibuf->float_data_for_write() == nullptr)

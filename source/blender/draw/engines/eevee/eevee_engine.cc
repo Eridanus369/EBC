@@ -21,6 +21,7 @@
 
 #include "draw_view_data.hh"
 
+#include "eevee_bake.hh"
 #include "eevee_instance.hh"
 
 namespace blender {
@@ -90,7 +91,7 @@ RenderEngineType DRW_engine_viewport_eevee_type = {
     /*render*/ &eevee_render,
     /*render_frame_finish*/ nullptr,
     /*draw*/ nullptr,
-    /*bake*/ nullptr,
+    /*bake*/ &eevee_bake,
     /*view_update*/ nullptr,
     /*view_draw*/ nullptr,
     /*view_pause*/ nullptr,

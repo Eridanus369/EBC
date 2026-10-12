@@ -514,6 +514,8 @@ const char *ShaderModule::static_shader_create_info_name_get(eShaderType shader_
       return "eevee_light_shader_uniform";
     case LIGHT_SHADER_SURFEL:
       return "eevee_light_shader_surfel";
+    case BAKE_LIGHT_SHADER_SURFACE:
+      return "eevee_bake_light_shader_surface_mesh";
     case RAY_DENOISE_SPATIAL:
       return "eevee_raytracing_denoise_spatial";
     case RAY_DENOISE_TEMPORAL:

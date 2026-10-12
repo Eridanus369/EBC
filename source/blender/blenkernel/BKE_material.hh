@@ -9,6 +9,7 @@
  * \brief General operations, lookup, etc. for materials.
  */
 
+#include "DNA_material_types.h"
 #include <optional>
 #include <utility>
 
@@ -158,6 +159,15 @@ int BKE_object_material_ensure(Main *bmain, Object *ob, Material *material);
 
 Material *BKE_gpencil_material(Object *ob, short act);
 MaterialGPencilStyle *BKE_gpencil_material_settings(Object *ob, short act);
+
+inline eMaterialCullMethod BKE_material_surface_cull_method_get(const Material *material)
+{
+  if (material == nullptr) {
+    return MA_SURFACE_CULL_NONE;
+  }
+  return (material->blend_flag & MA_BL_CULL_BACKFACE) != 0 ? MA_SURFACE_CULL_BACK :
+                                                            MA_SURFACE_CULL_NONE;
+}
 
 void BKE_texpaint_slot_refresh_cache(Scene *scene, Material *ma, const Object *ob);
 void BKE_texpaint_slots_refresh_object(Scene *scene, Object *ob);

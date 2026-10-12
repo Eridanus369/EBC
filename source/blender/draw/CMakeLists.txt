@@ -107,6 +107,7 @@ set(SRC
   engines/image/image_shader.cc
   engines/eevee/eevee_ambient_occlusion.cc
   engines/eevee/eevee_camera.cc
+  engines/eevee/eevee_bake.cc
   engines/eevee/eevee_cryptomatte.cc
   engines/eevee/eevee_depth_of_field.cc
   engines/eevee/eevee_dlss5.cc
@@ -220,6 +221,7 @@ set(SRC
   engines/compositor/compositor_engine.h
   engines/eevee/eevee_ambient_occlusion.hh
   engines/eevee/eevee_camera.hh
+  engines/eevee/eevee_bake.hh
   engines/eevee/eevee_cryptomatte.hh
   engines/eevee/eevee_depth_of_field.hh
   engines/eevee/eevee_dlss5.hh
