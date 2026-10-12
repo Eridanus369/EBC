@@ -830,6 +830,12 @@ if(WITH_GTESTS)
     list(APPEND GLSL_SRC ${GLSL_TEST_SRC})
   endif()
 endif()
+  engines/eevee/shaders/infos/eevee_surf_bake_infos.hh
+  engines/eevee/shaders/eevee_bake_light_shader_surface_frag.glsl
+  engines/eevee/shaders/eevee_geom_bake_mesh_basic_vert.glsl
+  engines/eevee/shaders/eevee_geom_bake_mesh_vert.glsl
+  engines/eevee/shaders/eevee_light_shader_bake_frag.glsl
+  engines/eevee/shaders/eevee_surf_bake_color_frag.glsl
 
 set(GLSL_INC
   ../gpu

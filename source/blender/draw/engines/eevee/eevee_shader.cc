@@ -945,6 +945,10 @@ static SlotAllocator add_pipeline_create_info(gpu::shader::ShaderCreateInfo &inf
           info.fragment_source("eevee_surf_capture.bsl.hh");
           info.fragment_function("eevee_surf_capture");
           break;
+        case MAT_PIPE_BAKE_COLOR:
+          pipeline_info_name = "eevee_surf_bake_color";
+          info.name_ += "_bake_color";
+          break;
         case MAT_PIPE_DEFERRED:
           /* NPR: material node shaders (Curvature, Bevel, Light Probe Color, World Environment,
            * ...) guard their surface-pass code with these pipeline macros. */
@@ -1042,13 +1046,19 @@ static SlotAllocator add_pipeline_create_info(gpu::shader::ShaderCreateInfo &inf
       info.vertex_function("eevee_geom_curves");
       break;
     case MAT_GEOM_MESH:
-      geometry_info_name = "eevee_geom_mesh_infos_";
-      info.name_ += "_mesh";
-      info.define("MAT_GEOM_MESH");
-      /* Until every vertex shader are ported, we need to bridge the gap here by defining the
-       * pipeline. */
-      info.vertex_source("eevee_geom_mesh.bsl.hh");
-      info.vertex_function("eevee_geom_mesh");
+      if (pipeline_type == MAT_PIPE_BAKE_COLOR) {
+        geometry_info_name = "eevee_geom_bake_mesh";
+        info.name_ += "_bake_mesh";
+      }
+      else {
+        geometry_info_name = "eevee_geom_mesh_infos_";
+        info.name_ += "_mesh";
+        info.define("MAT_GEOM_MESH");
+        /* Until every vertex shader are ported, we need to bridge the gap here by defining the
+         * pipeline. */
+        info.vertex_source("eevee_geom_mesh.bsl.hh");
+        info.vertex_function("eevee_geom_mesh");
+      }
       break;
     case MAT_GEOM_POINTCLOUD:
       geometry_info_name = "eevee_geom_pointcloud_infos_";

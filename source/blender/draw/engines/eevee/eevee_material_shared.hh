@@ -55,6 +55,9 @@ enum eMaterialPipeline {
 
   /* NPR: Scene filter graph evaluation (world geometry fullscreen pass). */
   MAT_PIPE_FILTER,
+
+  /* Eevee color bake: evaluate local material shading in UV space. */
+  MAT_PIPE_BAKE_COLOR,
 };
 
 /**
