@@ -364,6 +364,7 @@ set(GLSL_SRC
   engines/eevee/shaders/infos/eevee_common_infos.hh
   engines/eevee/shaders/infos/eevee_geom_infos.hh
   engines/eevee/shaders/infos/eevee_nodetree_infos.hh
+  engines/eevee/shaders/infos/eevee_surf_bake_infos.hh
   engines/eevee/shaders/infos/eevee_render_texture_infos.hh
 
   engines/image/shaders/infos/engine_image_infos.hh
@@ -816,6 +817,7 @@ set(GLSL_SRC
 
   engines/eevee/shaders/eevee_geom_bake_mesh_basic_vert.glsl
   engines/eevee/shaders/eevee_geom_bake_mesh_vert.glsl
+  engines/eevee/shaders/eevee_bake_light_shader_surface_frag.glsl
 
   # This test doesn't depend on gpu_shader_test, so it's always included.
   intern/shaders/draw_curves_test.glsl
