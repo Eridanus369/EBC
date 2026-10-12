@@ -9,7 +9,7 @@
 #include "infos/eevee_geom_infos.hh"
 #include "infos/eevee_surf_bake_infos.hh"
 
-FRAGMENT_SHADER_CREATE_INFO(eevee_geom_bake_mesh_basic)
+FRAGMENT_SHADER_CREATE_INFO(eevee_geom_bake_mesh_basic_infos_)
 FRAGMENT_SHADER_CREATE_INFO(eevee_bake_light_shader_surface)
 
 void main()

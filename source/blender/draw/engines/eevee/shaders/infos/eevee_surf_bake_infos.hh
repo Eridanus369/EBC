@@ -23,7 +23,7 @@ FRAGMENT_SOURCE("eevee_bake_light_shader_surface_frag.glsl")
 GPU_SHADER_CREATE_END()
 
 GPU_SHADER_CREATE_INFO(eevee_bake_light_shader_surface_mesh)
-ADDITIONAL_INFO(eevee_geom_bake_mesh_basic)
+ADDITIONAL_INFO(eevee_geom_bake_mesh_basic_infos_)
 ADDITIONAL_INFO(eevee_bake_light_shader_surface)
 DO_STATIC_COMPILATION()
 GPU_SHADER_CREATE_END()

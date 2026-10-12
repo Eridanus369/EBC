@@ -525,6 +525,7 @@ set(GLSL_SRC
   engines/eevee/shaders/eevee_subsurface_lib.bsl.hh
   engines/eevee/shaders/eevee_surf_capture.bsl.hh
   engines/eevee/shaders/eevee_surf_bake_color.bsl.hh
+  engines/eevee/shaders/eevee_geom_bake_mesh.bsl.hh
   engines/eevee/shaders/eevee_surf_common.bsl.hh
   engines/eevee/shaders/eevee_surf_deferred.bsl.hh
   engines/eevee/shaders/eevee_surf_deferred_npr.bsl.hh
@@ -815,8 +816,6 @@ set(GLSL_SRC
 
   engines/image/image_shader_shared.hh
 
-  engines/eevee/shaders/eevee_geom_bake_mesh_basic_vert.glsl
-  engines/eevee/shaders/eevee_geom_bake_mesh_vert.glsl
   engines/eevee/shaders/eevee_bake_light_shader_surface_frag.glsl
 
   # This test doesn't depend on gpu_shader_test, so it's always included.

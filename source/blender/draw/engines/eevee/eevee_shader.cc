@@ -1055,8 +1055,10 @@ static SlotAllocator add_pipeline_create_info(gpu::shader::ShaderCreateInfo &inf
       break;
     case MAT_GEOM_MESH:
       if (pipeline_type == MAT_PIPE_BAKE_COLOR) {
-        geometry_info_name = "eevee_geom_bake_mesh";
+        geometry_info_name = "eevee_geom_bake_mesh_infos_";
         info.name_ += "_bake_mesh";
+        info.vertex_source("eevee_geom_bake_mesh.bsl.hh");
+        info.vertex_function("eevee_geom_bake_mesh");
       }
       else {
         geometry_info_name = "eevee_geom_mesh_infos_";

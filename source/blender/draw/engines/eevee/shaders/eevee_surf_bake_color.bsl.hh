@@ -17,26 +17,22 @@
 #include "draw_curves_lib.glsl" /* IWYU pragma: export. For nodetree functions. */
 #include "draw_view.bsl.hh"     /* IWYU pragma: export. For nodetree functions. */
 #include "eevee_forward_lib.bsl.hh"
-#include "eevee_light_data.bsl.hh"
-#include "eevee_light_iter.bsl.hh"
-#include "eevee_lightprobe.bsl.hh"
 #include "eevee_nodetree_frag_lib.glsl"
 #include "eevee_sampling_lib.bsl.hh"
 #include "eevee_surf_common.bsl.hh"
-#include "eevee_thickness_lib.bsl.hh"
+#include "eevee_volume_lib.bsl.hh"
 
 namespace eevee {
 
 struct SurfaceBakeColor {
   [[legacy_info]] ShaderCreateInfo draw_view_culling;
   [[legacy_info]] ShaderCreateInfo eevee_geom_iface_info;
+  [[legacy_info]] ShaderCreateInfo eevee_bake_geom_iface_info;
 };
 
 struct SurfaceBakeColorFragOut {
   [[frag_color(0)]] float4 out_color;
 };
-
-}  // namespace eevee
 
 uint bake_resource_id_get()
 {
@@ -106,7 +102,7 @@ float4 closure_to_rgba(Closure /*cl_unused*/)
 }
 
 [[fragment]] [[early_fragment_tests]]
-void surf_bake_color([[resource_table]] PipelineConstants & /*pipe*/,
+void surf_bake_color([[resource_table]] eevee::PipelineConstants & /*pipe*/,
                      [[resource_table]] eevee::SurfaceBakeColor & /*srt*/,
                      [[resource_table]] LightEvalIterator & /*lights*/,
                      [[resource_table]] LightprobeRenderData & /*lightprobes*/,
@@ -147,3 +143,5 @@ void surf_bake_color([[resource_table]] PipelineConstants & /*pipe*/,
   float4 shaded = bake_closure_to_rgba();
   frag_out.out_color = shaded;
 }
+
+}  // namespace eevee
