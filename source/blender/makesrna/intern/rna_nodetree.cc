@@ -49,6 +49,7 @@
 #include "NOD_principled_npr.hh"
 #include "NOD_shader.h"
 #include "../../nodes/shader/include/NOD_filter_graph.hh"
+#include "../../nodes/shader/include/NOD_sh_zones.hh"
 
 #include "rna_internal.hh"
 #include "rna_internal_types.hh"
@@ -985,6 +986,7 @@ using nodes::RepeatItemsAccessor;
 using nodes::SeparateBundleItemsAccessor;
 using nodes::ShaderFilterGraphInputItemsAccessor;
 using nodes::ShaderFilterOutputItemsAccessor;
+using nodes::ShForeachLightItemsAccessor;
 using nodes::ShScriptExpressionVariablesAccessor;
 using nodes::SimulationItemsAccessor;
 
@@ -8861,6 +8863,61 @@ static void def_sh_parallax(BlenderRNA * /*brna*/, StructRNA *srna)
   RNA_def_struct_sdna_from(srna, "bNode", nullptr);
 }
 
+static void rna_def_sh_foreach_light_item(BlenderRNA *brna)
+{
+  StructRNA *srna = RNA_def_struct(brna, "ShaderForeachLightItem", nullptr);
+  RNA_def_struct_ui_text(srna, "For Each Light Item", "");
+  RNA_def_struct_sdna(srna, "NodeShaderForeachLightItem");
+
+  rna_def_node_item_array_socket_item_common(srna, "ShForeachLightItemsAccessor", true);
+}
+
+static void rna_def_sh_foreach_light_output_items(BlenderRNA *brna)
+{
+  StructRNA *srna = RNA_def_struct(brna, "NodeShaderForeachLightOutputItems", nullptr);
+  RNA_def_struct_ui_text(srna, "For Each Light Items", "");
+  RNA_def_struct_sdna(srna, "bNode");
+
+  rna_def_node_item_array_new_with_socket_and_name(
+      srna, "ShaderForeachLightItem", "ShForeachLightItemsAccessor");
+  rna_def_node_item_array_common_functions(
+      srna, "ShaderForeachLightItem", "ShForeachLightItemsAccessor");
+}
+
+static void def_sh_foreach_light_output(BlenderRNA *brna, StructRNA *srna)
+{
+  PropertyRNA *prop;
+
+  rna_def_sh_foreach_light_item(brna);
+  rna_def_sh_foreach_light_output_items(brna);
+
+  RNA_def_struct_sdna_from(srna, "NodeShaderForeachLightOutput", "storage");
+
+  prop = RNA_def_property(srna, "foreach_light_items", PROP_COLLECTION, PROP_NONE);
+  RNA_def_property_collection_sdna(prop, nullptr, "items", "items_num");
+  RNA_def_property_struct_type(prop, "ShaderForeachLightItem");
+  RNA_def_property_ui_text(prop, "Items", "");
+  RNA_def_property_srna(prop, "NodeShaderForeachLightOutputItems");
+
+  prop = RNA_def_property(srna, "active_index", PROP_INT, PROP_UNSIGNED);
+  RNA_def_property_int_sdna(prop, nullptr, "active_index");
+  RNA_def_property_ui_text(prop, "Active Item Index", "Index of the active item");
+  RNA_def_property_clear_flag(prop, PROP_ANIMATABLE);
+  RNA_def_property_flag(prop, PROP_NO_DEG_UPDATE);
+  RNA_def_property_update(prop, NC_NODE, nullptr);
+
+  prop = RNA_def_property(srna, "active_item", PROP_POINTER, PROP_NONE);
+  RNA_def_property_struct_type(prop, "ShaderForeachLightItem");
+  RNA_def_property_pointer_funcs(prop,
+                                 "rna_Node_ItemArray_active_get<ShForeachLightItemsAccessor>",
+                                 "rna_Node_ItemArray_active_set<ShForeachLightItemsAccessor>",
+                                 nullptr,
+                                 nullptr);
+  RNA_def_property_flag(prop, PROP_EDITABLE | PROP_NO_DEG_UPDATE);
+  RNA_def_property_ui_text(prop, "Active Item", "Active for-each-light item");
+  RNA_def_property_update(prop, NC_NODE, nullptr);
+}
+
 static void def_sh_render_texture(BlenderRNA * /*brna*/, StructRNA *srna)
 {
   static const EnumPropertyItem render_texture_items[] = {
@@ -9866,6 +9923,13 @@ static void def_common_zone_input(BlenderRNA * /*brna*/, StructRNA *srna)
   parm = RNA_def_boolean(
       func, "result", false, "Result", "True if pairing the node was successful");
   RNA_def_function_return(func, parm);
+}
+
+static void def_sh_foreach_light_input(BlenderRNA *brna, StructRNA *srna)
+{
+  RNA_def_struct_sdna_from(srna, "NodeShaderForeachLightInput", "storage");
+
+  def_common_zone_input(brna, srna);
 }
 
 static void def_geo_simulation_input(BlenderRNA *brna, StructRNA *srna)
@@ -13806,6 +13870,8 @@ static void rna_def_nodes(BlenderRNA *brna)
   define("ShaderNode", "ShaderNodeShaderInfo", def_sh_shader_info);
   define("ShaderNode", "ShaderNodeParallax", def_sh_parallax);
   define("ShaderNode", "ShaderNodeRenderTexture", def_sh_render_texture);
+  define("ShaderNode", "ShaderNodeForeachLightInput", def_sh_foreach_light_input);
+  define("ShaderNode", "ShaderNodeForeachLightOutput", def_sh_foreach_light_output);
   define("ShaderNode", "ShaderNodeOutputAOV", def_sh_output_aov);
   define("ShaderNode", "ShaderNodeOutputFilter", def_sh_output_filter);
   define("ShaderNode", "ShaderNodeOutputLight", def_sh_output);

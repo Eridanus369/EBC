@@ -50,6 +50,7 @@ set(SRC
   nodes/node_shader_eevee_specular.cc
   nodes/node_shader_emission.cc
   nodes/node_shader_filter_graph_input.cc
+  nodes/node_shader_foreach_light.cc
   nodes/node_shader_fresnel.cc
   nodes/node_shader_gamma.cc
   nodes/node_shader_geometry.cc
@@ -173,6 +174,7 @@ set(SRC
 
   include/NOD_shader_raycast.hh
   include/NOD_sh_script_expression.hh
+  include/NOD_sh_zones.hh
 )
 
 set(LIB

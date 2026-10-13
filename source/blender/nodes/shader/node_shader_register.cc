@@ -163,6 +163,7 @@ void register_shader_nodes()
   register_node_type_eevee_filter_graph_stage_output();
   register_node_type_eevee_filter_graph_aov_output();
   register_node_type_sh_filter_graph_input();
+  register_node_type_sh_foreach_light();
   register_node_type_sh_output_filter();
   register_node_type_sh_scene_color();
   register_node_type_sh_npr_image_sample();

@@ -3479,6 +3479,36 @@ struct NodeEeveeFilterGraphFilterMaterial {
   char _pad[8] = {};
 };
 
+/* NPR For Each Light zone. */
+struct NodeShaderForeachLightItem {
+  char *name = nullptr;
+  /** #eNodeSocketDatatype. */
+  short socket_type = 0;
+  char _pad[2] = {};
+  int identifier = 0;
+};
+
+struct NodeShaderForeachLightInput {
+  DNA_DEFINE_CXX_METHODS(NodeShaderForeachLightInput)
+  /** bNode.identifier of the corresponding output node. */
+  int32_t output_node_id = 0;
+};
+
+struct NodeShaderForeachLightOutput {
+  DNA_DEFINE_CXX_METHODS(NodeShaderForeachLightOutput)
+
+  NodeShaderForeachLightItem *items = nullptr;
+  int items_num = 0;
+  int active_index = 0;
+  int next_identifier = 0;
+  int _pad = 0;
+
+#ifdef __cplusplus
+  Span<NodeShaderForeachLightItem> items_span() const;
+  MutableSpan<NodeShaderForeachLightItem> items_span();
+#endif
+};
+
 struct NodeEeveeFilterGraphAOVInput {
   char name[64] = "";
 };

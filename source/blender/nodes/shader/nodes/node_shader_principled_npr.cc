@@ -33,6 +33,7 @@
 
 #include "node_shader_principled_npr_v2.hh"
 #include "node_shader_util.hh"
+#include "node_util.hh"
 
 #include <cmath>
 

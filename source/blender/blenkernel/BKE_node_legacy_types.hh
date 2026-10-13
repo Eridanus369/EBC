@@ -177,6 +177,8 @@
 #define SH_NODE_FILTER_OBJECT_MASK 750
 #define SH_NODE_NPR_IMAGE_SAMPLE 751
 #define SH_NODE_FILTER_GRAPH_INPUT 752
+#define SH_NODE_FOREACH_LIGHT_INPUT 753
+#define SH_NODE_FOREACH_LIGHT_OUTPUT 754
 
 /** Source image exposed by the Scene Color node (#SH_NODE_SCENE_COLOR.custom1). */
 enum {
