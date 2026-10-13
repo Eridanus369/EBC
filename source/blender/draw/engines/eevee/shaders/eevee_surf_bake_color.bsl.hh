@@ -114,7 +114,6 @@ void surf_bake_color([[resource_table]] eevee::PipelineConstants & /*pipe*/,
                      [[resource_table]] const eevee::Uniform & /*uni*/,
                      [[resource_table]] const eevee::Sampling & /*sampling*/,
                      [[resource_table]] const UtilityTexture & /*util_tx*/,
-                     [[resource_table]] const ::gbuffer::PackParameters & /*gbuf_params*/,
                      [[frag_coord]] const float4 /*frag_co*/,
                      [[out]] eevee::SurfaceBakeColorFragOut &frag_out,
                      [[front_facing]] const bool /*front_face*/)
