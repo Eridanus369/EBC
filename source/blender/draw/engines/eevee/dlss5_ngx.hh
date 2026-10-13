@@ -17,6 +17,18 @@
 
 #ifdef WITH_DLSS
 
+/* Keep the Vulkan types opaque here; the .cc includes the real headers. */
+struct VkInstance_T;
+struct VkPhysicalDevice_T;
+struct VkDevice_T;
+struct VkQueue_T;
+struct VkCommandBuffer_T;
+struct VkImage_T;
+struct VkImageView_T;
+struct VkSemaphore_T;
+struct VkFence_T;
+
+
 struct NVSDK_NGX_Parameter;
 
 namespace blender::eevee::ngx {
@@ -56,6 +68,7 @@ using PFN_Parameter_SetI = void (*)(NVSDK_NGX_Parameter *, const char *, int);
 using PFN_Parameter_SetUI = void (*)(NVSDK_NGX_Parameter *, const char *, unsigned);
 using PFN_Parameter_SetF = void (*)(NVSDK_NGX_Parameter *, const char *, float);
 using PFN_Parameter_SetULL = void (*)(NVSDK_NGX_Parameter *, const char *, unsigned long long);
+using PFN_Parameter_SetVoidPointer = void (*)(NVSDK_NGX_Parameter *, const char *, void *);
 
 /** Loaded NGX runtime. Thread-affine, single instance per process. */
 struct Runtime {
@@ -75,6 +88,7 @@ struct Runtime {
   PFN_Parameter_SetUI set_ui = nullptr;
   PFN_Parameter_SetF set_f = nullptr;
   PFN_Parameter_SetULL set_ull = nullptr;
+  PFN_Parameter_SetVoidPointer set_ptr = nullptr;
 
   bool loaded = false;
   bool initialized = false;

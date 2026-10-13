@@ -20,6 +20,11 @@ set(INC
   ../compositor/derived_resources
 
   ../../../intern/opensubdiv
+  ../../../extern/volk
+  ../../../extern/vulkan_memory_allocator
+  ../../../extern/xxhash
+  ../../../lib/vulkan/include
+  ../../../lib/shaderc/include
 )
 
 set(INC_SYS
@@ -340,6 +345,10 @@ if(WITH_DLSS)
   if(DLSS_FOUND)
     add_definitions(-DWITH_DLSS)
     include_directories(SYSTEM "${DLSS_INCLUDE_DIR}")
+    # The EEVEE DLSS SR executor includes Blender's Vulkan backend headers.
+    if(WITH_VULKAN_BACKEND)
+      add_definitions(-DWITH_VULKAN_BACKEND)
+    endif()
   else()
     set_and_warn_library_found("DLSS (EEVEE)" DLSS_FOUND WITH_DLSS)
   endif()

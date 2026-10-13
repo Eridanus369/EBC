@@ -14,81 +14,466 @@
 #include "eevee_instance.hh"
 #include "eevee_shader.hh"
 
+#ifdef WITH_DLSS
+#  include "dlss5_ngx.hh"
+#  ifdef WITH_VULKAN_BACKEND
+#    include "vk_backend.hh"
+#    include "vk_device.hh"
+#    include "vk_image_view.hh"
+#    include "vk_texture.hh"
+#    include "vk_common.hh"
+#  endif
+#endif
+
 namespace blender::eevee {
 
 /* -------------------------------------------------------------------- */
-/** \name DlssSRVulkanSession (platform stub)
- *
- * Default Linux / no-NGX build: every ensure_resources returns false so the adapter keeps
- * pass-through. Real Windows/Linux Vulkan NGX backends replace this pimpl with calls to
- * `NVSDK_NGX_VULKAN_Init / CreateFeature(DLSS_SuperSampling) / EvaluateFeature / ReleaseFeature`
- * or a Vulkan→D3D12 interop host that owns `nvngx_dlss.dll`.
+/** 
+ame DlssSRVulkanSession
  * \{ */
 
-DlssSRVulkanSession::DlssSRVulkanSession() = default;
-DlssSRVulkanSession::~DlssSRVulkanSession() = default;
+struct DlssSRVulkanSession::Impl {
+  ngx::Runtime *runtime = nullptr;
+  NVSDK_NGX_Parameter *parameters = nullptr;
+  void *feature = nullptr;
+
+  gpu::Texture *color_tx = nullptr;
+  gpu::Texture *depth_tx = nullptr;
+  gpu::Texture *velocity_tx = nullptr;
+  gpu::Texture *output_tx = nullptr;
+
+  int2 input_extent = int2(0);
+  int2 output_extent = int2(0);
+  int quality_preset = 0;
+  bool depth_reverse_z = true;
+  int retry_count = 0;
+
+  VkCommandPool command_pool = VK_NULL_HANDLE;
+  VkCommandBuffer command_buffer = VK_NULL_HANDLE;
+  VkFence fence = VK_NULL_HANDLE;
+
+  double gpu_time_ms = -1.0;
+  char status[192] = "DLSS SR: idle";
+};
+
+
+DlssSRVulkanSession::DlssSRVulkanSession() : impl_(new Impl())
+{
+  Impl &impl = *impl_;
+  impl.runtime = ngx::runtime_get();
+  STRNCPY(impl.status, "DLSS SR: Vulkan session idle");
+}
+
+DlssSRVulkanSession::~DlssSRVulkanSession()
+{
+  Impl &impl = *impl_;
+  if (impl.feature != nullptr && impl.runtime != nullptr && impl.runtime->release_feature) {
+    impl.runtime->release_feature(impl.feature);
+    impl.feature = nullptr;
+  }
+  if (impl.parameters != nullptr && impl.runtime != nullptr &&
+      impl.runtime->destroy_parameters)
+  {
+    impl.runtime->destroy_parameters(impl.parameters);
+    impl.parameters = nullptr;
+  }
+  /* Vulkan command pool / buffer / fences are released by the device at shutdown. */
+  delete impl_;
+}
 
 bool DlssSRVulkanSession::available() const
 {
-  return false;
+  return impl_->feature != nullptr;
 }
 
 const char *DlssSRVulkanSession::status() const
 {
-  return "NGX DLSS SR backend not wired in this build (Vulkan/D3D12 interop required)";
+  return impl_->status;
 }
 
 double DlssSRVulkanSession::gpu_time_ms() const
 {
-  return -1.0;
+  return impl_->gpu_time_ms;
 }
 
-bool DlssSRVulkanSession::ensure_resources(const int2 & /*input_extent*/,
-                                           const int2 & /*output_extent*/,
-                                           int /*quality_preset*/,
-                                           bool /*depth_reverse_z*/,
-                                           bool /*force_recreate*/)
+bool DlssSRVulkanSession::ensure_resources(const int2 &input_extent,
+                                           const int2 &output_extent,
+                                           const int quality_preset,
+                                           const bool depth_reverse_z,
+                                           const bool force_recreate)
 {
+  Impl &impl = *impl_;
+
+  if (impl.feature != nullptr && !force_recreate && impl.input_extent == input_extent &&
+      impl.output_extent == output_extent && impl.quality_preset == quality_preset)
+  {
+    return true;
+  }
+
+  if (input_extent.x < 32 || input_extent.y < 32 || output_extent.x < 32 ||
+      output_extent.y < 32)
+  {
+    STRNCPY(impl.status, "DLSS SR: extents too small (< 32)");
+    return false;
+  }
+
+#if !defined(WITH_VULKAN_BACKEND) || !defined(WITH_DLSS)
+  STRNCPY(impl.status, "DLSS SR: build lacks Vulkan backend or DLSS SDK");
   return false;
+#else
+  /* Release the previous feature if any. */
+  if (impl.feature != nullptr && impl.runtime && impl.runtime->release_feature) {
+    impl.runtime->release_feature(impl.feature);
+    impl.feature = nullptr;
+  }
+
+  ngx::Runtime *runtime = impl.runtime;
+  if (runtime == nullptr || !runtime->loaded) {
+    STRNCPY(impl.status, runtime ? runtime->status : "DLSS SR: NGX runtime unavailable");
+    return false;
+  }
+
+  gpu::VKBackend &vk_backend = gpu::VKBackend::get();
+  gpu::VKDevice &vk_device = vk_backend.device;
+  if (!vk_device.is_initialized()) {
+    STRNCPY(impl.status, "DLSS SR: Vulkan device not initialized");
+    return false;
+  }
+
+  const VkInstance vk_instance = vk_device.instance_get();
+  const VkPhysicalDevice vk_phys_device = vk_device.physical_device_get();
+  const VkDevice vk_handle = vk_device.vk_handle();
+
+  /* Initialize NGX runtime once per process (idempotent). */
+  if (!ngx::runtime_init(*runtime,
+                         vk_instance,
+                         vk_phys_device,
+                         vk_handle,
+                         reinterpret_cast<void *>(vkGetInstanceProcAddr),
+                         reinterpret_cast<void *>(vkGetDeviceProcAddr)))
+  {
+    STRNCPY(impl.status, runtime->status);
+    return false;
+  }
+
+  /* Create the parameter object used to set inputs. */
+  if (impl.parameters == nullptr) {
+    if (runtime->allocate_parameters(&impl.parameters) != ngx::RESULT_SUCCESS) {
+      STRNCPY(impl.status, "DLSS SR: AllocateParameters failed");
+      return false;
+    }
+  }
+
+  /* Allocate the GPU textures that back the NGX inputs and output. If they already
+   * exist with the right extent, keep them; otherwise reallocate. */
+  if (impl.color_tx == nullptr || impl.input_extent != input_extent) {
+    if (impl.color_tx != nullptr) {
+      GPU_texture_free(impl.color_tx);
+    }
+    impl.color_tx = GPU_texture_create_2d("DLSS_SR.Color",
+                                          input_extent.x,
+                                          input_extent.y,
+                                          1,
+                                          gpu::TextureFormat::SFLOAT_16_16_16_16,
+                                          GPU_TEXTURE_USAGE_SHADER_READ |
+                                              GPU_TEXTURE_USAGE_SHADER_WRITE |
+                                              GPU_TEXTURE_USAGE_ATTACHMENT,
+                                          nullptr);
+    if (impl.color_tx == nullptr) {
+      STRNCPY(impl.status, "DLSS SR: color texture allocation failed");
+      return false;
+    }
+  }
+  if (impl.depth_tx == nullptr || impl.input_extent != input_extent) {
+    if (impl.depth_tx != nullptr) {
+      GPU_texture_free(impl.depth_tx);
+    }
+    impl.depth_tx = GPU_texture_create_2d("DLSS_SR.Depth",
+                                          input_extent.x,
+                                          input_extent.y,
+                                          1,
+                                          gpu::TextureFormat::SFLOAT_32,
+                                          GPU_TEXTURE_USAGE_SHADER_READ |
+                                              GPU_TEXTURE_USAGE_ATTACHMENT,
+                                          nullptr);
+    if (impl.depth_tx == nullptr) {
+      STRNCPY(impl.status, "DLSS SR: depth texture allocation failed");
+      return false;
+    }
+  }
+  if (impl.velocity_tx == nullptr || impl.input_extent != input_extent) {
+    if (impl.velocity_tx != nullptr) {
+      GPU_texture_free(impl.velocity_tx);
+    }
+    impl.velocity_tx = GPU_texture_create_2d("DLSS_SR.Velocity",
+                                             input_extent.x,
+                                             input_extent.y,
+                                             1,
+                                             gpu::TextureFormat::SFLOAT_16_16,
+                                             GPU_TEXTURE_USAGE_SHADER_READ |
+                                                 GPU_TEXTURE_USAGE_ATTACHMENT,
+                                             nullptr);
+    if (impl.velocity_tx == nullptr) {
+      STRNCPY(impl.status, "DLSS SR: velocity texture allocation failed");
+      return false;
+    }
+  }
+  if (impl.output_tx == nullptr || impl.output_extent != output_extent) {
+    if (impl.output_tx != nullptr) {
+      GPU_texture_free(impl.output_tx);
+    }
+    impl.output_tx = GPU_texture_create_2d("DLSS_SR.Output",
+                                           output_extent.x,
+                                           output_extent.y,
+                                           1,
+                                           gpu::TextureFormat::SFLOAT_16_16_16_16,
+                                           GPU_TEXTURE_USAGE_SHADER_READ |
+                                               GPU_TEXTURE_USAGE_SHADER_WRITE,
+                                           nullptr);
+    if (impl.output_tx == nullptr) {
+      STRNCPY(impl.status, "DLSS SR: output texture allocation failed");
+      return false;
+    }
+  }
+
+  /* Build the create-feature parameter set. */
+  NVSDK_NGX_Parameter *p = impl.parameters;
+  runtime->set_ui(p, "Width", unsigned(input_extent.x));
+  runtime->set_ui(p, "Height", unsigned(input_extent.y));
+  runtime->set_ui(p, "OutWidth", unsigned(output_extent.x));
+  runtime->set_ui(p, "OutHeight", unsigned(output_extent.y));
+  runtime->set_ui(p, "InWidth", unsigned(input_extent.x));
+  runtime->set_ui(p, "InHeight", unsigned(input_extent.y));
+  runtime->set_i(p, "PerfQualityValue", quality_preset);
+  /* Depth is EEVEE's reverse-Z [0..1]; NGX expects reverse-Z with DLSS SR. */
+  runtime->set_i(p, "DepthInverted", depth_reverse_z ? 1 : 0);
+  runtime->set_i(p, "JitterOffsetInPixels", 1);
+  runtime->set_i(p, "MotionVectorsInPixels", 1);
+  runtime->set_ui(p, "CreationNodeMask", 1u);
+  runtime->set_ui(p, "VisibilityNodeMask", 1u);
+  runtime->set_ull(p, "FeatureCreateFlags", 0ull);
+
+  /* Command pool + buffer + fence for the NGX submission. */
+  if (impl.command_pool == VK_NULL_HANDLE) {
+    VkCommandPoolCreateInfo pool_info = {};
+    pool_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+    pool_info.queueFamilyIndex = vk_device.queue_family_get();
+    pool_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+    if (vk_device.functions.vkCreateCommandPool(vk_handle, &pool_info, nullptr, &impl.command_pool) != VK_SUCCESS) {
+      STRNCPY(impl.status, "DLSS SR: vkCreateCommandPool failed");
+      return false;
+    }
+  }
+  if (impl.command_buffer == VK_NULL_HANDLE) {
+    VkCommandBufferAllocateInfo cb_info = {};
+    cb_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    cb_info.commandPool = impl.command_pool;
+    cb_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    cb_info.commandBufferCount = 1;
+    if (vk_device.functions.vkAllocateCommandBuffers(vk_handle, &cb_info, &impl.command_buffer) != VK_SUCCESS) {
+      STRNCPY(impl.status, "DLSS SR: vkAllocateCommandBuffers failed");
+      return false;
+    }
+  }
+  if (impl.fence == VK_NULL_HANDLE) {
+    VkFenceCreateInfo fence_info = {};
+    fence_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+    fence_info.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+    if (vk_device.functions.vkCreateFence(vk_handle, &fence_info, nullptr, &impl.fence) != VK_SUCCESS) {
+      STRNCPY(impl.status, "DLSS SR: vkCreateFence failed");
+      return false;
+    }
+  }
+
+  /* Create the SR feature. NGX wants a VkCommandBuffer for this call. */
+  {
+    VkCommandBufferBeginInfo begin_info = {};
+    begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    vk_device.functions.vkBeginCommandBuffer(impl.command_buffer, &begin_info);
+
+    const int result = runtime->create_feature1(vk_handle,
+                                                impl.command_buffer,
+                                                ngx::FEATURE_SUPER_SAMPLING,
+                                                p,
+                                                &impl.feature);
+
+    VkResult end_result = vk_device.functions.vkEndCommandBuffer(impl.command_buffer);
+    if (result != ngx::RESULT_SUCCESS || impl.feature == nullptr) {
+      char msg[160];
+      SNPRINTF(msg, "DLSS SR: CreateFeature failed (0x%08x)", result);
+      STRNCPY(impl.status, msg);
+      impl.feature = nullptr;
+      return false;
+    }
+    if (end_result != VK_SUCCESS) {
+      STRNCPY(impl.status, "DLSS SR: command buffer end failed after CreateFeature");
+      runtime->release_feature(impl.feature);
+      impl.feature = nullptr;
+      return false;
+    }
+
+    /* Submit the empty command buffer as required by NGX. */
+    VkSubmitInfo submit = {};
+    submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submit.commandBufferCount = 1;
+    submit.pCommandBuffers = &impl.command_buffer;
+    vk_device.functions.vkResetFences(vk_handle, 1, &impl.fence);
+    VkQueue queue = vk_device.queue_handle_get();
+    vk_device.functions.vkQueueSubmit(queue, 1, &submit, impl.fence);
+    vk_device.functions.vkWaitForFences(vk_handle, 1, &impl.fence, VK_TRUE, UINT64_MAX);
+    vk_device.functions.vkResetCommandBuffer(impl.command_buffer, 0);
+  }
+
+  impl.input_extent = input_extent;
+  impl.output_extent = output_extent;
+  impl.quality_preset = quality_preset;
+  impl.depth_reverse_z = depth_reverse_z;
+  SNPRINTF(impl.status,
+           "DLSS SR active: %dx%d -> %dx%d quality=%d",
+           input_extent.x,
+           input_extent.y,
+           output_extent.x,
+           output_extent.y,
+           quality_preset);
+  return true;
+#endif
 }
 
 void DlssSRVulkanSession::retry_initialization()
 {
+  Impl &impl = *impl_;
+  if (impl.feature != nullptr && impl.runtime && impl.runtime->release_feature) {
+    impl.runtime->release_feature(impl.feature);
+    impl.feature = nullptr;
+  }
+  impl.retry_count++;
+  STRNCPY(impl.status, "DLSS SR: retrying initialization");
 }
 
 gpu::Texture *DlssSRVulkanSession::color_texture()
 {
-  return nullptr;
+  return impl_->color_tx;
 }
 
 gpu::Texture *DlssSRVulkanSession::depth_texture()
 {
-  return nullptr;
+  return impl_->depth_tx;
 }
 
 gpu::Texture *DlssSRVulkanSession::velocity_texture()
 {
-  return nullptr;
+  return impl_->velocity_tx;
 }
 
 gpu::Texture *DlssSRVulkanSession::output_texture()
 {
-  return nullptr;
+  return impl_->output_tx;
 }
 
-bool DlssSRVulkanSession::copy_inputs_and_evaluate(const DlssSRFrameInputs & /*frame*/,
-                                                   bool /*color_is_scene_linear*/)
+bool DlssSRVulkanSession::copy_inputs_and_evaluate(const DlssSRFrameInputs &frame,
+                                                   const bool /*color_is_scene_linear*/)
 {
+  Impl &impl = *impl_;
+  ngx::Runtime *runtime = impl.runtime;
+  if (impl.feature == nullptr || runtime == nullptr || !runtime->loaded) {
+    return false;
+  }
+
+#if !defined(WITH_VULKAN_BACKEND) || !defined(WITH_DLSS)
   return false;
+#else
+  gpu::VKBackend &vk_backend = gpu::VKBackend::get();
+  gpu::VKDevice &vk_device = vk_backend.device;
+  const VkDevice vk_handle = vk_device.vk_handle();
+
+  /* Bind GPU textures by Vulkan image views. Reuse the images created in
+   * ensure_resources; NGX reads them through the parameters below. */
+  gpu::VKTexture *vk_color = gpu::unwrap(impl.color_tx);
+  gpu::VKTexture *vk_depth = gpu::unwrap(impl.depth_tx);
+  gpu::VKTexture *vk_velocity = gpu::unwrap(impl.velocity_tx);
+  gpu::VKTexture *vk_output = gpu::unwrap(impl.output_tx);
+  if (!vk_color || !vk_depth || !vk_velocity || !vk_output) {
+    STRNCPY(impl.status, "DLSS SR: GPU textures not Vulkan-backed");
+    return false;
+  }
+
+  const VkImageView color_view = vk_color->image_view_get(gpu::VKImageViewArrayed::NOT_ARRAYED,
+                                                          gpu::VKImageViewFlags::DEFAULT)
+                                     .vk_handle();
+  const VkImageView depth_view = vk_depth->image_view_get(gpu::VKImageViewArrayed::NOT_ARRAYED,
+                                                          gpu::VKImageViewFlags::DEFAULT)
+                                     .vk_handle();
+  const VkImageView vel_view = vk_velocity->image_view_get(gpu::VKImageViewArrayed::NOT_ARRAYED,
+                                                           gpu::VKImageViewFlags::DEFAULT)
+                                   .vk_handle();
+  const VkImageView out_view = vk_output->image_view_get(gpu::VKImageViewArrayed::NOT_ARRAYED,
+                                                         gpu::VKImageViewFlags::DEFAULT)
+                                   .vk_handle();
+
+  NVSDK_NGX_Parameter *p = impl.parameters;
+  runtime->set_ptr(p, "Color", reinterpret_cast<void *>(color_view));
+  runtime->set_ptr(p, "Depth", reinterpret_cast<void *>(depth_view));
+  runtime->set_ptr(p, "MotionVectors", reinterpret_cast<void *>(vel_view));
+  runtime->set_ptr(p, "Output", reinterpret_cast<void *>(out_view));
+
+  runtime->set_f(p, "Sharpness", frame.sharpness);
+  runtime->set_f(p, "MV.Scale.X", frame.mvec_scale);
+  runtime->set_f(p, "MV.Scale.Y", frame.mvec_scale);
+  runtime->set_f(p, "JitterOffset.X", frame.jitter.x);
+  runtime->set_f(p, "JitterOffset.Y", frame.jitter.y);
+  runtime->set_i(p, "Reset", frame.reset_history ? 1 : 0);
+
+  VkCommandBufferBeginInfo begin_info = {};
+  begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+  begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+  vk_device.functions.vkBeginCommandBuffer(impl.command_buffer, &begin_info);
+
+  const int result = runtime->evaluate_feature(impl.command_buffer, impl.feature, p, nullptr);
+
+  vk_device.functions.vkEndCommandBuffer(impl.command_buffer);
+  if (result != ngx::RESULT_SUCCESS) {
+    char msg[160];
+    SNPRINTF(msg, "DLSS SR: EvaluateFeature failed (0x%08x)", result);
+    STRNCPY(impl.status, msg);
+    vk_device.functions.vkResetCommandBuffer(impl.command_buffer, 0);
+    return false;
+  }
+
+  VkSubmitInfo submit = {};
+  submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+  submit.commandBufferCount = 1;
+  submit.pCommandBuffers = &impl.command_buffer;
+  vk_device.functions.vkResetFences(vk_handle, 1, &impl.fence);
+  vk_device.functions.vkQueueSubmit(vk_device.queue_handle_get(), 1, &submit, impl.fence);
+  return true;
+#endif
 }
 
 bool DlssSRVulkanSession::wait_for_output()
 {
+  Impl &impl = *impl_;
+  if (impl.feature == nullptr || impl.fence == VK_NULL_HANDLE) {
+    return false;
+  }
+#if !defined(WITH_VULKAN_BACKEND) || !defined(WITH_DLSS)
   return false;
+#else
+  gpu::VKBackend &vk_backend = gpu::VKBackend::get();
+  gpu::VKDevice &vk_device = vk_backend.device;
+  const VkResult wait_result = vk_device.functions.vkWaitForFences(
+      vk_device.vk_handle(), 1, &impl.fence, VK_TRUE, UINT64_MAX);
+  vk_device.functions.vkResetCommandBuffer(impl.command_buffer, 0);
+  if (wait_result != VK_SUCCESS) {
+    STRNCPY(impl.status, "DLSS SR: fence wait failed");
+    return false;
+  }
+  return true;
+#endif
 }
 
 void DlssSRVulkanSession::warmup()
 {
+  /* Warmup is a no-op: NGX handles its own lazy initialization. */
 }
 
 /** \} */

@@ -45,9 +45,16 @@ struct DlssSRFrameInputs {
 };
 
 class DlssSRVulkanSession {
+ private:
+  struct Impl;
+  Impl *impl_ = nullptr;
+
  public:
   DlssSRVulkanSession();
   ~DlssSRVulkanSession();
+
+  DlssSRVulkanSession(const DlssSRVulkanSession &) = delete;
+  DlssSRVulkanSession &operator=(const DlssSRVulkanSession &) = delete;
 
   bool available() const;
   const char *status() const;

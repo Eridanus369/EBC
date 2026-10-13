@@ -92,6 +92,8 @@ Runtime *runtime_get()
   rt.set_ui = reinterpret_cast<PFN_Parameter_SetUI>(load_symbol(rt.core_lib, "NVSDK_NGX_Parameter_SetUI"));
   rt.set_f = reinterpret_cast<PFN_Parameter_SetF>(load_symbol(rt.core_lib, "NVSDK_NGX_Parameter_SetF"));
   rt.set_ull = reinterpret_cast<PFN_Parameter_SetULL>(load_symbol(rt.core_lib, "NVSDK_NGX_Parameter_SetULL"));
+  rt.set_ptr = reinterpret_cast<PFN_Parameter_SetVoidPointer>(
+      load_symbol(rt.core_lib, "NVSDK_NGX_Parameter_SetVoidPointer"));
 
   if (rt.init == nullptr || rt.get_parameters == nullptr || rt.create_feature1 == nullptr ||
       rt.evaluate_feature == nullptr || rt.release_feature == nullptr ||
