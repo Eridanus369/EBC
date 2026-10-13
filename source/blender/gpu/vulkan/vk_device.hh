@@ -337,6 +337,11 @@ class VKDevice : public NonCopyable {
     return vk_queue_family_;
   }
 
+  VkQueue queue_handle_get() const
+  {
+    return vk_queue_;
+  }
+
   inline VmaAllocator mem_allocator_get() const
   {
     return mem_allocator_;

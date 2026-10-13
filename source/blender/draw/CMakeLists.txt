@@ -9,6 +9,7 @@ set(INC
   ../editors/include
   ../editors/space_view3d
   ../gpu/intern
+  ../gpu/vulkan
   ../makesrna
   ../modifiers
   ../modifiers/intern
@@ -114,6 +115,7 @@ set(SRC
   engines/eevee/eevee_render_texture.cc
   engines/eevee/eevee_dlss_sr.cc
   engines/eevee/dlss5_d3d12.cc
+  engines/eevee/dlss5_ngx.cc
   engines/eevee/eevee_engine.cc
   engines/eevee/eevee_film.cc
   engines/eevee/eevee_filter_material.cc
@@ -229,6 +231,7 @@ set(SRC
   engines/eevee/eevee_render_texture_shared.hh
   engines/eevee/eevee_dlss_sr.hh
   engines/eevee/dlss5_d3d12.hh
+  engines/eevee/dlss5_ngx.hh
   engines/eevee/eevee_engine.h
   engines/eevee/eevee_film.hh
   engines/eevee/eevee_gbuffer.hh
@@ -330,6 +333,17 @@ set(SRC
   engines/workbench/workbench_private.hh
   engines/workbench/workbench_shader_shared.hh
 )
+
+# NVIDIA DLSS SDK for the EEVEE DLSS SR Vulkan/NGX executor.
+if(WITH_DLSS)
+  find_package(DLSS)
+  if(DLSS_FOUND)
+    add_definitions(-DWITH_DLSS)
+    include_directories(SYSTEM "${DLSS_INCLUDE_DIR}")
+  else()
+    set_and_warn_library_found("DLSS (EEVEE)" DLSS_FOUND WITH_DLSS)
+  endif()
+endif()
 
 set(LIB
   PRIVATE bf::blenfont
