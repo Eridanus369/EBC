@@ -454,6 +454,12 @@ void Film::init(const int2 &extent, const rcti *output_rect)
     if (inst_.is_viewport()) {
       data_.scaling_factor = BKE_render_preview_pixel_size(&inst_.scene->r);
     }
+    /* EEVEE DLSS SR: render at half resolution, let NGX reconstruct to display extent.
+     * The DLSS SR adapter receives input_extent = render_extent and
+     * output_extent = display_extent. */
+    if (scene.eevee.dlss5_mode == SCE_EEVEE_DLSS_SR) {
+      data_.scaling_factor = 2;
+    }
     /* Sharpen the LODs (1.5x) to avoid TAA filtering causing over-blur (see #122941). */
     data_.texture_lod_bias = 1.0f / (data_.scaling_factor * 1.5f);
   }

@@ -15,17 +15,50 @@
 #include "eevee_shader.hh"
 
 #ifdef WITH_DLSS
-#  include "dlss5_ngx.hh"
 #  ifdef WITH_VULKAN_BACKEND
+#    include "vk_common.hh"
 #    include "vk_backend.hh"
 #    include "vk_device.hh"
 #    include "vk_image_view.hh"
 #    include "vk_texture.hh"
-#    include "vk_common.hh"
 #  endif
+/* Real NGX headers: NVSDK_NGX_Parameter is a C++ abstract class whose setters are
+ * virtual methods, not exported symbols. Must come after Vulkan types. */
+#  include "nvsdk_ngx.h"
+#  include "nvsdk_ngx_vk.h"
+#  include "nvsdk_ngx_params.h"
+#  include "dlss5_ngx.hh"
 #endif
 
 namespace blender::eevee {
+
+#ifdef WITH_DLSS
+namespace {
+
+/* NVSDK_NGX_Parameter setters dispatch through the C++ vtable. */
+inline void ngx_set_f(NVSDK_NGX_Parameter *p, const char *name, float value)
+{
+  p->Set(name, value);
+}
+inline void ngx_set_ui(NVSDK_NGX_Parameter *p, const char *name, unsigned value)
+{
+  p->Set(name, value);
+}
+inline void ngx_set_i(NVSDK_NGX_Parameter *p, const char *name, int value)
+{
+  p->Set(name, value);
+}
+inline void ngx_set_ull(NVSDK_NGX_Parameter *p, const char *name, unsigned long long value)
+{
+  p->Set(name, value);
+}
+inline void ngx_set_ptr(NVSDK_NGX_Parameter *p, const char *name, void *value)
+{
+  p->Set(name, value);
+}
+
+}  // namespace
+#endif
 
 /* -------------------------------------------------------------------- */
 /** 
@@ -238,20 +271,18 @@ bool DlssSRVulkanSession::ensure_resources(const int2 &input_extent,
 
   /* Build the create-feature parameter set. */
   NVSDK_NGX_Parameter *p = impl.parameters;
-  runtime->set_ui(p, "Width", unsigned(input_extent.x));
-  runtime->set_ui(p, "Height", unsigned(input_extent.y));
-  runtime->set_ui(p, "OutWidth", unsigned(output_extent.x));
-  runtime->set_ui(p, "OutHeight", unsigned(output_extent.y));
-  runtime->set_ui(p, "InWidth", unsigned(input_extent.x));
-  runtime->set_ui(p, "InHeight", unsigned(input_extent.y));
-  runtime->set_i(p, "PerfQualityValue", quality_preset);
+  ngx_set_ui(p, "Width", unsigned(input_extent.x));
+  ngx_set_ui(p, "Height", unsigned(input_extent.y));
+  ngx_set_ui(p, "OutWidth", unsigned(output_extent.x));
+  ngx_set_ui(p, "OutHeight", unsigned(output_extent.y));
+  ngx_set_ui(p, "InWidth", unsigned(input_extent.x));
+  ngx_set_ui(p, "InHeight", unsigned(input_extent.y));
+  ngx_set_i(p, "PerfQualityValue", quality_preset);
   /* Depth is EEVEE's reverse-Z [0..1]; NGX expects reverse-Z with DLSS SR. */
-  runtime->set_i(p, "DepthInverted", depth_reverse_z ? 1 : 0);
-  runtime->set_i(p, "JitterOffsetInPixels", 1);
-  runtime->set_i(p, "MotionVectorsInPixels", 1);
-  runtime->set_ui(p, "CreationNodeMask", 1u);
-  runtime->set_ui(p, "VisibilityNodeMask", 1u);
-  runtime->set_ull(p, "FeatureCreateFlags", 0ull);
+  ngx_set_i(p, "DepthInverted", depth_reverse_z ? 1 : 0);
+  ngx_set_ui(p, "CreationNodeMask", 1u);
+  ngx_set_ui(p, "VisibilityNodeMask", 1u);
+  ngx_set_i(p, "DLSS.Feature.Create.Flags", 0);
 
   /* Command pool + buffer + fence for the NGX submission. */
   if (impl.command_pool == VK_NULL_HANDLE) {
@@ -411,17 +442,17 @@ bool DlssSRVulkanSession::copy_inputs_and_evaluate(const DlssSRFrameInputs &fram
                                    .vk_handle();
 
   NVSDK_NGX_Parameter *p = impl.parameters;
-  runtime->set_ptr(p, "Color", reinterpret_cast<void *>(color_view));
-  runtime->set_ptr(p, "Depth", reinterpret_cast<void *>(depth_view));
-  runtime->set_ptr(p, "MotionVectors", reinterpret_cast<void *>(vel_view));
-  runtime->set_ptr(p, "Output", reinterpret_cast<void *>(out_view));
+  ngx_set_ptr(p, "Color", reinterpret_cast<void *>(color_view));
+  ngx_set_ptr(p, "Depth", reinterpret_cast<void *>(depth_view));
+  ngx_set_ptr(p, "MotionVectors", reinterpret_cast<void *>(vel_view));
+  ngx_set_ptr(p, "Output", reinterpret_cast<void *>(out_view));
 
-  runtime->set_f(p, "Sharpness", frame.sharpness);
-  runtime->set_f(p, "MV.Scale.X", frame.mvec_scale);
-  runtime->set_f(p, "MV.Scale.Y", frame.mvec_scale);
-  runtime->set_f(p, "JitterOffset.X", frame.jitter.x);
-  runtime->set_f(p, "JitterOffset.Y", frame.jitter.y);
-  runtime->set_i(p, "Reset", frame.reset_history ? 1 : 0);
+  ngx_set_f(p, "Sharpness", frame.sharpness);
+  ngx_set_f(p, "MV.Scale.X", frame.mvec_scale);
+  ngx_set_f(p, "MV.Scale.Y", frame.mvec_scale);
+  ngx_set_f(p, "JitterOffset.X", frame.jitter.x);
+  ngx_set_f(p, "JitterOffset.Y", frame.jitter.y);
+  ngx_set_i(p, "Reset", frame.reset_history ? 1 : 0);
 
   VkCommandBufferBeginInfo begin_info = {};
   begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
