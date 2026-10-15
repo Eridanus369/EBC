@@ -894,8 +894,10 @@ class RENDER_PT_eevee_dlss(RenderButtonsPanel, Panel):
 
         if sys.platform == 'win32':
             platform_note = "Windows: D3D12/Vulkan backend required (NVIDIA RTX + DLSS SDK)"
+        elif props.dlss5_mode == 'DLSS_SR':
+            platform_note = "Linux: Vulkan NGX backend (DLSS Super Resolution)"
         else:
-            platform_note = "Linux: Vulkan NGX backend required (integration pending, currently bypassed)"
+            platform_note = "Linux: Neural Rendering not yet implemented, use DLSS Super Resolution"
         col = layout.column()
         col.label(text=platform_note, icon='INFO')
         col.separator()
