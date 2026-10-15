@@ -116,6 +116,7 @@ set(SRC
   engines/eevee/eevee_bake.cc
   engines/eevee/eevee_cryptomatte.cc
   engines/eevee/eevee_depth_of_field.cc
+  engines/eevee/eevee_caustics.cc
   engines/eevee/eevee_dlss5.cc
   engines/eevee/eevee_render_texture.cc
   engines/eevee/eevee_dlss_sr.cc
@@ -231,6 +232,7 @@ set(SRC
   engines/eevee/eevee_bake.hh
   engines/eevee/eevee_cryptomatte.hh
   engines/eevee/eevee_depth_of_field.hh
+  engines/eevee/eevee_caustics.hh
   engines/eevee/eevee_dlss5.hh
   engines/eevee/eevee_render_texture.hh
   engines/eevee/eevee_render_texture_shared.hh
@@ -451,6 +453,8 @@ set(GLSL_SRC
   engines/eevee/shaders/eevee_depth_of_field_scatter.bsl.hh
   engines/eevee/shaders/eevee_depth_of_field_setup.bsl.hh
   engines/eevee/shaders/eevee_depth_of_field_tiles.bsl.hh
+  engines/eevee/shaders/eevee_dlss5.bsl.hh
+  engines/eevee/shaders/eevee_dlss_sr.bsl.hh
   engines/eevee/shaders/eevee_fast_gi.bsl.hh
   engines/eevee/shaders/eevee_film.bsl.hh
   engines/eevee/shaders/eevee_filter.bsl.hh

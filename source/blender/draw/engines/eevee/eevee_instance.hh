@@ -33,6 +33,7 @@
 #include "eevee_cryptomatte.hh"
 #include "eevee_debug_shared.hh"
 #include "eevee_depth_of_field.hh"
+#include "eevee_caustics.hh"
 #include "eevee_dlss5.hh"
 #include "eevee_dlss_sr.hh"
 #include "eevee_filter_material.hh"
@@ -136,6 +137,7 @@ class Instance : public DrawEngine {
   DepthOfField depth_of_field;
   Dlss5Module dlss5;
   DlssSRModule dlss_sr;
+  CausticModule caustics;
   Cryptomatte cryptomatte;
   GBuffer gbuffer;
   HiZBuffer hiz_buffer;
@@ -309,6 +311,7 @@ class Instance : public DrawEngine {
         depth_of_field(*this),
         dlss5(*this),
         dlss_sr(*this),
+        caustics(*this),
         cryptomatte(*this),
         hiz_buffer(*this, uniform_data.data.hiz),
         sampling(*this, uniform_data.data.clamp),

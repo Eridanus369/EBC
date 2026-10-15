@@ -251,6 +251,7 @@ void Instance::init(const int2 &output_res,
   sphere_probes.init();
   volume_probes.init();
   volume.init();
+  caustics.init();
   lookdev.init(&lookdev_rect);
 
   /* Request static shaders */
@@ -339,6 +340,7 @@ void Instance::init_light_bake(Depsgraph *depsgraph, draw::Manager *manager)
   sphere_probes.init();
   volume_probes.init();
   volume.init();
+  caustics.init();
   lookdev.init(&empty_rect);
 
   needed_shaders = IRRADIANCE_BAKE_SHADERS | SHADOW_SHADERS | SURFEL_SHADERS;
@@ -389,6 +391,7 @@ void Instance::begin_sync()
   velocity.begin_sync(); /* NOTE: Also syncs camera. */
   lights.begin_sync();
   shadows.begin_sync();
+  caustics.sync();
   volume.begin_sync();
   pipelines.begin_sync();
   cryptomatte.begin_sync();
@@ -606,6 +609,8 @@ void Instance::render_sample()
     lookdev.rotate_world();
     capture_view.render_probes();
     render_textures.render();
+
+    caustics.render();
 
     main_view.render();
 

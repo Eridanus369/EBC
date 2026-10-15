@@ -1,0 +1,54 @@
+/* SPDX-FileCopyrightText: 2026 Blender Authors
+ *
+ * SPDX-License-Identifier: GPL-2.0-or-later */
+
+/** \file
+ * \ingroup eevee
+ *
+ * Spectral caustics module.
+ *
+ * Photon-based caustics with spectral dispersion. Photons carry a wavelength
+ * sampled from the CIE 1931 locus; glass interfaces refract per-wavelength via
+ * Cauchy's equation. Results are splatted into cascaded caustic maps and queried
+ * by surface and volume shading.
+ */
+
+#pragma once
+
+#include "draw_pass.hh"
+
+namespace blender::eevee {
+
+using namespace draw;
+
+class Instance;
+
+/* -------------------------------------------------------------------- */
+/** \name CausticModule
+ * \{ */
+
+class CausticModule {
+ private:
+  Instance &inst_;
+
+  bool enabled_ = false;
+  int photon_count_ = 0;
+  int spectral_samples_ = 0;
+
+ public:
+  CausticModule(Instance &inst) : inst_(inst) {};
+  ~CausticModule() {};
+
+  void init();
+  void sync();
+  void render();
+
+  bool enabled() const
+  {
+    return enabled_;
+  }
+};
+
+/** \} */
+
+}  // namespace blender::eevee
