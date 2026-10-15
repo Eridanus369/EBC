@@ -98,6 +98,13 @@ if(WITH_VULKAN_BACKEND)
   )
 
   add_definitions(-DWITH_VULKAN_BACKEND)
+
+  if(WITH_DLSS)
+    # The DLSS/NGX executor needs VkDevice extensions (VK_NVX_binary_import,
+    # VK_NVX_image_view_handle, VK_KHR_push_descriptor) that GHOST has to enable at
+    # vkCreateDevice time. See GHOST_ContextVK.cc.
+    add_definitions(-DWITH_DLSS)
+  endif()
 endif()
 
 if(WITH_GHOST_DEBUG)

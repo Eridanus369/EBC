@@ -6,7 +6,7 @@
 
 #include "eevee_reverse_z_lib.bsl.hh"
 #include "eevee_velocity.bsl.hh"
-#include "gpu_shader_fullscreen_lib.glsl"
+#include "gpu_shader_fullscreen.bsl.hh"
 
 namespace eevee::dlss_sr {
 

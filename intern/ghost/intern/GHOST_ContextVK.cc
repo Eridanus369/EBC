@@ -1999,6 +1999,22 @@ GHOST_TSuccess GHOST_ContextVK::initializeDrawingContext()
     optional_device_extensions.append(VK_KHR_EXTERNAL_MEMORY_FD_EXTENSION_NAME);
 #endif
 
+#ifdef WITH_DLSS
+    /* The NVIDIA NGX feature library (DLSS Super Resolution) resolves
+     * `vkCreateCuModuleNVX` / `vkCreateCuFunctionNVX` (VK_NVX_binary_import) and
+     * `vkGetImageViewHandleNVX` (VK_NVX_image_view_handle) through `vkGetDeviceProcAddr`.
+     * Those entry points are only non-NULL when the extensions were enabled at
+     * `vkCreateDevice` time; without them NGX cannot build its CUDA kernels and
+     * `CreateFeature1` fails. */
+    optional_device_extensions.append(VK_NVX_BINARY_IMPORT_EXTENSION_NAME);
+    optional_device_extensions.append(VK_NVX_IMAGE_VIEW_HANDLE_EXTENSION_NAME);
+#  ifndef WITH_XR_OPENXR
+    /* NGX also calls `vkCmdPushDescriptorSetKHR`. The OpenXR block below enables the same
+     * extension, so only add it here when OpenXR is not compiled in to avoid a duplicate. */
+    optional_device_extensions.append(VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME);
+#  endif
+#endif
+
     optional_device_extensions.append(VK_EXT_PROVOKING_VERTEX_EXTENSION_NAME);
     required_device_extensions.append(VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME);
     required_device_extensions.append(VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME);

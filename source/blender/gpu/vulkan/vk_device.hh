@@ -342,6 +342,17 @@ class VKDevice : public NonCopyable {
     return vk_queue_;
   }
 
+  /**
+   * Serializes raw `vkQueueSubmit` calls made outside the render graph (e.g. by NVIDIA NGX /
+   * DLSS) with the submission runner thread. Vulkan requires external synchronization on the
+   * queue; submitting without this lock races with the runner and loses the device.
+   */
+  std::mutex &queue_mutex_get() const
+  {
+    BLI_assert(queue_mutex_ != nullptr);
+    return *queue_mutex_;
+  }
+
   inline VmaAllocator mem_allocator_get() const
   {
     return mem_allocator_;

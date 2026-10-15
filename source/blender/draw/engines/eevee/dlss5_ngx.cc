@@ -39,10 +39,16 @@ void set_status(Runtime &rt, const char *message)
 
 /* Candidate locations for the NGX feature library. The SDK ships it under
  * `<root>/lib/Linux_x86_64/rel/`, but the driver may also expose it in the default
- * loader search path once NGX core initialized the feature path. We try both. */
+ * loader search path once NGX core initialized the feature path. We try both.
+ *
+ * NOTE: the feature library version must be compatible with the installed NGX core
+ * (driver). Driver 595.99.02 rejects `310.9.1` (too new) and `310.2.1` (too old);
+ * `310.7.0` / `310.5.3` validate successfully. NGX additionally resolves its snippet
+ * relative to the *application directory* (`build_linux/bin`), so the same library must
+ * be reachable there. */
 const char *const feature_library_candidates[] = {
-    "/home/eridanusepsilon/dlss-sdk-latest/DLSS-310.2.1/lib/Linux_x86_64/rel/libnvidia-ngx-dlss.so.310.2.1",
-    "/home/eridanusepsilon/dlss-sdk-latest/DLSS-310.2.1/lib/Linux_x86_64/rel/libnvidia-ngx-dlss.so.310.2.1",
+    "/home/eridanusepsilon/dlss-sdk-latest/DLSS-310.7.0/lib/Linux_x86_64/rel/libnvidia-ngx-dlss.so.310.7.0",
+    "/home/eridanusepsilon/dlss-sdk-latest/DLSS-310.5.3/lib/Linux_x86_64/rel/libnvidia-ngx-dlss.so.310.5.3",
     "libnvidia-ngx-dlss.so.1",
 };
 
@@ -75,7 +81,8 @@ Runtime *runtime_get()
     return &rt;
   }
 
-  rt.init = reinterpret_cast<PFN_Init>(load_symbol(rt.core_lib, "NVSDK_NGX_VULKAN_Init"));
+  rt.init = reinterpret_cast<PFN_Init>(
+      load_symbol(rt.core_lib, "NVSDK_NGX_VULKAN_Init_Ext2"));
   rt.shutdown = reinterpret_cast<PFN_Shutdown1>(load_symbol(rt.core_lib, "NVSDK_NGX_VULKAN_Shutdown1"));
   rt.get_parameters = reinterpret_cast<PFN_GetParameters>(
       load_symbol(rt.core_lib, "NVSDK_NGX_VULKAN_GetParameters"));
@@ -126,11 +133,27 @@ bool runtime_init(Runtime &rt,
     return false;
   }
 
-  fprintf(stderr, "[NGX-DBG] gipa=%p gdpa=%p vk_inst=%p vk_pdev=%p vk_dev=%p\n",
-          gipa, gdpa, (void*)vk_instance, (void*)vk_phys_device, (void*)vk_device);
-
   /* Blender's NGX application id; any non-zero value is accepted by the loader. */
   constexpr unsigned long long app_id = 0xEBC00001ull;
+
+  /* `NVSDK_NGX_Version_API` of the installed NGX core. The driver reports
+   * "NGX CORE API version : 0x15"; requesting anything newer is rejected with
+   * `NVSDK_NGX_Result_FAIL_OutOfDate` (0xbad0000c). */
+  constexpr int sdk_version = 0x15;
+
+  /* This must go through `NVSDK_NGX_VULKAN_Init_Ext2`, *not* the plain
+   * `NVSDK_NGX_VULKAN_Init` export. On driver 595.99.02 the latter is compiled with the
+   * legacy six-argument signature
+   * `(appId, appPath, instance, physDevice, device, InSDKVersion)`: its wrapper does
+   * `mov %r9d,%ebp` and pushes that as the API version it hands to the internal
+   * `NGXInitValidateSnippets` check (`cmp $0x15,%ecx; jg <OutOfDate>`), while it passes
+   * zero for GIPA/GDPA/FeatureInfo. Calling it with the nine-argument layout that
+   * `nvsdk_ngx_vk.h` declares - version last, on the stack - therefore leaves that check
+   * reading the low 32 bits of `vkGetInstanceProcAddr` instead of a version: whenever those
+   * bits form a small positive number the driver rejects the call with 0xbad0000c, which is
+   * why the failure looked intermittent. `Init_Ext2` implements the documented argument
+   * order (its disassembly maps `r9=GIPA, stack+8=GDPA, stack+16=Version, stack+24=Params`)
+   * and feeds the real version to the check. */
   const int result = rt.init(app_id,
                              L"/tmp",
                              vk_instance,
@@ -138,12 +161,11 @@ bool runtime_init(Runtime &rt,
                              vk_device,
                              gipa,
                              gdpa,
-                             nullptr,
-                             /*NVSDK_NGX_Version_API*/ 0x0000000F);
-  fprintf(stderr, "[NGX-DBG] Init returned 0x%08x (success=0x1)\n", result);
+                             sdk_version,
+                             /*InParameters*/ nullptr);
   if (result != RESULT_SUCCESS) {
     char message[160];
-    SNPRINTF(message, "NGX Vulkan init failed (0x%08x)", result);
+    SNPRINTF(message, "NGX Vulkan init failed (0x%08x)", unsigned(result));
     set_status(rt, message);
     return false;
   }

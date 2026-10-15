@@ -4,6 +4,8 @@
 
 #include "eevee_dlss_sr.hh"
 
+#include <mutex>
+
 #include "CLG_log.h"
 #include "DEG_depsgraph_query.hh"
 #include "BLI_string.hh"
@@ -26,6 +28,7 @@
  * virtual methods, not exported symbols. Must come after Vulkan types. */
 #  include "nvsdk_ngx.h"
 #  include "nvsdk_ngx_vk.h"
+#  include "nvsdk_ngx_helpers_vk.h"
 #  include "nvsdk_ngx_params.h"
 #  include "dlss5_ngx.hh"
 #endif
@@ -81,6 +84,8 @@ struct DlssSRVulkanSession::Impl {
   bool depth_reverse_z = true;
   int retry_count = 0;
 
+  VkDevice vk_device = VK_NULL_HANDLE;
+  std::mutex *queue_mutex = nullptr;
   VkCommandPool command_pool = VK_NULL_HANDLE;
   VkCommandBuffer command_buffer = VK_NULL_HANDLE;
   VkFence fence = VK_NULL_HANDLE;
@@ -110,7 +115,39 @@ DlssSRVulkanSession::~DlssSRVulkanSession()
     impl.runtime->destroy_parameters(impl.parameters);
     impl.parameters = nullptr;
   }
-  /* Vulkan command pool / buffer / fences are released by the device at shutdown. */
+  /* NGX only *stores* `ReleaseFeature` / `DestroyParameters` and drains that work on a later
+   * NGX call. When a headless render quits right after the frame, no such call happens, so the
+   * driver-side core library's own teardown runs *after* Blender destroyed the VkDevice and
+   * segfaults. `NVSDK_NGX_VULKAN_Shutdown1` drains it here, while the device is still alive.
+   * The queue lock is held because NGX submits internally. `initialized` is cleared so a later
+   * session re-initializes NGX. */
+  if (impl.runtime != nullptr && impl.runtime->initialized && impl.runtime->shutdown != nullptr &&
+      impl.vk_device != VK_NULL_HANDLE && impl.queue_mutex != nullptr)
+  {
+    std::scoped_lock queue_lock(*impl.queue_mutex);
+    unsigned int devices_left = 0;
+    impl.runtime->shutdown(impl.vk_device, &devices_left);
+    impl.runtime->initialized = false;
+  }
+  /* Free the staging textures. These are real VMA-backed GPU allocations; leaving them to the
+   * device teardown leaks the blocks and leaves dangling image views behind in the discard
+   * pool (observed as `VMA: UNFREED ALLOCATION` and a crash on exit). */
+  if (impl.color_tx != nullptr) {
+    GPU_texture_free(impl.color_tx);
+    impl.color_tx = nullptr;
+  }
+  if (impl.depth_tx != nullptr) {
+    GPU_texture_free(impl.depth_tx);
+    impl.depth_tx = nullptr;
+  }
+  if (impl.velocity_tx != nullptr) {
+    GPU_texture_free(impl.velocity_tx);
+    impl.velocity_tx = nullptr;
+  }
+  if (impl.output_tx != nullptr) {
+    GPU_texture_free(impl.output_tx);
+    impl.output_tx = nullptr;
+  }
   delete impl_;
 }
 
@@ -176,6 +213,10 @@ bool DlssSRVulkanSession::ensure_resources(const int2 &input_extent,
   const VkInstance vk_instance = vk_device.instance_get();
   const VkPhysicalDevice vk_phys_device = vk_device.physical_device_get();
   const VkDevice vk_handle = vk_device.vk_handle();
+  /* Remembered so the destructor can run `NVSDK_NGX_VULKAN_Shutdown1` while the device is
+   * still alive (see the destructor for why that is required). */
+  impl.vk_device = vk_handle;
+  impl.queue_mutex = &vk_device.queue_mutex_get();
 
   /* Initialize NGX runtime once per process (idempotent). */
   if (!ngx::runtime_init(*runtime,
@@ -318,6 +359,9 @@ bool DlssSRVulkanSession::ensure_resources(const int2 &input_extent,
 
   /* Create the SR feature. NGX wants a VkCommandBuffer for this call. */
   {
+    /* NGX records into — and may submit — on the shared graphics queue. Take the queue lock
+     * so this never races with Blender's submission runner thread. */
+    std::scoped_lock queue_lock(vk_device.queue_mutex_get());
     VkCommandBufferBeginInfo begin_info = {};
     begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     vk_device.functions.vkBeginCommandBuffer(impl.command_buffer, &begin_info);
@@ -331,7 +375,7 @@ bool DlssSRVulkanSession::ensure_resources(const int2 &input_extent,
     VkResult end_result = vk_device.functions.vkEndCommandBuffer(impl.command_buffer);
     if (result != ngx::RESULT_SUCCESS || impl.feature == nullptr) {
       char msg[160];
-      SNPRINTF(msg, "DLSS SR: CreateFeature failed (0x%08x)", result);
+      SNPRINTF(msg, "DLSS SR: CreateFeature failed (0x%08x)", unsigned(result));
       STRNCPY(impl.status, msg);
       impl.feature = nullptr;
       return false;
@@ -428,31 +472,48 @@ bool DlssSRVulkanSession::copy_inputs_and_evaluate(const DlssSRFrameInputs &fram
     return false;
   }
 
-  const VkImageView color_view = vk_color->image_view_get(gpu::VKImageViewArrayed::NOT_ARRAYED,
-                                                          gpu::VKImageViewFlags::DEFAULT)
-                                     .vk_handle();
-  const VkImageView depth_view = vk_depth->image_view_get(gpu::VKImageViewArrayed::NOT_ARRAYED,
-                                                          gpu::VKImageViewFlags::DEFAULT)
-                                     .vk_handle();
-  const VkImageView vel_view = vk_velocity->image_view_get(gpu::VKImageViewArrayed::NOT_ARRAYED,
-                                                           gpu::VKImageViewFlags::DEFAULT)
-                                   .vk_handle();
-  const VkImageView out_view = vk_output->image_view_get(gpu::VKImageViewArrayed::NOT_ARRAYED,
-                                                         gpu::VKImageViewFlags::DEFAULT)
-                                   .vk_handle();
+  /* NGX Vulkan expects each resource parameter to be a pointer to a `NVSDK_NGX_Resource_VK`
+   * descriptor (not a raw `VkImageView`). Passing the bare handle makes NGX reject the evaluate
+   * call with `NVSDK_NGX_Result_FAIL_InvalidParameter` (0xbad00005), see the
+   * `NVSDK_NGX_ENSURE_VK_IMAGEVIEW` guard in `nvsdk_ngx_helpers_vk.h`. */
+  const VkImageSubresourceRange subresource_range = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+  auto make_resource = [&](gpu::VKTexture *texture, const int2 extent, const bool read_write) {
+    return NVSDK_NGX_Create_ImageView_Resource_VK(
+        texture->image_view_get(gpu::VKImageViewArrayed::NOT_ARRAYED,
+                                gpu::VKImageViewFlags::DEFAULT)
+            .vk_handle(),
+        texture->vk_image_handle(),
+        subresource_range,
+        gpu::to_vk_format(texture->device_format_get()),
+        unsigned(extent.x),
+        unsigned(extent.y),
+        read_write);
+  };
+  NVSDK_NGX_Resource_VK color_res = make_resource(vk_color, impl.input_extent, false);
+  NVSDK_NGX_Resource_VK depth_res = make_resource(vk_depth, impl.input_extent, false);
+  NVSDK_NGX_Resource_VK velocity_res = make_resource(vk_velocity, impl.input_extent, false);
+  NVSDK_NGX_Resource_VK output_res = make_resource(vk_output, impl.output_extent, true);
 
+  /* Use the SDK parameter-name macros rather than string literals: NGX rejects the evaluate
+   * call with `NVSDK_NGX_Result_FAIL_InvalidParameter` (0xbad00005) when a required name is
+   * misspelled. In particular the jitter parameter is `"Jitter.Offset.X"`, not
+   * `"JitterOffset.X"` (`NVSDK_NGX_Parameter_Jitter_Offset_X`). */
   NVSDK_NGX_Parameter *p = impl.parameters;
-  ngx_set_ptr(p, "Color", reinterpret_cast<void *>(color_view));
-  ngx_set_ptr(p, "Depth", reinterpret_cast<void *>(depth_view));
-  ngx_set_ptr(p, "MotionVectors", reinterpret_cast<void *>(vel_view));
-  ngx_set_ptr(p, "Output", reinterpret_cast<void *>(out_view));
+  ngx_set_ptr(p, NVSDK_NGX_Parameter_Color, &color_res);
+  ngx_set_ptr(p, NVSDK_NGX_Parameter_Depth, &depth_res);
+  ngx_set_ptr(p, NVSDK_NGX_Parameter_MotionVectors, &velocity_res);
+  ngx_set_ptr(p, NVSDK_NGX_Parameter_Output, &output_res);
 
-  ngx_set_f(p, "Sharpness", frame.sharpness);
-  ngx_set_f(p, "MV.Scale.X", frame.mvec_scale);
-  ngx_set_f(p, "MV.Scale.Y", frame.mvec_scale);
-  ngx_set_f(p, "JitterOffset.X", frame.jitter.x);
-  ngx_set_f(p, "JitterOffset.Y", frame.jitter.y);
-  ngx_set_i(p, "Reset", frame.reset_history ? 1 : 0);
+  ngx_set_f(p, NVSDK_NGX_Parameter_Sharpness, frame.sharpness);
+  ngx_set_f(p, NVSDK_NGX_Parameter_MV_Scale_X, frame.mvec_scale);
+  ngx_set_f(p, NVSDK_NGX_Parameter_MV_Scale_Y, frame.mvec_scale);
+  ngx_set_f(p, NVSDK_NGX_Parameter_Jitter_Offset_X, frame.jitter.x);
+  ngx_set_f(p, NVSDK_NGX_Parameter_Jitter_Offset_Y, frame.jitter.y);
+  ngx_set_i(p, NVSDK_NGX_Parameter_Reset, frame.reset_history ? 1 : 0);
+
+  /* NGX records into — and may submit — on the shared graphics queue. Hold the queue lock for
+   * the whole record/submit/wait sequence so it cannot race with Blender's submission runner. */
+  std::scoped_lock queue_lock(vk_device.queue_mutex_get());
 
   VkCommandBufferBeginInfo begin_info = {};
   begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
@@ -464,7 +525,7 @@ bool DlssSRVulkanSession::copy_inputs_and_evaluate(const DlssSRFrameInputs &fram
   vk_device.functions.vkEndCommandBuffer(impl.command_buffer);
   if (result != ngx::RESULT_SUCCESS) {
     char msg[160];
-    SNPRINTF(msg, "DLSS SR: EvaluateFeature failed (0x%08x)", result);
+    SNPRINTF(msg, "DLSS SR: EvaluateFeature failed (0x%08x)", unsigned(result));
     STRNCPY(impl.status, msg);
     vk_device.functions.vkResetCommandBuffer(impl.command_buffer, 0);
     return false;
