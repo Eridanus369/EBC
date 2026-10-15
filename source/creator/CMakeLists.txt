@@ -768,6 +768,15 @@ if(NOT ("${_install_cmd}" STREQUAL ""))
     COMMAND
       ${CMAKE_COMMAND} -E echo
       "Run: \\\"${_install_cmd}\\\" to copy runtime files and scripts to: ${_install_dst}"
+    # OpenImageIO 3.0 runtime for OSL/USD libraries which were built against
+    # 3.0, while Blender itself links against 3.1. Both SONAMEs must be present
+    # in bin/lib for the binary to start without LD_LIBRARY_PATH.
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+      ${LIBDIR}/openimageio/lib/libOpenImageIO.so.3.0.19
+      $<TARGET_FILE_DIR:blender>/lib/libOpenImageIO.so.3.0
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+      ${LIBDIR}/openimageio/lib/libOpenImageIO_Util.so.3.0.19
+      $<TARGET_FILE_DIR:blender>/lib/libOpenImageIO_Util.so.3.0
   )
   unset(_install_dst)
 endif()
