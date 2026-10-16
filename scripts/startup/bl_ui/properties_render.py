@@ -894,16 +894,16 @@ class RENDER_PT_eevee_dlss(RenderButtonsPanel, Panel):
 
         if sys.platform == 'win32':
             platform_note = "Windows: D3D12/Vulkan backend required (NVIDIA RTX + DLSS SDK)"
-        elif props.dlss5_mode == 'DLSS_SR':
-            platform_note = "Linux: Vulkan NGX backend (DLSS Super Resolution)"
+        elif props.dlss5_mode == 'NPR_DLSSNR':
+            platform_note = "Linux: Neural Rendering via opendlss-rs (start opendlss-server)"
         else:
-            platform_note = "Linux: Neural Rendering not yet implemented, use DLSS Super Resolution"
+            platform_note = "Linux: Vulkan NGX backend (DLSS Super Resolution)"
         col = layout.column()
         col.label(text=platform_note, icon='INFO')
         col.separator()
 
         col.prop(props, "dlss5_render_scale")
-        if props.dlss5_mode == 'DLSS_NR' and sys.platform != 'win32':
+        if props.dlss5_mode == 'NPR_DLSSNR' and sys.platform != 'win32':
             col.prop(props, "dlss5_realtime")
         col.separator()
 
