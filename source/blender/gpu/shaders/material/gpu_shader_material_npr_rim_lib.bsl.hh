@@ -2,8 +2,8 @@
 
 #pragma once
 
-#include "gpu_shader_material_principled_npr_v2_math.glsl"
-#include "gpu_shader_material_principled_npr_depth_rim.glsl"
+#include "gpu_shader_material_principled_npr_v2_math.bsl.hh"
+#include "gpu_shader_material_principled_npr_depth_rim.bsl.hh"
 
 float npr_v2_rim_shape(float3 N, float3 V, float4 shape, float falloff)
 {

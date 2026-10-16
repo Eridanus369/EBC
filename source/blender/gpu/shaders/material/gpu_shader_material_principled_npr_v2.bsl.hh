@@ -1,13 +1,15 @@
+
+#pragma once
 /* SPDX-FileCopyrightText: 2026 Blender Authors
  *
  * SPDX-License-Identifier: GPL-2.0-or-later */
 
 #include "gpu_shader_material_glsl_light_access.glsl"
 #include "gpu_shader_material_principled_shared.glsl"
-#include "gpu_shader_material_shader_info_shared.glsl"
-#include "gpu_shader_material_principled_npr_v2_math.glsl"
-#include "gpu_shader_material_principled_npr_v2_light.glsl"
-#include "gpu_shader_material_npr_rim_lib.glsl"
+#include "gpu_shader_material_shader_info_shared.bsl.hh"
+#include "gpu_shader_material_principled_npr_v2_math.bsl.hh"
+#include "gpu_shader_material_principled_npr_v2_light.bsl.hh"
+#include "gpu_shader_material_npr_rim_lib.bsl.hh"
 
 [[node]]
 void npr_v2_pack4(float x, float y, float z, float w, float4 &value)

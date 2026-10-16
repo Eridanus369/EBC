@@ -1,8 +1,10 @@
+
+#pragma once
 /* SPDX-FileCopyrightText: 2026 Blender Authors
  *
  * SPDX-License-Identifier: GPL-2.0-or-later */
 
-#include "gpu_shader_material_shader_info_shared.glsl"
+#include "gpu_shader_material_shader_info_shared.bsl.hh"
 
 bool shader_info_is_world_sun_light(uint light_index, LightData light, bool is_local)
 {

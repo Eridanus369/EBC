@@ -1,6 +1,8 @@
+
+#pragma once
 /* SPDX-License-Identifier: GPL-2.0-or-later */
 
-#include "gpu_shader_material_npr_rim_lib.glsl"
+#include "gpu_shader_material_npr_rim_lib.bsl.hh"
 
 [[node]]
 void node_npr_rim(float4 color, float strength, float3 normal,

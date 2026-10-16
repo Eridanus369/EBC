@@ -1,3 +1,5 @@
+
+#pragma once
 /* SPDX-FileCopyrightText: 2026 Blender Authors
  *
  * SPDX-License-Identifier: GPL-2.0-or-later */
@@ -5,7 +7,7 @@
 #ifndef GPU_SHADER_MATERIAL_PRINCIPLED_NPR_V2_LIGHT_GLSL
 #define GPU_SHADER_MATERIAL_PRINCIPLED_NPR_V2_LIGHT_GLSL
 
-#include "gpu_shader_material_principled_npr_v2_math.glsl"
+#include "gpu_shader_material_principled_npr_v2_math.bsl.hh"
 
 /* Balance-heuristic MIS: emitter sampling + anisotropic GGX VNDF.
  * Unlike an emitter-only grid, VNDF samples retain a narrow highlight inside a large emitter.
