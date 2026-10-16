@@ -10315,6 +10315,11 @@ static void rna_def_scene_eevee(BlenderRNA *brna)
 
   prop = RNA_def_property(srna, "dlss5_ui_correction", PROP_BOOLEAN, PROP_NONE);
   RNA_def_property_boolean_sdna(prop, nullptr, "dlss5_ui_correction", 1);
+
+  prop = RNA_def_property(srna, "dlss5_realtime", PROP_BOOLEAN, PROP_NONE);
+  RNA_def_property_boolean_sdna(prop, nullptr, "dlss5_realtime", 1);
+  RNA_def_property_ui_text(prop, "Realtime NR", "Run the NR model on every viewport frame (slow, ~3 fps). Unchecked: only during F12 renders");
+  RNA_def_property_update(prop, 0, "rna_Scene_eevee_volumes_update");
   RNA_def_property_ui_text(prop,
                            "UI Correction",
                            "Apply HUD/UI-aware gamma and color correction after NR");

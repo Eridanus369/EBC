@@ -119,6 +119,14 @@ gpu::Texture *Dlss5Module::process(const Dlss5FrameInputs &inputs, draw::View &v
     return inputs.color;
   }
 
+  /* NR is slow (~300ms/frame over the opendlss socket). Realtime is opt-in: when
+   * off, viewport frames pass through and only F12 renders run the model. */
+  if (inputs.is_viewport && !inst_.scene->eevee.dlss5_realtime) {
+    retry_blocked_ = false;
+    force_history_reset_ = true;
+    return inputs.color;
+  }
+
   if (!reported_) {
     CLOG_INFO(&Instance::log,
               "DLSS5 adapter: backend=%s input=%dx%d output=%dx%d viewport=%d",

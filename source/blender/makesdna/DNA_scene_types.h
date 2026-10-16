@@ -3000,7 +3000,8 @@ struct SceneEEVEE {
   char dlss5_ui_correction = false;
   char dlss5_render_scale = 1;
   char dlss5_style = 2;
-  char _pad_dlss5[3] = {};
+  char dlss5_realtime = 0;
+  char _pad_dlss5[2] = {};
 
   float dlss_sr_sharpness = 0.3f;
   float dlss_sr_mvec_scale = 1.0f;

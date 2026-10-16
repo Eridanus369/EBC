@@ -903,6 +903,8 @@ class RENDER_PT_eevee_dlss(RenderButtonsPanel, Panel):
         col.separator()
 
         col.prop(props, "dlss5_render_scale")
+        if props.dlss5_mode == 'DLSS_NR' and sys.platform != 'win32':
+            col.prop(props, "dlss5_realtime")
         col.separator()
 
         if props.dlss5_mode == 'DLSS_SR':
