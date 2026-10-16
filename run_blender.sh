@@ -1,0 +1,3 @@
+#!/bin/bash
+export LD_LIBRARY_PATH=$HOME/Code/EBC/EBC5.3/build_linux/bin/lib:$HOME/Code/EBC/EBC5.3/lib/imath/lib:$HOME/Code/EBC/EBC5.3/lib/openexr/lib:$HOME/Code/EBC/EBC5.3/lib/openimageio/lib:$HOME/Code/EBC/EBC5.3/lib/openvdb/lib:$HOME/Code/EBC/EBC5.3/lib/tbb/lib:$HOME/Code/EBC/EBC5.3/lib/materialx/lib:$HOME/Code/EBC/EBC5.3/lib/usd/lib:$HOME/Code/EBC/EBC5.3/lib/opencolorio/lib:$HOME/Code/EBC/EBC5.3/lib/shaderc/lib:$HOME/Code/EBC/EBC5.3/lib/vulkan/lib:$HOME/Code/EBC/EBC5.3/lib/dpcpp/lib:$HOME/Code/EBC/EBC5.3/lib/openimagedenoise/lib:$HOME/Code/EBC/EBC5.3/lib/opensubdiv/lib:$HOME/Code/EBC/EBC5.3/lib/embree/lib:$HOME/Code/EBC/EBC5.3/lib/openpgl/lib:/usr/local/lib
+exec $HOME/Code/EBC/EBC5.3/build_linux/bin/blender "$@"
