@@ -756,6 +756,7 @@ set(GLSL_SRC
   shaders/material/gpu_shader_material_glsl_light_access.glsl
   shaders/material/gpu_shader_material_light_probe_color.glsl
   shaders/material/gpu_shader_material_world_environment.glsl
+  shaders/material/gpu_shader_material_esky.bsl.hh
   shaders/material/gpu_shader_material_screenspace_info.glsl
   shaders/material/gpu_shader_material_filter.bsl.hh
   shaders/material/gpu_shader_material_npr_light_info.bsl.hh

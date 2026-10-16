@@ -222,6 +222,7 @@ enum {
 #define SH_NODE_PRINCIPLED_NPR 913
 #define SH_NODE_NPR_SURFACE_DIFFUSION 914
 #define SH_NODE_NPR_RIM 915
+#define SH_NODE_ESKY 920
 
 /** \} */
 
