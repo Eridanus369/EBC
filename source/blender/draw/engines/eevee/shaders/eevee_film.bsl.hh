@@ -316,8 +316,11 @@ struct Film {
     film_sample.texel += (texel_film / scaling_factor) + uni.uniform_buf.film.overscan;
 
     /* Use extend on borders. */
-    film_sample.texel = clamp(
-        film_sample.texel, int2(0, 0), uni.uniform_buf.film.render_extent - 1);
+    /* When scaling_factor is 1 with DLSS SR the film texture is already at display extent,
+     * so clamp against extent, not render_extent. */
+    int2 clamp_max = (scaling_factor > 1) ? (uni.uniform_buf.film.render_extent - 1) :
+                                             (uni.uniform_buf.film.extent - 1);
+    film_sample.texel = clamp(film_sample.texel, int2(0, 0), clamp_max);
 
     return film_sample;
   }

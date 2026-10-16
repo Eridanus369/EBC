@@ -779,7 +779,11 @@ void Film::init_pass(PassSimple &pass, gpu::Shader *sh)
   pass.specialize_constant(sh, "enabled_categories", uint(enabled_categories_));
   pass.specialize_constant(sh, "samples_len", &data_.samples_len);
   pass.specialize_constant(sh, "use_reprojection", &use_reprojection_);
-  pass.specialize_constant(sh, "scaling_factor", data_.scaling_factor);
+  /* DLSS SR: NGX already reconstructed the frame to display extent, so the film
+   shader must sample 1:1, not apply the render->display upscale division. */
+  const int shader_scaling_factor =
+      (inst_.scene->eevee.dlss5_mode == SCE_EEVEE_DLSS_SR) ? 1 : data_.scaling_factor;
+  pass.specialize_constant(sh, "scaling_factor", shader_scaling_factor);
   pass.specialize_constant(sh, "combined_id", &data_.combined_id);
   pass.specialize_constant(sh, "display_id", &data_.display_id);
   pass.specialize_constant(sh, "normal_id", &data_.normal_id);
@@ -929,7 +933,7 @@ void Film::update_sample_table()
     data_.samples_weight_total = 1.0f;
     data_.samples_len = 1;
   }
-  else if (data_.scaling_factor > 1) {
+  else if (data_.scaling_factor > 1 && inst_.scene->eevee.dlss5_mode != SCE_EEVEE_DLSS_SR) {
     /* For this case there might be no valid samples for some pixels.
      * Still visit all four neighbors to have the best weight available.
      * Note that weight is computed on the GPU as it is different for each sample. */
@@ -943,6 +947,15 @@ void Film::update_sample_table()
       }
     }
     data_.samples_weight_total = -1.0f; /* Computed on GPU. */
+  }
+  else if (inst_.scene->eevee.dlss5_mode == SCE_EEVEE_DLSS_SR) {
+    /* DLSS SR: the input texture has already been reconstructed to display extent by
+     * NGX. Do a plain single-texel fetch so the accumulate pass does not re-upsample
+     * the already-final image (which would shift it). */
+    data_.samples[0].texel = int2(0, 0);
+    data_.samples[0].weight = 1.0f;
+    data_.samples_weight_total = 1.0f;
+    data_.samples_len = 1;
   }
   else if (use_box_filter || data_.filter_radius < 0.01f) {
     /* Disable gather filtering. */
