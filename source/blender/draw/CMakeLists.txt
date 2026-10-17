@@ -238,6 +238,7 @@ set(SRC
   engines/eevee/eevee_spectral.hh
   engines/eevee/eevee_spectral_lut.hh
   engines/eevee/eevee_spectral_shared.hh
+  engines/eevee/eevee_photon_shared.hh
   engines/eevee/eevee_dlss5.hh
   engines/eevee/eevee_render_texture.hh
   engines/eevee/eevee_render_texture_shared.hh
@@ -431,6 +432,7 @@ set(GLSL_SRC
   engines/eevee/shaders/eevee_attributes_mesh_lib.glsl
   engines/eevee/shaders/eevee_attributes_pointcloud_lib.glsl
   engines/eevee/shaders/eevee_attributes_volume_lib.glsl
+  engines/eevee/shaders/eevee_photon_emit_comp.glsl
   engines/eevee/shaders/eevee_attributes_world_lib.glsl
   engines/eevee/shaders/eevee_bxdf.bsl.hh
   engines/eevee/shaders/eevee_bxdf_diffuse.bsl.hh

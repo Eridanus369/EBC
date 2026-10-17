@@ -459,6 +459,43 @@ class RENDER_PT_eevee_volumes_range(RenderButtonsPanel, Panel):
         col.prop(props, "volumetric_end")
 
 
+class RENDER_PT_eevee_spectral_caustics(RenderButtonsPanel, Panel):
+    bl_label = "Spectral Caustics"
+    bl_options = {'DEFAULT_CLOSED'}
+    COMPAT_ENGINES = {'BLENDER_EEVEE', 'BLENDER_EEVEE_NEXT'}
+
+    def draw_header(self, context):
+        eevee = context.scene.eevee
+        self.layout.prop(eevee.caustics, "use_spectral_caustics", text="")
+
+    def draw(self, context):
+        layout = self.layout
+        layout.use_property_split = True
+        layout.use_property_decorate = False
+        
+        eevee = context.scene.eevee
+        caustics = eevee.caustics
+        layout.active = caustics.use_spectral_caustics
+
+        col = layout.column(align=True)
+        col.prop(caustics, "dispersion_enabled")
+        
+        col.separator()
+        col.prop(caustics, "photon_count")
+        col.prop(caustics, "max_bounces")
+        col.prop(caustics, "caustic_resolution")
+        
+        col.separator()
+        col.label(text="Dispersion IOR (Cauchy):")
+        col.prop(caustics, "cauchy_a")
+        col.prop(caustics, "cauchy_b")
+        col.prop(caustics, "cauchy_c")
+        
+        col.separator()
+        col.label(text="Volumetrics:")
+        col.prop(caustics, "volumetric_scattering")
+        col.prop(caustics, "volumetric_anisotropy")
+
 class RENDER_PT_eevee_raytracing_presets(PresetPanel, Panel):
     bl_label = "Raytracing Presets"
     preset_subdir = "eevee/raytracing"
