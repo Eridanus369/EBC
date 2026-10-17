@@ -6778,6 +6778,25 @@ static void def_sh_tex(BlenderRNA * /*brna*/, StructRNA *srna)
   RNA_def_property_ui_text(prop, "Color Mapping", "Color mapping settings");
 }
 
+static void def_sh_esky(BlenderRNA *brna, StructRNA *srna)
+{
+  PropertyRNA *prop;
+
+  static const EnumPropertyItem weather_items[] = {
+      {0, "CLEAR", 0, "晴", ""},
+      {1, "RAIN", 0, "雨", ""},
+      {2, "THUNDER", 0, "雷暴", ""},
+      {3, "SNOW", 0, "雪", ""},
+      {0, nullptr, 0, nullptr, nullptr},
+  };
+
+  prop = RNA_def_property(srna, "weather_state", PROP_ENUM, PROP_NONE);
+  RNA_def_property_enum_sdna(prop, nullptr, "custom1");
+  RNA_def_property_enum_items(prop, weather_items);
+  RNA_def_property_ui_text(prop, "Weather State", "Weather condition");
+  RNA_def_property_update(prop, NC_NODE | NA_EDITED, "rna_Node_update");
+}
+
 static void def_sh_tex_sky(BlenderRNA *brna, StructRNA *srna)
 {
   static const EnumPropertyItem prop_sky_type[] = {
@@ -13917,7 +13936,7 @@ static void rna_def_nodes(BlenderRNA *brna)
   define("ShaderNode", "ShaderNodePortalOut", def_sh_portal_out);
   define("ShaderNode", "ShaderNodeLightProbeColor");
   define("ShaderNode", "ShaderNodeWorldEnvironment");
-  define("ShaderNode", "ShaderNodeESky");
+  define("ShaderNode", "ShaderNodeESky", def_sh_esky);
   define("ShaderNode", "ShaderNodeScreenspaceInfo");
   define("ShaderNode", "ShaderNodeNPRLightInfo", def_sh_npr_light_info);
   define("ShaderNode", "ShaderNodeEeveeLightShaderOutput");
