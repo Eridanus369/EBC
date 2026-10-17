@@ -8,6 +8,11 @@
 
 #include "node_shader_util.hh"
 #include "node_util.hh"
+#include "UI_interface_layout.hh"
+#include "UI_resources.hh"
+#include "RNA_access.hh"
+#include "RNA_types.hh"
+#include "BKE_context.hh"
 
 #include "DNA_node_types.h"
 
@@ -18,6 +23,13 @@ namespace nodes::node_shader_image_to_closure_cc {
 static void node_declare(NodeDeclarationBuilder &b)
 {
   b.add_output<decl::Closure>("Closure"_ustr);
+}
+
+
+static void node_layout(ui::Layout &layout, bContext * /*C*/, PointerRNA *ptr)
+{
+  layout.prop(ptr, "image", ui::ITEM_R_SPLIT_EMPTY_NAME, std::nullopt, ICON_NONE);
+  layout.prop(ptr, "texture_type", ui::ITEM_R_SPLIT_EMPTY_NAME, std::nullopt, ICON_NONE);
 }
 
 static void node_init(bNodeTree * /*ntree*/, bNode *node)
@@ -39,6 +51,7 @@ void register_node_type_sh_image_to_closure()
   ntype.ui_description = "Adapt an image into a closure-backed sample source";
   ntype.nclass = NODE_CLASS_TEXTURE;
   ntype.declare = file_ns::node_declare;
+  ntype.draw_buttons = file_ns::node_layout;
   ntype.initfunc = file_ns::node_init;
   bke::node_type_storage(
       ntype, "NodeShaderImageToClosure", node_free_standard_storage, node_copy_standard_storage);

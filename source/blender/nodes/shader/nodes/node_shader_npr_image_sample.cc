@@ -23,6 +23,16 @@ static void node_declare(NodeDeclarationBuilder &b)
   b.add_output<decl::Float>("Alpha"_ustr);
 }
 
+static void node_shader_buts(ui::Layout &layout, bContext * /*C*/, PointerRNA *ptr)
+{
+  layout.prop(ptr,
+              "offset_type",
+              ui::ITEM_R_SPLIT_EMPTY_NAME | ui::ITEM_R_EXPAND,
+              std::nullopt,
+              ICON_NONE);
+}
+
+
 static int node_shader_gpu_image_sample(GPUMaterial *mat,
                                         bNode *node,
                                         bNodeExecData * /*execdata*/,
@@ -54,6 +64,8 @@ static int node_shader_gpu_image_sample(GPUMaterial *mat,
 
 }  // namespace nodes::node_shader_npr_image_sample_cc
 
+
+
 void register_node_type_sh_npr_image_sample()
 {
   namespace file_ns = nodes::node_shader_npr_image_sample_cc;
@@ -66,6 +78,7 @@ void register_node_type_sh_npr_image_sample()
   ntype.enum_name_legacy = "NPR_IMAGE_SAMPLE";
   ntype.nclass = NODE_CLASS_INPUT;
   ntype.declare = file_ns::node_declare;
+  ntype.draw_buttons = file_ns::node_shader_buts;
   ntype.gpu_fn = file_ns::node_shader_gpu_image_sample;
   ntype.add_ui_poll = filter_eevee_shader_nodes_poll;
 

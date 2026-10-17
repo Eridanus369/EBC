@@ -89,6 +89,15 @@ def filter_shader_nodes_poll(context):
             snode.shader_type == 'FILTER')
 
 
+def object_filter_or_npr_eevee_shader_nodes_poll(context):
+    return True
+
+def filter_or_npr_eevee_shader_nodes_poll(context):
+    return True
+
+def object_filter_or_npr_eevee_shader_nodes_poll(context):
+    return True
+
 class NODE_MT_shader_node_input_base(node_add_menu.NodeMenu):
     bl_label = "Input"
 
@@ -624,6 +633,18 @@ class NODE_MT_shader_node_utilities_base(node_add_menu.NodeMenu):
         self.draw_menu(layout, "Utilities/Math")
         self.draw_menu(layout, "Utilities/Text")
         self.draw_menu(layout, "Utilities/Vector")
+        layout.separator()
+        self.node_operator(
+            layout,
+            "ShaderNodeNPRImageSample",
+            label="Image Sample",
+            poll=filter_or_npr_eevee_shader_nodes_poll(context),
+        )
+        self.node_operator(
+            layout,
+            "ShaderNodeImageToClosure",
+            poll=object_filter_or_npr_eevee_shader_nodes_poll(context),
+        )
         layout.separator()
         self.node_operator(layout, "NodeImplicitConversion")
         self.repeat_zone(layout, label="Repeat")
