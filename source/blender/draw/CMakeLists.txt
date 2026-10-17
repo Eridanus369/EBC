@@ -117,6 +117,8 @@ set(SRC
   engines/eevee/eevee_cryptomatte.cc
   engines/eevee/eevee_depth_of_field.cc
   engines/eevee/eevee_caustics.cc
+  engines/eevee/eevee_spectral.cc
+  engines/eevee/eevee_spectral_lut.cc
   engines/eevee/eevee_dlss5.cc
   engines/eevee/eevee_render_texture.cc
   engines/eevee/eevee_dlss_sr.cc
@@ -233,6 +235,9 @@ set(SRC
   engines/eevee/eevee_cryptomatte.hh
   engines/eevee/eevee_depth_of_field.hh
   engines/eevee/eevee_caustics.hh
+  engines/eevee/eevee_spectral.hh
+  engines/eevee/eevee_spectral_lut.hh
+  engines/eevee/eevee_spectral_shared.hh
   engines/eevee/eevee_dlss5.hh
   engines/eevee/eevee_render_texture.hh
   engines/eevee/eevee_render_texture_shared.hh
