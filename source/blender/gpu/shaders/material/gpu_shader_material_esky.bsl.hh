@@ -281,14 +281,14 @@ void node_esky(float3 view_dir,
                float longitude,
                float star_density,
                float star_brightness,
-               float use_sun_system,
+               const bool use_sun_system,
                float sun_height,
                float sun_rotation,
                float sun_temperature,
                float sun_size,
                float sun_bloom,
                float horizon_height,
-               float use_atmosphere,
+               const bool use_atmosphere,
                float air_density,
                float aerosol_concentration,
                float ozone_amount,
@@ -297,14 +297,10 @@ void node_esky(float3 view_dir,
                float sun_glow_suppress,
                float atmosphere_steps,
                float sun_intensity,
-               float3 zenith_color,
-               float3 horizon_color,
+               float4 zenith_color,
+               float4 horizon_color,
                out float4 color)
 {
-  (void)sample_index;
-  (void)camera_height;
-  (void)planet_radius;
-  (void)use_sun_system;
 
   float3 rd = fc_safe_normalize_dir(-view_dir);
   float3 sun = fc_safe_normalize_dir(fc_calc_sun_direction(sun_height, sun_rotation));
@@ -314,7 +310,7 @@ void node_esky(float3 view_dir,
   float day_night = smoothstep(-0.15f, 0.05f, sun_above);
 
   float3 sky;
-  if (use_atmosphere > 0.5f) {
+  if (use_atmosphere) {
     sky = fc_atmosphere(rd,
                         sun,
                         air_density,
@@ -328,7 +324,7 @@ void node_esky(float3 view_dir,
   }
   else {
     float horizon = pow(1.0f - fc_sat(rd.z), 1.35f);
-    sky = mix(zenith_color, horizon_color, horizon);
+    sky = mix(zenith_color.rgb, horizon_color.rgb, horizon);
   }
 
   sky *= day_night;
