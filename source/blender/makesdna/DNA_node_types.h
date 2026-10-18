@@ -3036,6 +3036,16 @@ struct NodeShaderGLSLFunction {
   void *_pad2 = nullptr;
 };
 
+/** ESky internal textures. */
+struct NodeShaderESky {
+  DNA_DEFINE_CXX_METHODS(NodeShaderESky)
+  struct Image *img_basic;
+  struct Image *img_detail;
+  struct Image *img_weather;
+  struct Image *img_curl;
+  struct Image *img_blue;
+};
+
 struct NodeShaderImageToClosure {
   DNA_DEFINE_CXX_METHODS(NodeShaderImageToClosure)
 

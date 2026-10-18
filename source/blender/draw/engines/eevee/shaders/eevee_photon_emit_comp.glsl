@@ -5,7 +5,7 @@
 #pragma once
 
 #include "gpu_shader_compat.hh"
-#include "eevee_photon_shared.hh"
+#include "eevee_photon_shared.glsl"
 
 layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
 
@@ -14,11 +14,11 @@ layout(std430, binding = 0) writeonly buffer PhotonBuffer {
 };
 
 /* Uniforms provided by the host. */
-uniform int photon_count;
-uniform float3 light_position;
-uniform float3 light_direction;
-uniform float light_radius;
-uniform float light_power;
+[[push_constant]] int photon_count;
+[[push_constant]] float3 light_position;
+[[push_constant]] float3 light_direction;
+[[push_constant]] float light_radius;
+[[push_constant]] float light_power;
 
 /* Pseudo-random hash. */
 float hash(uint x)

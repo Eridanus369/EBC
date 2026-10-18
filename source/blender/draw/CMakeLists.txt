@@ -110,6 +110,10 @@ set(SRC
   engines/eevee/eevee_bake.cc
   engines/eevee/eevee_cryptomatte.cc
   engines/eevee/eevee_depth_of_field.cc
+  engines/eevee/eevee_caustic_map.cc
+  engines/eevee/eevee_caustics.cc
+  engines/eevee/eevee_spectral.cc
+  engines/eevee/eevee_spectral_lut.cc
   engines/eevee/eevee_dlss5.cc
   engines/eevee/eevee_render_texture.cc
   engines/eevee/eevee_dlss_sr.cc
@@ -224,6 +228,7 @@ set(SRC
   engines/eevee/eevee_bake.hh
   engines/eevee/eevee_cryptomatte.hh
   engines/eevee/eevee_depth_of_field.hh
+  engines/eevee/eevee_caustic_map.hh
   engines/eevee/eevee_caustics.hh
   engines/eevee/eevee_spectral.hh
   engines/eevee/eevee_spectral_lut.hh
@@ -406,7 +411,10 @@ set(GLSL_SRC
   engines/eevee/shaders/eevee_attributes_mesh_lib.glsl
   engines/eevee/shaders/eevee_attributes_pointcloud_lib.glsl
   engines/eevee/shaders/eevee_attributes_volume_lib.glsl
+  engines/eevee/shaders/eevee_photon_shared.glsl
   engines/eevee/shaders/eevee_photon_emit_comp.glsl
+  engines/eevee/shaders/eevee_photon_trace_comp.glsl
+  engines/eevee/shaders/eevee_photon_splat_comp.glsl
   engines/eevee/shaders/eevee_attributes_world_lib.glsl
   engines/eevee/shaders/eevee_bxdf.bsl.hh
   engines/eevee/shaders/eevee_bxdf_diffuse.bsl.hh
