@@ -1,3 +1,5 @@
+import os
+import struct
 # SPDX-FileCopyrightText: 2009-2023 Blender Authors
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
@@ -8,6 +10,8 @@ from bpy.types import (
     Menu,
     Panel,
     UIList,
+    Operator,
+    PropertyGroup,
 )
 from bpy.app.translations import (
     contexts as i18n_contexts,
@@ -15,6 +19,7 @@ from bpy.app.translations import (
     pgettext_rpt as rpt_,
 )
 from bl_ui.utils import PresetPanel
+from bpy.props import StringProperty, CollectionProperty, IntProperty
 
 
 # -----------------------------------------------------------------------------
@@ -3074,6 +3079,208 @@ class USERPREF_PT_experimental_tweaks(ExperimentalPanel, Panel):
 
 # Order of registration defines order in UI,
 # so dynamically generated classes are "injected" in the intended order.
+
+class TranslationItem(PropertyGroup):
+    msgid: StringProperty()
+    msgstr: StringProperty()
+
+def read_mo_pairs(path):
+    pairs = {}
+    if not os.path.exists(path):
+        return pairs
+    try:
+        with open(path, 'rb') as f:
+            magic, ver, n, o, t, h, ho = struct.unpack('<IIIIIII', f.read(28))
+            if magic == 0x950412de:
+                f.seek(o)
+                origs = [struct.unpack('<II', f.read(8)) for _ in range(n)]
+                f.seek(t)
+                trans = [struct.unpack('<II', f.read(8)) for _ in range(n)]
+                for i in range(n):
+                    f.seek(origs[i][1])
+                    msgid = f.read(origs[i][0]).decode('utf-8', errors='replace')
+                    f.seek(trans[i][1])
+                    msgstr = f.read(trans[i][0]).decode('utf-8', errors='replace')
+                    if msgid and msgid != "":
+                        pairs[msgid] = msgstr
+    except Exception:
+        pass
+    return pairs
+
+def write_mo_pairs(pairs, path):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    metadata = "Project-Id-Version: UPBGE Custom Patch\nContent-Type: text/plain; charset=UTF-8\nLanguage: zh_HANS\nMIME-Version: 1.0\nContent-Transfer-Encoding: 8bit\n"
+    items = [("", metadata)] + [(k, v) for k, v in pairs.items() if k != ""]
+    items.sort(key=lambda x: x[0].encode('utf-8'))
+    nstrings = len(items)
+    orig_table_offset = 28
+    trans_table_offset = orig_table_offset + 8 * nstrings
+    string_data_offset = trans_table_offset + 8 * nstrings
+    orig_entries = []
+    trans_entries = []
+    string_data = bytearray()
+    current_offset = string_data_offset
+    for msgid, msgstr in items:
+        msgid_bytes = msgid.encode('utf-8') + b'\x00'
+        msgstr_bytes = msgstr.encode('utf-8') + b'\x00'
+        orig_entries.append((len(msgid_bytes) - 1, current_offset))
+        current_offset += len(msgid_bytes)
+        string_data.extend(msgid_bytes)
+        trans_entries.append((len(msgstr_bytes) - 1, current_offset))
+        current_offset += len(msgstr_bytes)
+        string_data.extend(msgstr_bytes)
+    with open(path, 'wb') as f:
+        f.write(struct.pack('<IIIIIII', 0x950412de, 0, nstrings, orig_table_offset, trans_table_offset, 0, 0))
+        for length, offset in orig_entries:
+            f.write(struct.pack('<II', length, offset))
+        for length, offset in trans_entries:
+            f.write(struct.pack('<II', length, offset))
+        f.write(string_data)
+
+class USERPREF_OT_toggle_language(Operator):
+    """一键在中文和英文之间切换"""
+    bl_idname = "userpref.toggle_language"
+    bl_label = "Toggle Chinese / English"
+    def execute(self, context):
+        view = context.preferences.view
+        is_zh = bpy.app.translations.locale in ('zh_HANS', 'zh_CN')
+        target = 'en_US' if is_zh else 'zh_HANS'
+        try:
+            view.language = target
+        except Exception:
+            pass
+        return {'FINISHED'}
+
+class USERPREF_UL_translations(UIList):
+    def draw_item(self, context, layout, data, item, icon, active_data, active_propname, index):
+        if self.layout_type in {'DEFAULT', 'COMPACT'}:
+            row = layout.row(align=True)
+            row.label(text=item.msgid or "<空>")
+            row.label(text=item.msgstr)
+        elif self.layout_type in {'GRID'}:
+            layout.alignment = 'CENTER'
+            
+    def filter_items(self, context, data, propname):
+        wm = context.window_manager
+        if not hasattr(wm, "translation_search"):
+            return [], []
+        items = getattr(data, propname)
+        search = wm.translation_search.lower()
+        if not search:
+            return [], []
+        flt_flags = []
+        for item in items:
+            if search in item.msgid.lower() or search in item.msgstr.lower():
+                flt_flags.append(self.bitflag_filter_item)
+            else:
+                flt_flags.append(0)
+        return flt_flags, []
+
+class USERPREF_OT_edit_translations(Operator):
+    """查看、编辑或添加自定义翻译"""
+    bl_idname = "userpref.edit_translations"
+    bl_label = "翻译列表"
+    
+    def invoke(self, context, event):
+        wm = context.window_manager
+        
+        # 延迟注册 WindowManager 属性，彻底避免启动时崩溃
+        if not hasattr(bpy.types.WindowManager, 'translation_items'):
+            bpy.types.WindowManager.translation_items = CollectionProperty(type=TranslationItem)
+            bpy.types.WindowManager.translation_index = IntProperty()
+            bpy.types.WindowManager.translation_search = StringProperty(name="Search", options={'TEXTEDIT_UPDATE'})
+            
+        wm.translation_items.clear()
+        
+        zh = 'zh_CN' if bpy.app.version < (4, 0, 0) else 'zh_HANS'
+        sys_mo = os.path.join(bpy.utils.system_resource('DATAFILES'), 'locale', zh, 'LC_MESSAGES', 'blender.mo')
+        usr_mo = os.path.join(bpy.utils.user_resource('DATAFILES'), 'locale', zh, 'LC_MESSAGES', 'blender.mo')
+        
+        # 读取系统原生翻译 + 用户翻译（用户覆盖系统）
+        pairs = read_mo_pairs(sys_mo)
+        pairs.update(read_mo_pairs(usr_mo))
+        
+        for k, v in pairs.items():
+            item = wm.translation_items.add()
+            item.msgid = k
+            item.msgstr = v
+            
+        wm.translation_index = 0
+        return wm.invoke_props_dialog(self, width=800)
+        
+    def draw(self, context):
+        layout = self.layout
+        wm = context.window_manager
+        
+        row = layout.row()
+        row.prop(wm, "translation_search", text="", icon='VIEWZOOM')
+        
+        row = layout.row()
+        col = row.column()
+        col.template_list("USERPREF_UL_translations", "", wm, "translation_items", wm, "translation_index", rows=15)
+        
+        col2 = row.column(align=True)
+        col2.operator("userpref.add_translation", icon='ADD', text="")
+        col2.operator("userpref.remove_translation", icon='REMOVE', text="")
+        
+        if len(wm.translation_items) > 0 and 0 <= wm.translation_index < len(wm.translation_items):
+            item = wm.translation_items[wm.translation_index]
+            layout.separator()
+            box = layout.box()
+            box.prop(item, "msgid", text="英文原词")
+            box.prop(item, "msgstr", text="中文翻译")
+            
+    def execute(self, context):
+        wm = context.window_manager
+        pairs = {}
+        for item in wm.translation_items:
+            if item.msgid:
+                pairs[item.msgid] = item.msgstr
+                
+        zh = 'zh_CN' if bpy.app.version < (4, 0, 0) else 'zh_HANS'
+        usr_mo = os.path.join(bpy.utils.user_resource('DATAFILES'), 'locale', zh, 'LC_MESSAGES', 'blender.mo')
+        
+        write_mo_pairs(pairs, usr_mo)
+        self.report({'INFO'}, "翻译已保存！重启 Blender 生效。")
+        return {'FINISHED'}
+
+
+class USERPREF_OT_add_translation(Operator):
+    """添加一条新的翻译"""
+    bl_idname = "userpref.add_translation"
+    bl_label = "添加翻译"
+    def execute(self, context):
+        wm = context.window_manager
+        item = wm.translation_items.add()
+        item.msgid = ""
+        item.msgstr = ""
+        wm.translation_index = len(wm.translation_items) - 1
+        return {'FINISHED'}
+
+class USERPREF_OT_remove_translation(Operator):
+    """删除选中的翻译"""
+    bl_idname = "userpref.remove_translation"
+    bl_label = "删除翻译"
+    def execute(self, context):
+        wm = context.window_manager
+        if len(wm.translation_items) > 0 and 0 <= wm.translation_index < len(wm.translation_items):
+            wm.translation_items.remove(wm.translation_index)
+            wm.translation_index = min(wm.translation_index, len(wm.translation_items) - 1)
+        return {'FINISHED'}
+
+class USERPREF_PT_translation_manager(Panel):
+    bl_label = "翻译工具 (Translation Tools)"
+    bl_space_type = 'PREFERENCES'
+    bl_region_type = 'WINDOW'
+    bl_context = "interface"
+    bl_parent_id = "USERPREF_PT_interface_translation"
+    
+    def draw(self, context):
+        layout = self.layout
+        layout.operator("userpref.toggle_language", icon='WORLD', text="一键切换中英文")
+        box = layout.box()
+        box.operator("userpref.edit_translations", icon='TEXT', text="打开翻译列表 / 添加修改...")
+
 classes = (
     USERPREF_PT_theme_user_interface,
     *ThemeGenericClassGenerator.generate_panel_classes_for_wcols(),
@@ -3089,6 +3296,13 @@ classes = (
     USERPREF_PT_interface_temporary_windows,
     USERPREF_PT_interface_statusbar,
     USERPREF_PT_interface_translation,
+    USERPREF_PT_translation_manager,
+    USERPREF_UL_translations,
+    USERPREF_OT_toggle_language,
+    USERPREF_OT_edit_translations,
+    USERPREF_OT_add_translation,
+    USERPREF_OT_remove_translation,
+    TranslationItem,
     USERPREF_PT_interface_accessibility,
     USERPREF_PT_interface_text,
     USERPREF_PT_interface_menus,
