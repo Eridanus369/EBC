@@ -2914,8 +2914,28 @@ enum FastGI_Method : char {
   FAST_GI_AO_ONLY = 1,
 };
 
+typedef struct EEVEE_SpectralCausticsSettings {
+  char use_spectral_caustics;
+  char dispersion_enabled;
+  char _pad0[2];
+
+  int photon_count;
+  int max_bounces;
+  int caustic_resolution;
+
+  float cauchy_a;
+  float cauchy_b;
+  float cauchy_c;
+
+  float volumetric_scattering;
+  float volumetric_anisotropy;
+  char _pad1[4];
+} EEVEE_SpectralCausticsSettings;
+
 struct SceneEEVEE {
   DNA_DEFINE_CXX_METHODS(SceneEEVEE)
+
+  EEVEE_SpectralCausticsSettings caustics = {};
 
   eSceneEEVEE_Flag flag = SCE_EEVEE_TAA_REPROJECTION | SCE_EEVEE_SHADOW_ENABLED;
   int gi_diffuse_bounces = 3;

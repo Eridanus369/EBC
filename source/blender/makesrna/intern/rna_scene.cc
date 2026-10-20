@@ -9642,6 +9642,59 @@ static void rna_def_scene_eevee_render_texture_struct(BlenderRNA *brna)
   RNA_def_property_update(prop, NC_SCENE | ND_RENDER_OPTIONS, "rna_SceneEEVEE_render_texture_update");
 }
 
+static void rna_def_scene_eevee_spectral_caustics(BlenderRNA *brna)
+{
+  StructRNA *srna;
+  PropertyRNA *prop;
+
+  srna = RNA_def_struct(brna, "SceneEEVEESpectralCaustics", nullptr);
+  RNA_def_struct_sdna(srna, "EEVEE_SpectralCausticsSettings");
+  RNA_def_struct_ui_text(srna, "Spectral Caustics Settings", "Settings for photon-based spectral caustics");
+
+  prop = RNA_def_property(srna, "use_spectral_caustics", PROP_BOOLEAN, PROP_NONE);
+  RNA_def_property_boolean_sdna(prop, nullptr, "use_spectral_caustics", 1);
+  RNA_def_property_ui_text(prop, "Enable Spectral Caustics", "Enable photon tracing for physically based dispersion and caustics");
+
+  prop = RNA_def_property(srna, "dispersion_enabled", PROP_BOOLEAN, PROP_NONE);
+  RNA_def_property_boolean_sdna(prop, nullptr, "dispersion_enabled", 1);
+  RNA_def_property_ui_text(prop, "Dispersion", "Enable wavelength-dependent refraction (rainbows)");
+
+  prop = RNA_def_property(srna, "photon_count", PROP_INT, PROP_NONE);
+  RNA_def_property_int_sdna(prop, nullptr, "photon_count");
+  RNA_def_property_range(prop, 50000, 500000);
+  RNA_def_property_ui_text(prop, "Photon Count", "Number of photons emitted per frame");
+
+  prop = RNA_def_property(srna, "max_bounces", PROP_INT, PROP_NONE);
+  RNA_def_property_int_sdna(prop, nullptr, "max_bounces");
+  RNA_def_property_range(prop, 1, 16);
+  RNA_def_property_ui_text(prop, "Max Bounces", "Maximum number of photon bounces");
+
+  prop = RNA_def_property(srna, "caustic_resolution", PROP_INT, PROP_NONE);
+  RNA_def_property_int_sdna(prop, nullptr, "caustic_resolution");
+  RNA_def_property_range(prop, 256, 2048);
+  RNA_def_property_ui_text(prop, "Cascade Resolution", "Resolution of the caustic map cascades");
+
+  prop = RNA_def_property(srna, "cauchy_a", PROP_FLOAT, PROP_NONE);
+  RNA_def_property_float_sdna(prop, nullptr, "cauchy_a");
+  RNA_def_property_ui_text(prop, "Cauchy A", "Base index of refraction");
+
+  prop = RNA_def_property(srna, "cauchy_b", PROP_FLOAT, PROP_NONE);
+  RNA_def_property_float_sdna(prop, nullptr, "cauchy_b");
+  RNA_def_property_ui_text(prop, "Cauchy B", "First dispersion coefficient");
+
+  prop = RNA_def_property(srna, "cauchy_c", PROP_FLOAT, PROP_NONE);
+  RNA_def_property_float_sdna(prop, nullptr, "cauchy_c");
+  RNA_def_property_ui_text(prop, "Cauchy C", "Second dispersion coefficient");
+
+  prop = RNA_def_property(srna, "volumetric_scattering", PROP_FLOAT, PROP_NONE);
+  RNA_def_property_float_sdna(prop, nullptr, "volumetric_scattering");
+  RNA_def_property_ui_text(prop, "Volumetric Scattering", "Scattering coefficient in participating media");
+
+  prop = RNA_def_property(srna, "volumetric_anisotropy", PROP_FLOAT, PROP_NONE);
+  RNA_def_property_float_sdna(prop, nullptr, "volumetric_anisotropy");
+  RNA_def_property_ui_text(prop, "Volumetric Anisotropy", "Henyey-Greenstein phase function anisotropy");
+}
+
 static void rna_def_scene_eevee(BlenderRNA *brna)
 {
   StructRNA *srna;
@@ -9718,6 +9771,7 @@ static void rna_def_scene_eevee(BlenderRNA *brna)
   };
 
   srna = RNA_def_struct(brna, "SceneEEVEE", nullptr);
+  rna_def_scene_eevee_spectral_caustics(brna);
   RNA_def_struct_path_func(srna, "rna_SceneEEVEE_path");
   RNA_def_struct_ui_text(srna, "Scene Display", "Scene display settings for 3D viewport");
 
@@ -10187,6 +10241,10 @@ static void rna_def_scene_eevee(BlenderRNA *brna)
   RNA_def_property_range(prop, 0.0f, 50.0f);
   RNA_def_property_ui_range(prop, 0.0f, 10.0f, 1, 2);
   RNA_def_property_override_flag(prop, PROPOVERRIDE_OVERRIDABLE_LIBRARY);
+
+  prop = RNA_def_property(srna, "caustics", PROP_POINTER, PROP_NONE);
+  RNA_def_property_struct_type(prop, "SceneEEVEESpectralCaustics");
+  RNA_def_property_ui_text(prop, "Spectral Caustics", "Spectral caustics settings");
 
   prop = RNA_def_property(srna, "ray_tracing_options", PROP_POINTER, PROP_NONE);
   RNA_def_property_struct_type(prop, "RaytraceEEVEE");
