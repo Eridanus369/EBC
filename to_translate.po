@@ -1,0 +1,354 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: Blender 5.3.0 Alpha (b'f5df8c32f99b')\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-10-19 13:29+0800\n"
+"PO-Revision-Date: 2026-09-06 08:09+0000\n"
+"Last-Translator: Ye Gui <ziweidao@foxmail.com>\n"
+"Language-Team: Chinese (Simplified Han script) <https://translate.blender.org/projects/blender-ui/ui/zh_Hans/>\n"
+"Language: zh_HANS\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+
+msgid " (-90°)"
+msgstr " (-90°)"
+
+msgid " (180°)"
+msgstr " (180°)"
+
+msgid " (90°)"
+msgstr " (90°)"
+
+msgid " (Flipped X)"
+msgstr " (翻转 X)"
+
+msgid " (Flipped Y)"
+msgstr " (翻转 Y)"
+
+msgid " (Flipped) (Rolled)"
+msgstr " (翻转) (滚动)"
+
+msgid " (Rolled)"
+msgstr " (滚动)"
+
+#, c-format
+msgid ""
+"%s contains a volume shader that might need to be converted to object (see "
+"world volume panel)\n"
+msgstr "%s 包含一个可能需要转换为物体的体积着色器（参见世界体积面板）\n"
+
+msgid "1 Input SDF Ops"
+msgstr "1 输入 SDF 操作"
+
+msgid "2 Input SDF Ops"
+msgstr "2 输入 SDF 操作"
+
+msgid "2D Curve Primitives"
+msgstr "2D 曲线图元"
+
+msgid "2D Primitives"
+msgstr "2D 图元"
+
+msgid "3D Primitives"
+msgstr "3D 图元"
+
+msgid "Act"
+msgstr "动作"
+
+msgid "Actuator only available for armatures"
+msgstr "执行器仅适用于骨架"
+
+msgid "Actuators"
+msgstr "执行器"
+
+msgid "Add Actuator"
+msgstr "添加执行器"
+
+msgid "Add Controller"
+msgstr "添加控制器"
+
+msgid "Add Sensor"
+msgstr "添加传感器"
+
+msgid ""
+"Appearance is not equivalent. Animation and drivers remain on the original "
+"node."
+msgstr "外观不等效。动画和驱动器将保留在原始节点上。"
+
+msgid "Build non-linear Eevee fullscreen filter material graphs"
+msgstr "构建非线性 Eevee 全屏滤镜材质节点图"
+
+msgid "Choose a function"
+msgstr "选择一个函数"
+
+#, c-format
+msgid "Choose between true and false, 50% chance each"
+msgstr "在真和假之间选择，各 50% 的概率"
+
+msgid "Clamp Handles"
+msgstr "钳制手柄"
+
+msgid "Clear Constraints"
+msgstr "清除约束"
+
+msgid "Controller"
+msgstr "控制器"
+
+msgid "Controller visible at: "
+msgstr "控制器可见于： "
+
+msgid "Conversion"
+msgstr "转换"
+
+msgid "Create Copy"
+msgstr "创建副本"
+
+msgid "Create Simplified Copy"
+msgstr "创建简化副本"
+
+msgid "Create V2 Copy"
+msgstr "创建 V2 副本"
+
+msgid "Create V2 Copy?"
+msgstr "创建 V2 副本？"
+
+msgid "Defines"
+msgstr "定义"
+
+msgid "Diffuse Light Combine"
+msgstr "漫反射光合并"
+
+msgid "Diffuse Mapping"
+msgstr "漫反射映射"
+
+msgid ""
+"Drag a color anchor; Ctrl-click adds a new point; Delete removes the active "
+"point"
+msgstr "拖拽颜色锚点；Ctrl+点击添加新点；Delete 删除活动点"
+
+msgid "Dynamic Object Settings:"
+msgstr "动态物体设置："
+
+#, c-format
+msgid "EBC %s (based on Blender %s)"
+msgstr "EBC %s (基于 Blender %s)"
+
+msgid "Edit Object"
+msgstr "编辑物体"
+
+msgid "Eevee Filter Graph"
+msgstr "Eevee 滤镜节点图"
+
+msgid "Eevee Only"
+msgstr "仅 Eevee"
+
+msgid ""
+"Error: Curves object contains too many points. Reduce curve resolution or "
+"curve count to fix this issue.\n"
+msgstr "错误：曲线物体包含过多点。请降低曲线分辨率或曲线数量以修复此问题。\n"
+
+msgid "Filter 2D"
+msgstr "2D 滤镜"
+
+msgid "Finite integration: higher cost"
+msgstr "有限积分：开销较高"
+
+msgid "First Modifier:"
+msgstr "第一个修改器："
+
+msgid "For Each Light"
+msgstr "对每个灯光"
+
+msgid "For Each Light Items"
+msgstr "对每个灯光项"
+
+msgid "GLSL Function.glsl"
+msgstr "GLSL Function.glsl"
+
+msgid "GPU Deform"
+msgstr "GPU 形变"
+
+msgid "Game"
+msgstr "游戏"
+
+msgid "Hide Actuators"
+msgstr "隐藏执行器"
+
+msgid "Hide Controllers"
+msgstr "隐藏控制器"
+
+msgid "Hide Objects"
+msgstr "隐藏物体"
+
+msgid "Hide Sensors"
+msgstr "隐藏传感器"
+
+msgid "Joystick"
+msgstr "摇杆"
+
+msgid "Legacy Lighting (Preserved)"
+msgstr "旧版光照（保留）"
+
+msgid "Legacy V1"
+msgstr "旧版 V1"
+
+msgid ""
+"Lighting nodes can't be connected to the Color sockets of a Light "
+"Accumulation node"
+msgstr "光照节点无法连接到光累加节点的颜色插槽"
+
+msgid ""
+"Lighting nodes must be connected to the Light sockets of a Light "
+"Accumulation node before reaching the Material Output"
+msgstr "光照节点必须在到达材质输出之前，连接到光累加节点的光插槽"
+
+#, c-format
+msgid ""
+"Material %s could not be converted because of different Blend Mode and "
+"Shadow Mode (need manual adjustment)\n"
+msgstr "材质 %s 因混合模式和阴影模式不同而无法转换（需要手动调整）\n"
+
+#, c-format
+msgid ""
+"Material %s could not be converted because of non-trivial alpha blending "
+"(need manual adjustment)\n"
+msgstr "材质 %s 因非平凡的 Alpha 混合而无法转换（需要手动调整）\n"
+
+#, c-format
+msgid ""
+"Mesh %s has invalid faces, likely caused by the manifold extrude tool in "
+"version 2.90.0. Opening and saving the file in a version prior to 5.1 should "
+"resolve the issue\n"
+msgstr "网格 %s 包含无效面，可能是由 2.90.0 版本中的流形挤出工具引起的。在 5.1 之前的版本中打开并保存该文件应可解决此问题\n"
+
+msgid "Mode only available for mesh objects"
+msgstr "模式仅适用于网格物体"
+
+msgid ""
+"Move inside collection (Ctrl to link, Shift to parent, Ctrl + Shift to move "
+"only parent)"
+msgstr "移动到集合内（Ctrl 关联，Shift 设为父级，Ctrl + Shift 仅移动父级）"
+
+msgid "Move parent object inside collection"
+msgstr "将父物体移动到集合内"
+
+msgid "NPR Surface Diffusion is evaluated only by the Eevee render engine"
+msgstr "NPR 表面漫射仅由 Eevee 渲染引擎评估"
+
+msgid "Nand"
+msgstr "与非"
+
+msgid "Native PostFX"
+msgstr "原生后期特效"
+
+msgid "No Filter Material"
+msgstr "无滤镜材质"
+
+msgid "Not an Eevee filter graph node tree"
+msgstr "不是 Eevee 滤镜节点图"
+
+msgid "Object name, click to show/hide actuators"
+msgstr "物体名称，点击显示/隐藏执行器"
+
+msgid "Object name, click to show/hide controllers"
+msgstr "物体名称，点击显示/隐藏控制器"
+
+msgid "Object name, click to show/hide sensors"
+msgstr "物体名称，点击显示/隐藏传感器"
+
+msgid "Only for side-panels"
+msgstr "仅用于侧边面板"
+
+msgid "Preview uses socket defaults"
+msgstr "预览使用插槽默认值"
+
+msgid "Principled NPR is evaluated only by the Eevee render engine"
+msgstr "原理化 NPR 仅由 Eevee 渲染引擎评估"
+
+#, c-format
+msgid "Proxy lost from object %s lib %s\n"
+msgstr "对象 %s 库 %s 的代理丢失\n"
+
+#, c-format
+msgid "Proxy lost from object %s lib <NONE>\n"
+msgstr "对象 %s 库 <无> 的代理丢失\n"
+
+msgid "Radar"
+msgstr "雷达"
+
+msgid "Range:"
+msgstr "范围："
+
+msgid "Ray"
+msgstr "射线"
+
+msgid "Recast"
+msgstr "重铸"
+
+msgid "Res"
+msgstr "分辨率"
+
+msgid "Search..."
+msgstr "搜索..."
+
+msgid "Second Modifier:"
+msgstr "第二个修改器："
+
+msgid "Sel"
+msgstr "选择"
+
+msgid "Select a sound from the list or load a new one"
+msgstr "从列表中选择一个声音或加载一个新的"
+
+msgid "Selected Point Transition"
+msgstr "选中点过渡"
+
+msgid "Sensor only available for armatures"
+msgstr "传感器仅适用于骨架"
+
+msgid "Set controller state index (from 1 to 30)"
+msgstr "设置控制器状态索引（从 1 到 30）"
+
+msgid "Shader To RGB can't evaluate Light Accumulation nodes"
+msgstr "着色器转 RGB 无法评估光累加节点"
+
+msgid "Show Actuators"
+msgstr "显示执行器"
+
+msgid "Show Objects"
+msgstr "显示物体"
+
+msgid "Show Sensors"
+msgstr "显示传感器"
+
+msgid "SimpleDeformBGE"
+msgstr "SimpleDeformBGE"
+
+msgid "Steering"
+msgstr "转向"
+
+msgid "Stylized 2D Primitives"
+msgstr "风格化 2D 图元"
+
+msgid "This node is experimental and may change in future versions"
+msgstr "此节点为实验性节点，未来版本可能会更改"
+
+msgid "UV Ops"
+msgstr "UV 操作"
+
+msgid "Vector FX Ops"
+msgstr "矢量特效操作"
+
+msgid "Vector Grid Ops"
+msgstr "矢量网格操作"
+
+msgid "Xnor"
+msgstr "同或"
+
+msgid "Xor"
+msgstr "异或"
+
+msgid "Zone IO"
+msgstr "区域输入输出"

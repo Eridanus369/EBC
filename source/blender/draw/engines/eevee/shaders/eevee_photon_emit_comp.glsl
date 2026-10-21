@@ -5,24 +5,9 @@
 #pragma once
 
 #include "gpu_shader_compat.hh"
-#include "eevee_photon_shared.glsl"
+#include "eevee_spectral_lib.glsl"
 
-layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
-
-layout(std430, binding = 0) writeonly buffer PhotonBuffer {
-  Photon photons[];
-};
-
-/* Uniforms provided by the host. */
-[[push_constant]] int photon_count;
-[[push_constant]] float3 light_position;
-[[push_constant]] float3 light_direction;
-[[push_constant]] float light_radius;
-[[push_constant]] float light_power;
-
-/* Pseudo-random hash. */
-float hash(uint x)
-{
+float hash(uint x) {
   x = (x ^ 61u) ^ (x >> 16u);
   x *= 9u;
   x = x ^ (x >> 4u);
@@ -31,17 +16,11 @@ float hash(uint x)
   return float(x) / 4294967296.0;
 }
 
-void main()
-{
+void main() {
   uint idx = gl_GlobalInvocationID.x;
-  if (idx >= uint(photon_count)) {
-    return;
-  }
+  if (idx >= uint(photon_count)) { return; }
 
-  /* Sample wavelength uniformly across visible range. */
   float lambda = SPECTRAL_LAMBDA_MIN + (SPECTRAL_LAMBDA_MAX - SPECTRAL_LAMBDA_MIN) * hash(idx * 13u);
-
-  /* Sample position on light disk. */
   float u = hash(idx * 7u + 1u);
   float v = hash(idx * 11u + 3u);
   float r = sqrt(u);

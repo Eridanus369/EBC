@@ -419,11 +419,11 @@ const char *ShaderModule::static_shader_create_info_name_get(eShaderType shader_
     case HIZ_UPDATE_LAYER:
       return "eevee_hiz_update_layer";
     case PHOTON_EMIT:
-      return "eevee_photon_emit_comp";
+      return "eevee_photon_emit";
     case PHOTON_TRACE:
-      return "eevee_photon_trace_comp";
+      return "eevee_photon_trace";
     case PHOTON_SPLAT:
-      return "eevee_photon_splat_comp";
+      return "eevee_photon_splat";
     case FAST_GI_DENOISE:
       return "eevee_fast_gi_denoise";
     case FAST_GI_RESOLVE:

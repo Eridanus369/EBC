@@ -1,0 +1,405 @@
+# 把等号后面的内容填成中文，不要改动等号前面的英文
+
+  \u2022 \"{}\":  = 
+ (-90\xC2\xB0) = 
+ (180\xC2\xB0) = 
+ (90\xC2\xB0) = 
+ (Flipped X) = 
+ (Flipped Y) = 
+ (Flipped) (Rolled) = 
+ (Rolled) = 
+%d \u00D7 %d,  = 
+%s Cache in object %s can not be read because it uses an "
+             "outdated compression method. You need to delete the caches and re-bake. = 
+%s contains a volume shader that might need to be "
+                                        "converted to object (see world volume panel)\n = 
+1 Input SDF Ops = 
+16-bit color channels. Data passes like Depth will still be saved using full "
+              "32-bit precision. = 
+1st order semi-Lagrangian integration. Fast but least accurate, suitable for simple "
+        "advection = 
+2 Input SDF Ops = 
+2D Curve Primitives = 
+2D Primitives = 
+3D Primitives = 
+Act = 
+Actuator only available for armatures = 
+Actuators = 
+Add Actuator = 
+Add Controller = 
+Add Sensor = 
+Add modifier with node group \"{}\" on object \"{}\" = 
+Allow Online Access in order to browse and download online assets, or turn off the "
+      "\"Remote Assets\" filter to show only the downloaded assets.\n\nYou can adjust this "
+      "later from the \"System\" preferences. = 
+An input name cannot start with a digit: \"{}\" = 
+Appearance is not equivalent. Animation and drivers "
+                                           "remain on the original node. = 
+Applies a recursive Gaussian blur that can be faster and more accurate in some cases, "
+        "but less accurate in other cases = 
+Asset Libraries are local directories that can contain .blend files with assets inside.\n"
+        "Manage Asset Libraries from the Asset Libraries section in the Preferences = 
+Asset metadata from external libraries cannot be edited. Only assets stored in the "
+        "current file can be edited. = 
+Attribute does not exist: \"{}\" = 
+Attributes with these names used within the group may conflict with "
+                        "existing attributes = 
+Back and Forth Error Compensation and Correction. Advanced scheme that minimizes "
+        "dissipation and diffusion = 
+Bone \"{}\" not found = 
+Build non-linear Eevee fullscreen filter material graphs = 
+Byte Color (sRGB encoded):\n{}  {}  {}  {} = 
+Calculate normals perpendicular to the Z axis and the curve tangent. If a series of "
+        "points is vertical, the X axis is used. = 
+Calculate normals with the smallest twist around the curve tangent across the whole "
+        "curve = 
+Calculate the number of samples by splitting each spline into segments with the "
+        "specified "
+        "length = 
+Calculation using the MikkTSpace library, consistent with tangents used elsewhere in "
+        "Blender = 
+Cannot access collections geometry because it's not evaluated "
+                                  "yet. This can happen when there is a dependency cycle = 
+Cannot access object's geometry because it's not evaluated yet. "
+             "This can happen when there is a dependency cycle = 
+Cannot access object's transforms because it's not evaluated yet. "
+               "This can happen when there is a dependency cycle = 
+Cannot access object's transforms because it's not evaluated yet. "
+             "This can happen when there is a dependency cycle = 
+Cannot edit 'runtime' status of non-blendfile data-blocks, as they are by definition "
+        "always runtime = 
+Change the object in the current mode\n"
+        " \u2022 Ctrl to add to the current mode = 
+Choose a function = 
+Choose between true and false, 50% chance each = 
+Clamp Handles = 
+Clamp values to the range of the original neighborhood. Prevents overshooting and "
+        "undershooting = 
+Closure does not have input: \"{}\" = 
+Closure does not have output: \"{}\" = 
+Collection does not contain object types that can be rendered for the automatic "
+                 "preview = 
+Contains linked library overrides that need to be resynced, updating the library is "
+        "recommended = 
+Controller = 
+Controller visible at:  = 
+Could not create {:d} F-Curve(s). This can happen when only "
+                          "inserting to available F-Curves. = 
+Could not generate grid for \"{}\" = 
+Create Copy = 
+Create Simplified Copy = 
+Create V2 Copy = 
+Create V2 Copy? = 
+Data-block does not support asset operations - must be a "
+      "Brush, Collection, Node Group, Object, Pose Action, Scene, or World = 
+Defines = 
+Delete all asset metadata, turning the selected asset data-blocks back into normal "
+      "data-blocks, and set Fake User to ensure the data-blocks will still be saved = 
+Delimiter must not be \\n, \\r, \" or \\ = 
+Denoise image and guiding passes together. Improves quality when guiding passes are "
+        "noisy using least amount of extra processing time. = 
+Diffuse Light Combine = 
+Diffuse Mapping = 
+Direct linked library data-block, click to make local, "
+                                  "Shift + Click to create a library override = 
+Disable selection in viewport\n"
+                                         " \u2022 Ctrl to isolate collection\n"
+                                         " \u2022 Shift to set inside collections and objects = 
+Disable selection in viewport\n"
+                                       " \u2022 Shift to set children = 
+Drag a color anchor; Ctrl-click adds a new point; Delete removes "
+                                 "the active point = 
+Dynamic Object Settings: = 
+EBC %s (based on Blender %s) = 
+Edge select - Shift-Click for multiple modes, "
+            "Ctrl-Click expands/contracts selection depending on the current mode = 
+Edit Object = 
+Eevee Filter Graph = 
+Eevee Only = 
+Effect node group assets not assigned to a catalog.\n"
+      "Catalogs can be assigned in the Asset Browser = 
+Empty identifier cannot be used when explicit identifier was used before. For "
+              "example, \"{} {x}\" is ok but \"{x} {}\" is not. = 
+Error reading asset listing file entry, skipping. Reason: found a file ({:s}) without "
+           "'hash' field = 
+Error reading asset listing file entry, skipping. Reason: found a file ({:s}) without "
+           "'size_in_bytes' field = 
+Error reading asset listing file entry, skipping. Reason: found a file without 'path' "
+           "field = 
+Error: Curves object contains too many points. "
+        "Reduce curve resolution or curve count to fix this issue.\n = 
+Evaluated surface missing UV map: \"{}\" = 
+Evaluated surface missing attribute: \"rest_position\" = 
+Failed to write to attribute \"{}\" with domain \"{}\" and type \"{}\" = 
+File saved by newer Blender\n({}), expect loss of data = 
+Filter 2D = 
+Finite integration: higher cost = 
+First Modifier: = 
+For Each Light = 
+For Each Light Items = 
+For security reasons, automatic execution of Python scripts "
+      "in this file was disabled: = 
+Force updates of dependencies - Only use this if drivers are not "
+                              "updating correctly = 
+Format contains unsupported \"{}\" character: \"{}\" = 
+Format specifier is not closed: \"{}\" = 
+GLSL Function.glsl = 
+GPU Deform = 
+Game = 
+Globally disable in renders\n"
+                                         " \u2022 Ctrl to isolate collection\n"
+                                         " \u2022 Shift to set inside collections and objects = 
+Globally disable in renders\n"
+                                       " \u2022 Shift to set children = 
+Globally disable in viewports\n"
+                                         " \u2022 Ctrl to isolate collection\n"
+                                         " \u2022 Shift to set inside collections and objects = 
+Globally disable in viewports\n"
+                                       " \u2022 Shift to set children = 
+Hide Actuators = 
+Hide Controllers = 
+Hide Sensors = 
+Indirect library data-block, cannot be made local, "
+                                  "Shift + Click to create a library override hierarchy = 
+Input does not exist: \"{}\" = 
+Input with index {} does not exist. Currently, the maximum "
+                                  "possible index is {}. Did you mean to use {{:{}}}? = 
+Inserting keys on {:d} data-block(s) has been skipped because "
+                          "of missing action slots. = 
+Inserting keys on {:d} data-block(s) has been skipped because "
+                          "the RNA path wasn't valid for them. = 
+Inserting keys on {:d} data-block(s) has been skipped because "
+                          "there were no layers that could accept the keys. = 
+Inserting keys on {:d} data-block(s) has been skipped because "
+                          "there were no strips that could accept the keys. = 
+Inserting keys on {:d} data-block(s) has been skipped because "
+                          "they are not editable. = 
+Inserting keys on {:d} data-block(s) has been skipped because "
+                          "they cannot be animated. = 
+Invalid context: \"%s\", %s = 
+Invalid face data detected for mesh '%s'. Automatic correction will be used, but some "
+          "data will most likely be lost = 
+Invalid format specifier for string: \"{}\" = 
+Invalid format specifier: \"{}\" = 
+Invalid format: \"{}\" = 
+Invalid identifier: \"{}\" = 
+It cannot start with a special character,"
+                      " including '$', '@', '!', '~', '+', '-', '_', '.', or ' ' = 
+Item has no users and will be removed.\nClick to protect from deletion = 
+Joystick = 
+Keep tiles unchanged when possible, only voxelizing if necessary. More memory "
+          "efficient = 
+LIB: %s: '%s' is directly linked from '%s' (parent '%s'), but is a "
+                          "non-linkable data type = 
+LIB: .blend file %s seems corrupted, no owner 'Library' data found "
+                            "for the linked data-block '%s'. Try saving the file again. = 
+LIB: .blend file %s seems corrupted, no owner 'Library' data found "
+                            "for the packed linked data-block %s. Try saving the file again. = 
+Launched with \"--offline-mode\", cannot be changed = 
+Legacy Lighting (Preserved) = 
+Legacy V1 = 
+Library '%s' ('%s') is an archive storage for packed data, but has "
+                            "no real library parent. = 
+Library override of linked data-block, click to make fully local, "
+                 "Shift + Click to clear the library override and toggle if it can be edited = 
+Lighting nodes can't be connected to the Color sockets of a Light Accumulation "
+                "node = 
+Lighting nodes must be connected to the Light sockets of a Light Accumulation "
+                "node before reaching the Material Output = 
+Load Factory \"{}\" Preferences. = 
+Load Factory \"{}\" Startup File and Preferences = 
+MacCormack scheme with implicit diffusion control. Reduces numerical dissipation while "
+        "maintaining stability = 
+Mask out objects in collection from view layer\n"
+                                           " \u2022 Ctrl to isolate collection\n"
+                                           " \u2022 Shift to set inside collections = 
+Material %s could not be converted because of different Blend Mode "
+                   "and Shadow Mode (need manual adjustment)\n = 
+Material %s could not be converted because of non-trivial "
+                                  "alpha blending (need manual adjustment)\n = 
+Material is assigned to the object data, which is linked/packed "
+                            "and therefore not editable. Change to link this material slot to the "
+                            "object instead, or make the object data local. = 
+Mesh %s has invalid faces, likely caused by the manifold extrude "
+                                "tool in version 2.90.0. Opening and saving the file in a version "
+                                "prior to 5.1 should resolve the issue\n = 
+Mirror the active shape key along the local X axis using topology based mirroring\n"
+        "(for when both sides of mesh have matching, unique topology) = 
+Mode only available for mesh objects = 
+Modifier node group assets not assigned to a catalog.\n"
+      "Catalogs can be assigned in the Asset Browser = 
+Move inside collection (Ctrl to link, Shift to parent, "
+              "Ctrl + Shift to move only parent) = 
+Move parent object inside collection = 
+Move the mouse to change the dyntopo detail size. LMB: confirm size, ESC/RMB: cancel, "
+      "SHIFT: precision mode, CTRL: sample detail size = 
+NLA Track is the only one evaluated in this animation data-block, with all others "
+          "muted = 
+NPR Surface Diffusion is evaluated only by the Eevee render engine = 
+Nand = 
+Native PostFX = 
+No Filter Material = 
+No data-block selected that supports asset operations - select at least one "
+      "Brush, Collection, Node Group, Object, Pose Action, Scene, or World = 
+No items. Note: The \"Only Offline\" filter option is enabled. = 
+No items. Note: The \"Only Online\" filter option is enabled. = 
+Node group assets not assigned to a catalog.\n"
+      "Catalogs can be assigned in the Asset Browser = 
+Non-Empty object '%s' cannot duplicate collection '%s' "
+                              "anymore in Blender 2.80 and later, removed instancing = 
+Not an Eevee filter graph node tree = 
+Object name, click to show/hide actuators = 
+Object name, click to show/hide controllers = 
+Object name, click to show/hide sensors = 
+Object type mismatch, Alembic object path pointed to Camera when importing, but not any "
+        "more = 
+Object type mismatch, Alembic object path pointed to Curves when importing, but not "
+        "anymore. = 
+Object type mismatch, Alembic object path pointed to NURBS when importing, but not any "
+        "more = 
+Object type mismatch, Alembic object path pointed to Points when importing, but not any "
+        "more = 
+Object type mismatch, Alembic object path pointed to PolyMesh when importing, but not "
+        "any more = 
+Object type mismatch, Alembic object path pointed to SubD when importing, but not any "
+        "more = 
+Object type mismatch, Alembic object path pointed to XForm when importing, but not any "
+        "more = 
+Objects in collection only contribute indirectly (through shadows and "
+                       "reflections) in the view layer\n"
+                       " \u2022 Ctrl to isolate collection\n"
+                       " \u2022 Shift to set inside collections = 
+Only for side-panels = 
+Only integer inputs can be used as dynamic precision: \"{}\" = 
+Only integer inputs can be used as dynamic width: \"{}\" = 
+Only keyboard shortcuts can be edited that way, "
+                                             "please use User Preferences otherwise = 
+Only output curves that fit within the width and height. Output the remainder to the "
+        "\"Remainder\" output. = 
+Original surface missing UV map: \"{}\" = 
+Output the input spline's evaluated points, based on the resolution attribute for NURBS "
+        "and Bézier splines. Poly splines are unchanged = 
+Predefined inertial transitions, useful for motion graphics "
+                             "(from least to most \"dramatic\ = 
+Prefilter noisy guiding passes before denoising image. Improves quality when guiding "
+        "passes are noisy using extra processing time. = 
+Preview uses socket defaults = 
+Principled NPR is evaluated only by the Eevee render engine = 
+Proxy lost from object %s lib %s\n = 
+Proxy lost from object %s lib <NONE>\n = 
+Radar = 
+Range: = 
+Ray = 
+Recast = 
+Remove all attributes that match the pattern which is allowed to contain a single "
+        "wildcard (*) = 
+Render the viewport for the animation range of this scene, but only render keyframes of "
+        "selected objects = 
+Replace inactive tiles with inactive nodes. Faster than tolerance-based pruning, "
+          "useful for cases like narrow-band SDF grids with only inside or outside background "
+          "values. = 
+Res = 
+Restrict selection in the 3D View\n"
+                                    " \u2022 Shift to set children = 
+Restrict visibility in the 3D View\n"
+                                       " \u2022 Shift to set children = 
+Restrict visibility in the 3D View\n"
+                                    " \u2022 Shift to set children = 
+Returns the position and speed of the marker at the current scene frame relative to the "
+        "position of the first non-disabled marker in the track = 
+Returns the position and speed of the marker at the current scene frame relative to the "
+        "position of the marker at the current scene frame plus the user given relative frame = 
+Returns the position and speed of the marker at the current scene frame relative to the "
+        "zero origin of the tracking space = 
+Revert to 1st order integration when clamping would be applied. More conservative than "
+        "clamping = 
+Rod stretch/shear constraint requires \"rotation\" attribute = 
+Rotation mode.\n\nOnly affects the way "
+                                  "rotation is displayed, rotation itself is unaffected. = 
+Save the current Blender file with a numerically incremented name that does not "
+        "overwrite any existing files = 
+Scene assets not assigned to a catalog.\n"
+      "Catalogs can be assigned in the Asset Browser = 
+Second Modifier: = 
+Sel = 
+Select List Item "
+                                               "(Double click to rename) = 
+Select a sound from the list or load a new one = 
+Selected Point Transition = 
+Sensor only available for armatures = 
+Set controller state index (from 1 to 30) = 
+Shader To RGB can't evaluate Light Accumulation nodes = 
+Show Actuators = 
+Show Objects = 
+Show Sensors = 
+Show all keyframes during animation playback and enable all frames for editing "
+            "(uncheck to use only the current keyframe during animation playback and editing) = 
+Significantly faster method that approximates tangents interpolated across face corners "
+        "with matching UVs. For a value actually tangential to the surface, use the cross product "
+        "with the normal. = 
+SimpleDeformBGE = 
+Skipped versioning materials of object '%s' because '%s' was already "
+                            "converted. Manual intervention might be required! = 
+Source library: {}\n{} = 
+Steering = 
+Stylized 2D Primitives = 
+Template \"{}\" will start next time as it is now. = 
+Temporarily hide in viewport\n"
+                                           " \u2022 Ctrl to isolate collection\n"
+                                           " \u2022 Shift to set inside collections and objects = 
+Temporarily hide in viewport\n"
+                                         " \u2022 Shift to set children = 
+The asset shelf is not available in the current context (try changing the active mode "
+          "or tool) = 
+The execution time from the node tree's latest evaluation. For frame and group "
+      "nodes, the time for all sub-nodes = 
+The foreground goes over the background according to the alpha of the foreground but the "
+        "foreground completely covers the background if it is more opaque = 
+The foreground goes over the background according to the alpha of the foreground while "
+        "assuming the background is being held out by the foreground = 
+The kernel is a color and each channel of the kernel will be convolved with each "
+        "respective channel in the input = 
+This asset was previously downloaded, but it is outdated or inconsistent.\n"
+             "Downloading it again is recommended. = 
+This node is experimental and may change in future versions = 
+This override property does not exist in current data, it will be removed on "
+        "next .blend file save = 
+Time Remaining: {}\n"
+                                       "Time Elapsed: {} = 
+To make changes to Preferences permanent, use \"Save Preferences\" = 
+To make changes to Preferences permanent, use \"Save Preferences\". = 
+To make changes to Preferences permanent, use \"Save Preferences\".\n"
+                       "Warning: Your file is unsaved! Proceeding will abandon your changes. = 
+To match renders with the previous working space as closely as possible,\n"
+             "colors in all materials, lights and geometry must be converted.\n\n"
+             "Some nodes graphs cannot be converted accurately and may need manual fix-ups. = 
+Tool node group assets not assigned to a catalog.\n"
+      "Catalogs can be assigned in the Asset Browser = 
+Topology has changed, perhaps by triangulating the mesh. Only vertices will be "
+            "read! = 
+Turn regions where all voxels have the same value and active state (within a tolerance "
+          "threshold) into inactive background tiles = 
+Type \"{}\" cannot be formatted = 
+UV Ops = 
+Unlink data-block "
+                 "(Shift + Click to set users to zero, data will then not be saved) = 
+Use Utilities \u25B8 Switch node instead = 
+Use the \"Align Rotation to Vector\" node instead = 
+Use the \"Rotate Rotation\" node instead = 
+Uses LSCM (Least Squares Conformal Mapping). This usually gives a less accurate UV "
+        "mapping than Angle Based, but works better for simpler objects = 
+Uses SLIM (Scalable Locally Injective Mapping). Minimizes distortion in areas and "
+        "angles. = 
+Value not found in bundle: \"{}\" = 
+Vector FX Ops = 
+Vector Grid Ops = 
+Warning: Multiple objects share the same data.\nMake "
+                                           "single user and then apply transformations? = 
+Warning: the blend-file relative path prefix \"//\" "
+                                        "is not supported for this property. = 
+Xnor = 
+Xor = 
+Zone IO = 
+\"{}\" attribute from geometry = 
+\"{}\" from {} = 
+\u00d7 (Ax + B) = 

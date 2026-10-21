@@ -376,6 +376,7 @@ set(GLSL_SRC
   engines/eevee/shaders/infos/eevee_nodetree_infos.hh
   engines/eevee/shaders/infos/eevee_surf_bake_infos.hh
   engines/eevee/shaders/infos/eevee_render_texture_infos.hh
+  engines/eevee/shaders/infos/eevee_photon_infos.hh
 
   engines/image/shaders/infos/engine_image_infos.hh
 
@@ -411,7 +412,7 @@ set(GLSL_SRC
   engines/eevee/shaders/eevee_attributes_mesh_lib.glsl
   engines/eevee/shaders/eevee_attributes_pointcloud_lib.glsl
   engines/eevee/shaders/eevee_attributes_volume_lib.glsl
-  engines/eevee/shaders/eevee_photon_shared.glsl
+  engines/eevee/shaders/eevee_spectral_lib.glsl
   engines/eevee/shaders/eevee_photon_emit_comp.glsl
   engines/eevee/shaders/eevee_photon_trace_comp.glsl
   engines/eevee/shaders/eevee_photon_splat_comp.glsl
