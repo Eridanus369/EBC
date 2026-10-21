@@ -181,6 +181,14 @@ static void scene_init_data(ID *id)
 
   INIT_DEFAULT_STRUCT_AFTER(scene, id);
 
+  /* Initialize spectral caustics defaults. */
+  scene->eevee.caustics.photon_count = 100000;
+  scene->eevee.caustics.max_bounces = 4;
+  scene->eevee.caustics.caustic_resolution = 512;
+  scene->eevee.caustics.cauchy_a = 1.5f;
+  scene->eevee.caustics.cauchy_b = 0.005f;
+  scene->eevee.caustics.volumetric_scattering = 1.0f;
+
   STRNCPY(scene->r.bake.filepath, U.renderdir);
 
   mblur_shutter_curve = &scene->r.mblur_shutter_curve;
