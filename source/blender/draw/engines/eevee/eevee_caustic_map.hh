@@ -11,7 +11,7 @@
 #pragma once
 
 #include "draw_pass.hh"
-#include "eevee_photon_shared.hh"
+#include "shaders/eevee_photon_shared.hh"
 
 namespace blender::eevee {
 
