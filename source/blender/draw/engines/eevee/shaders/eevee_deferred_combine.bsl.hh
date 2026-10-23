@@ -302,7 +302,7 @@ void combine_frag([[resource_table]] Combine &srt,
   frag_out.combined = float4(out_direct + out_indirect, 0.0f);
   
   /* Add caustics */
-  float3 caustic_col = texture(srt.caustic_color_tx, v_out.screen_uv).rgb;
+  float3 caustic_col = texture(srt.caustic_color_tx, float2(v_out.screen_uv.x, v_out.screen_uv.y * 0.25)).rgb;
   frag_out.combined.rgb += caustic_col;
   frag_out.combined = any(isnan(frag_out.combined)) ? float4(1.0f, 0.0f, 1.0f, 0.0f) :
                                                       frag_out.combined;

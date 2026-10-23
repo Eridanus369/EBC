@@ -610,7 +610,6 @@ void Instance::render_sample()
     capture_view.render_probes();
     render_textures.render();
 
-    caustics.render();
 
     main_view.render();
 

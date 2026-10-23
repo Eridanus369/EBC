@@ -32,9 +32,9 @@ Texture &CausticModule::color_texture()
   return caustic_map_.color_texture();
 }
 
-void CausticModule::render()
+void CausticModule::render(View &view)
 {
-  if (!enabled_) {
+    if (!enabled_) {
     return;
   }
 
@@ -67,6 +67,7 @@ void CausticModule::render()
     
     pass.dispatch(int3(dispatch_groups, 1, 1));
     pass.barrier(GPU_BARRIER_SHADER_STORAGE);
+    inst_.manager->submit(pass, view);
   }
 
   /* 2. Trace Pass */
@@ -80,29 +81,28 @@ void CausticModule::render()
     
     pass.dispatch(int3(dispatch_groups, 1, 1));
     pass.barrier(GPU_BARRIER_SHADER_STORAGE);
+    inst_.manager->submit(pass, view);
   }
 
   /* 3. Splat Pass */
   for (int i = 0; i < CausticMap::LEVELS; ++i) {
-    PassSimple &pass = photon_splat_ps_;
+    PassSimple pass = {"PhotonSplat"};
     pass.init();
     pass.shader_set(inst_.shaders.static_shader_get(PHOTON_SPLAT));
     
     pass.bind_ssbo("photons", photon_pool_);
     pass.bind_image("caustic_color_img", &caustic_map_.color_texture());
     pass.bind_image("caustic_count_img", &caustic_map_.count_texture());
-    pass.bind_ssbo("level_data", caustic_map_.level_data());
+    pass.bind_ubo("level_data", caustic_map_.level_data());
     
     pass.push_constant("level_idx", &i);
     pass.push_constant("photon_count", &active_count);
     
     pass.dispatch(int3(dispatch_groups, 1, 1));
     pass.barrier(GPU_BARRIER_TEXTURE_FETCH);
+    inst_.manager->submit(pass, view);
   }
 
-  /* For testing: fill with red */
-  float4 test_color(1.0f, 0.0f, 0.0f, 1.0f);
-  GPU_texture_clear(caustic_map_.color_texture().gpu_texture(), GPU_DATA_FLOAT, test_color);
 }
 
 }  // namespace blender::eevee

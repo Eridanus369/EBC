@@ -140,6 +140,7 @@ void ShadingView::render()
   inst_.volume.draw_prepass(main_view_);
 
   bool volume_compute_done = false;
+  inst_.caustics.render(main_view_);
   inst_.pipelines.deferred.render(main_view_,
                                   render_view_,
                                   prepass_fb_,
