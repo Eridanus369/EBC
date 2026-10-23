@@ -4,7 +4,7 @@
 
 #pragma once
 
-#include "GPU_shader_shared_utils.hh"
+#include "GPU_shader_shared.hh"
 
 #ifndef GPU_SHADER
 namespace blender::eevee {

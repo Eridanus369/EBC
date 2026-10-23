@@ -2,7 +2,9 @@
  *
  * SPDX-License-Identifier: GPL-2.0-or-later */
 
-#pragma once
+#include "infos/eevee_photon_infos.hh"
+
+COMPUTE_SHADER_CREATE_INFO(eevee_photon_emit)
 
 #include "gpu_shader_compat.hh"
 #include "eevee_spectral_lib.glsl"
