@@ -27,6 +27,11 @@ void CausticModule::sync()
   caustic_map_.sync(inst_.scene->eevee.caustics.caustic_resolution);
 }
 
+Texture &CausticModule::color_texture()
+{
+  return caustic_map_.color_texture();
+}
+
 void CausticModule::render()
 {
   if (!enabled_) {
@@ -94,6 +99,10 @@ void CausticModule::render()
     pass.dispatch(int3(dispatch_groups, 1, 1));
     pass.barrier(GPU_BARRIER_TEXTURE_FETCH);
   }
+
+  /* For testing: fill with red */
+  float4 test_color(1.0f, 0.0f, 0.0f, 1.0f);
+  GPU_texture_clear(caustic_map_.color_texture().gpu_texture(), GPU_DATA_FLOAT, test_color);
 }
 
 }  // namespace blender::eevee

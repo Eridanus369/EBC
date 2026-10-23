@@ -1169,6 +1169,7 @@ void DeferredLayer::end_sync(bool is_first_pass,
       pass.bind_texture("indirect_radiance_1_tx", &indirect_result_.closures[0]);
       pass.bind_texture("indirect_radiance_2_tx", &indirect_result_.closures[1]);
       pass.bind_texture("indirect_radiance_3_tx", &indirect_result_.closures[2]);
+      pass.bind_texture("caustic_color_tx", &inst_.caustics.color_texture());
       pass.bind_image(RBUFS_COLOR_SLOT, &inst_.render_buffers.rp_color_tx);
       pass.bind_image(RBUFS_VALUE_SLOT, &inst_.render_buffers.rp_value_tx);
       pass.bind_image("radiance_feedback_img", &radiance_feedback_tx_);

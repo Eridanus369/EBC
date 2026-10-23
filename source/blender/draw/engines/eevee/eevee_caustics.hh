@@ -52,6 +52,7 @@ class CausticModule {
   void init();
   void sync();
   void render();
+  Texture &color_texture();
 
   bool enabled() const
   {
