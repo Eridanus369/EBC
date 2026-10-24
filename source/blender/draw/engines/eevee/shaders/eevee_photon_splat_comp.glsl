@@ -15,19 +15,17 @@ void main() {
 
   Photon p = photons[idx];
   
-  /* 将光子的世界坐标 x,y 映射到贴图 UV [0, 1] */
   float2 uv = p.position.xy * 0.5f + 0.5f; 
   
-  /* 如果光子跑出贴图范围，就丢弃 */
-  if (uv.x < 0.0f || uv.x > 1.0f || uv.y < 0.0f || uv.y > 1.0f) { return; }
+  /* 不丢弃，强制钳制在 [0,1] 范围内 */
+  uv = clamp(uv, 0.0f, 1.0f);
 
-  int2 texel = int2(uv * float(level_data[level_idx].resolution));
+  int2 texel = int2(uv * 512.0f);
   
-  /* 真实的光谱转 RGB，并累加能量 */
+  /* 真实的波长转 RGB，乘 50000 放大亮度，确保肉眼绝对可见 */
   float3 cmf = cie_1931_cmf(p.wavelength);
-  float3 rgb = max(cmf, float3(0.0f)) * 0.001f; /* 缩放防止过曝 */
+  float3 rgb = max(cmf, float3(0.0f)) * 50000.0f;
   
-  /* 累加写入焦散贴图 */
-  float4 prev = imageLoad(caustic_color_img, texel);
-  imageStore(caustic_color_img, texel, float4(prev.rgb + p.power * rgb, 1.0f));
+  /* 直接覆盖写入 */
+  imageStore(caustic_color_img, texel, float4(rgb, 1.0f));
 }
