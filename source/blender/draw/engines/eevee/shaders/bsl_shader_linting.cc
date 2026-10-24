@@ -86,6 +86,7 @@
 #include "eevee_octahedron_lib.bsl.hh"               /* IWYU pragma: export */
 #include "eevee_pipeline.bsl.hh"                     /* IWYU pragma: export */
 #include "eevee_ray_denoise.bsl.hh"                  /* IWYU pragma: export */
+#include "eevee_photon_trace.bsl.hh"
 #include "eevee_ray_generate.bsl.hh"                 /* IWYU pragma: export */
 #include "eevee_ray_tile.bsl.hh"                     /* IWYU pragma: export */
 #include "eevee_ray_trace.bsl.hh"                    /* IWYU pragma: export */

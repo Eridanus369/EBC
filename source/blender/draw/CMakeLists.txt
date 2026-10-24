@@ -414,7 +414,7 @@ set(GLSL_SRC
   engines/eevee/shaders/eevee_spectral_lib.glsl
   engines/eevee/shaders/eevee_photon_shared.hh
   engines/eevee/shaders/eevee_photon_emit_comp.glsl
-  engines/eevee/shaders/eevee_photon_trace_comp.glsl
+  engines/eevee/shaders/eevee_photon_trace.bsl.hh
   engines/eevee/shaders/eevee_photon_splat_comp.glsl
   engines/eevee/shaders/eevee_attributes_world_lib.glsl
   engines/eevee/shaders/eevee_bxdf.bsl.hh

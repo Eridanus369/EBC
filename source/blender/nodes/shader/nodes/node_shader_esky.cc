@@ -18,6 +18,44 @@ namespace blender {
 
 namespace nodes::node_shader_esky_cc {
 
+
+static const EnumPropertyItem esky_weather_items[] = {
+    {0, "CLEAR", 0, "晴朗", ""},
+    {1, "RAIN", 0, "下雨", ""},
+    {2, "STORM", 0, "雷暴", ""},
+    {3, "SNOW", 0, "下雪", ""},
+    {0, nullptr, 0, nullptr, nullptr}
+};
+static const EnumPropertyItem esky_high_items[] = {
+    {0, "CIRRUS", 0, "卷云", ""},
+    {1, "CIRROCUMULUS", 0, "卷积云", ""},
+    {2, "CIRROSTRATUS", 0, "卷层云", ""},
+    {0, nullptr, 0, nullptr, nullptr}
+};
+static const EnumPropertyItem esky_mid_items[] = {
+    {0, "ALTOCUMULUS", 0, "高积云", ""},
+    {1, "ALTOSTRATUS", 0, "高层云", ""},
+    {0, nullptr, 0, nullptr, nullptr}
+};
+static const EnumPropertyItem esky_low_items[] = {
+    {0, "STRATUS", 0, "层云", ""},
+    {1, "STRATOCUMULUS", 0, "层积云", ""},
+    {2, "NIMBOSTRATUS", 0, "雨层云", ""},
+    {0, nullptr, 0, nullptr, nullptr}
+};
+static const EnumPropertyItem esky_vert_items[] = {
+    {0, "CUMULUS", 0, "积云", ""},
+    {1, "CUMULONIMBUS", 0, "积雨云", ""},
+    {0, nullptr, 0, nullptr, nullptr}
+};
+static const EnumPropertyItem esky_special_items[] = {
+    {0, "ASPERITAS", 0, "糙面云", ""},
+    {1, "MAMMATUS", 0, "乳状云", ""},
+    {2, "LENTICULAR", 0, "荚状云", ""},
+    {3, "FLOWER", 0, "Flower云", ""},
+    {0, nullptr, 0, nullptr, nullptr}
+};
+
 static void node_declare(NodeDeclarationBuilder &b)
 {
   b.use_custom_socket_order();
@@ -92,31 +130,31 @@ static void node_declare(NodeDeclarationBuilder &b)
   PanelDeclarationBuilder &cloud_types = cloud.add_panel("云种类"_ustr).default_closed(true);
   PanelDeclarationBuilder &high = cloud_types.add_panel("高云族"_ustr).default_closed(true);
   high.add_input<decl::Bool>("high_cloud_enable"_ustr).default_value(true);
-  high.add_input<decl::Int>("high_cloud_type"_ustr).default_value(0);
+  high.add_input<decl::Menu>("high_cloud_type"_ustr).static_items(esky_high_items);
   high.add_input<decl::Float>("high_cloud_base"_ustr).default_value(8.0f);
   high.add_input<decl::Float>("high_cloud_thickness"_ustr).default_value(1.0f);
 
   PanelDeclarationBuilder &mid = cloud_types.add_panel("中云族"_ustr).default_closed(true);
   mid.add_input<decl::Bool>("mid_cloud_enable"_ustr).default_value(true);
-  mid.add_input<decl::Int>("mid_cloud_type"_ustr).default_value(0);
+  mid.add_input<decl::Menu>("mid_cloud_type"_ustr).static_items(esky_mid_items);
   mid.add_input<decl::Float>("mid_cloud_base"_ustr).default_value(4.0f);
   mid.add_input<decl::Float>("mid_cloud_thickness"_ustr).default_value(1.5f);
 
   PanelDeclarationBuilder &low = cloud_types.add_panel("低云族"_ustr).default_closed(true);
   low.add_input<decl::Bool>("low_cloud_enable"_ustr).default_value(true);
-  low.add_input<decl::Int>("low_cloud_type"_ustr).default_value(0);
+  low.add_input<decl::Menu>("low_cloud_type"_ustr).static_items(esky_low_items);
   low.add_input<decl::Float>("low_cloud_base"_ustr).default_value(0.5f);
   low.add_input<decl::Float>("low_cloud_thickness"_ustr).default_value(1.5f);
 
   PanelDeclarationBuilder &vert = cloud_types.add_panel("直展云族"_ustr).default_closed(true);
   vert.add_input<decl::Bool>("vertical_cloud_enable"_ustr).default_value(true);
-  vert.add_input<decl::Int>("vertical_cloud_type"_ustr).default_value(0);
+  vert.add_input<decl::Menu>("vertical_cloud_type"_ustr).static_items(esky_vert_items);
   vert.add_input<decl::Float>("vertical_cloud_base"_ustr).default_value(0.5f);
   vert.add_input<decl::Float>("vertical_cloud_top"_ustr).default_value(8.0f);
 
   PanelDeclarationBuilder &special = cloud_types.add_panel("特殊云族"_ustr).default_closed(true);
   special.add_input<decl::Bool>("special_cloud_enable"_ustr).default_value(true);
-  special.add_input<decl::Int>("special_cloud_type"_ustr).default_value(0);
+  special.add_input<decl::Menu>("special_cloud_type"_ustr).static_items(esky_special_items);
   special.add_input<decl::Float>("special_cloud_base"_ustr).default_value(3.0f);
   special.add_input<decl::Float>("special_cloud_thickness"_ustr).default_value(0.5f);
 
@@ -132,7 +170,7 @@ static void node_declare(NodeDeclarationBuilder &b)
   cloud_adv.add_input<decl::Float>("multi_scatter_strength"_ustr).default_value(1.08f);
 
   PanelDeclarationBuilder &weather = b.add_panel("天气"_ustr).default_closed(true);
-  weather.add_input<decl::Int>("weather_type"_ustr).default_value(0);
+  weather.add_input<decl::Menu>("weather_type"_ustr).static_items(esky_weather_items);
   PanelDeclarationBuilder &rain = weather.add_panel("下雨"_ustr).default_closed(true);
   rain.add_input<decl::Float>("rain_intensity"_ustr).default_value(0.498f);
   rain.add_input<decl::Bool>("lens_rain_enable"_ustr).default_value(false);

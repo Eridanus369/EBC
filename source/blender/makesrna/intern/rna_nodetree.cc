@@ -1148,42 +1148,12 @@ static int rna_node_type_length(PointerRNA *ptr)
 }
 
 
-static const EnumPropertyItem rna_enum_weather_type_items[] = {
-    {0, "CLEAR", 0, "晴朗", ""},
-    {1, "RAIN", 0, "雨", ""},
-    {2, "STORM", 0, "雷暴", ""},
-    {3, "SNOW", 0, "雪", ""},
-    {0, NULL, 0, NULL, NULL}
-};
-static const EnumPropertyItem rna_enum_high_cloud_type_items[] = {
-    {0, "CIRRUS", 0, "卷云", ""},
-    {1, "CIRROCUMULUS", 0, "卷积云", ""},
-    {2, "CIRROSTRATUS", 0, "卷层云", ""},
-    {0, NULL, 0, NULL, NULL}
-};
-static const EnumPropertyItem rna_enum_mid_cloud_type_items[] = {
-    {0, "ALTOCUMULUS", 0, "高积云", ""},
-    {1, "ALTOSTRATUS", 0, "高层云", ""},
-    {0, NULL, 0, NULL, NULL}
-};
-static const EnumPropertyItem rna_enum_low_cloud_type_items[] = {
-    {0, "STRATUS", 0, "层云", ""},
-    {1, "STRATOCUMULUS", 0, "层积云", ""},
-    {2, "NIMBOSTRATUS", 0, "雨层云", ""},
-    {0, NULL, 0, NULL, NULL}
-};
-static const EnumPropertyItem rna_enum_vertical_cloud_type_items[] = {
-    {0, "CUMULUS", 0, "积云", ""},
-    {1, "CUMULONIMBUS", 0, "积雨云", ""},
-    {0, NULL, 0, NULL, NULL}
-};
-static const EnumPropertyItem rna_enum_special_cloud_type_items[] = {
-    {0, "ASPERITAS", 0, "糙面云", ""},
-    {1, "MAMMATUS", 0, "乳状云", ""},
-    {2, "LENTICULAR", 0, "荚状云", ""},
-    {3, "FLOWER", 0, "Flower云", ""},
-    {0, NULL, 0, NULL, NULL}
-};
+
+
+
+
+
+
 
 static void rna_node_type_get(PointerRNA *ptr, char *value)
 {
