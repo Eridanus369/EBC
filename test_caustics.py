@@ -4,7 +4,7 @@ sc = bpy.context.scene
 sc.render.engine = 'BLENDER_EEVEE'
 sc.render.resolution_x = sc.render.resolution_y = 64
 sc.eevee.caustics.use_spectral_caustics = True
-sc.eevee.caustics.photon_count = 1000
+sc.eevee.caustics.photon_count = 50000
 sc.eevee.caustics.caustic_resolution = 512
 
 bpy.ops.object.camera_add(location=(0, -5, 0), rotation=(1.5708, 0, 0))

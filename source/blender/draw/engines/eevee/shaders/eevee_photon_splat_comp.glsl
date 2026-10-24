@@ -28,7 +28,7 @@ void main() {
   
   /* A: 真实光谱能量，乘数调整到 100 以防太暗，但不至于纯白过曝 */
   float3 xyz = cie_1931_cmf(p.wavelength);
-  float3 rgb = xyz_to_rgb(xyz) * 5.0f; /* 转换成 RGB 并降低能量防止过曝 */ /* 降低亮度防过曝 */
+  float3 rgb = xyz_to_rgb(xyz) * 1.0f; /* 标准能量 */ /* 降低亮度防过曝 */
   
   imageStore(caustic_color_img, texel, float4(rgb, 1.0f));
 }

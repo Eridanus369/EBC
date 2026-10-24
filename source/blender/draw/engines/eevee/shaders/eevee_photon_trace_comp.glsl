@@ -33,7 +33,7 @@ void main() {
       float3 normal = normalize(p.position - sphere_center);
       
       /* Cauchy dispersion: IOR depends on wavelength */
-      float3 cauchy = float3(1.5f, 0.05f, 0.0f); /* 增大 B 系数让彩虹散开 */
+      float3 cauchy = float3(1.5f, 0.15f, 0.0f); /* 极强的色散 B 系数 */
       float eta = spectral_cauchy_ior(p.wavelength, cauchy);
       
       /* Refract (Snell's law) */
