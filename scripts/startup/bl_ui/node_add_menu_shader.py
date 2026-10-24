@@ -91,6 +91,9 @@ def filter_shader_nodes_poll(context):
 
 class NODE_MT_shader_node_input_base(node_add_menu.NodeMenu):
     bl_label = "Input"
+    
+    def draw(self, context):
+        layout = self.layout
 
     def draw(self, context):
         layout = self.layout
@@ -486,6 +489,7 @@ class NODE_MT_shader_node_texture_base(node_add_menu.NodeMenu):
         self.node_operator(layout, "ShaderNodeTexMagic")
         self.node_operator(layout, "ShaderNodeTexNoise")
         self.node_operator(layout, "ShaderNodeTexSky")
+        self.node_operator(layout, "ShaderNodeESky")
         self.node_operator(layout, "ShaderNodeTexVoronoi")
         self.node_operator(layout, "ShaderNodeTexWave")
         self.node_operator(layout, "ShaderNodeTexWhiteNoise")
@@ -604,6 +608,7 @@ class NODE_MT_shader_node_displacement_base(node_add_menu.NodeMenu):
 ###########UPBGE###########
 class NODE_MT_shader_node_upbge_base(node_add_menu.NodeMenu):
     bl_label = "EBC"
+    menu_path = "EBC"
 
     def draw(self, _context):
         layout = self.layout

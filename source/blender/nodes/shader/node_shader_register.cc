@@ -165,6 +165,7 @@ void register_shader_nodes()
   register_node_type_sh_filter_graph_input();
   register_node_type_sh_output_filter();
   register_node_type_sh_scene_color();
+  register_node_type_sh_esky();
   register_node_type_sh_npr_image_sample();
   register_node_type_sh_npr_input();
   register_node_type_sh_npr_output();

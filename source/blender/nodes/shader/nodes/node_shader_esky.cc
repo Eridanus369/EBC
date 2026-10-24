@@ -36,18 +36,18 @@ static void node_declare(NodeDeclarationBuilder &b)
   vp.add_input<decl::Float>("brightness"_ustr).default_value(1.0f);
 
   PanelDeclarationBuilder &star = b.add_panel("恒星"_ustr).default_closed(true);
-  star.add_input<decl::Float>("sun_height"_ustr).default_value(1.0f);
+  star.add_input<decl::Float>("sun_height"_ustr).default_value(45.0f);
   star.add_input<decl::Float>("sun_rotation"_ustr).default_value(0.0f);
   star.add_input<decl::Float>("sun_intensity"_ustr).default_value(2.0f);
-  star.add_input<decl::Float>("sun_temperature"_ustr).default_value(5000.0f);
-  star.add_input<decl::Float>("sun_size"_ustr).default_value(10.0f);
-  star.add_input<decl::Float>("sun_bloom"_ustr).default_value(0.0f);
-  star.add_input<decl::Float>("horizon_height"_ustr).default_value(-1.0f);
+  star.add_input<decl::Float>("sun_temperature"_ustr).default_value(5778.0f);
+  star.add_input<decl::Float>("sun_size"_ustr).default_value(1.0f);
+  star.add_input<decl::Float>("sun_bloom"_ustr).default_value(1.0f);
+  star.add_input<decl::Float>("horizon_height"_ustr).default_value(0.0f);
 
   PanelDeclarationBuilder &space = b.add_panel("太空"_ustr).default_closed(true);
-  space.add_input<decl::Float>("planet_radius"_ustr).default_value(6450.0f);
-  space.add_input<decl::Float>("star_density"_ustr).default_value(7.1f);
-  space.add_input<decl::Float>("star_brightness"_ustr).default_value(10.0f);
+  space.add_input<decl::Float>("planet_radius"_ustr).default_value(6360.0f);
+  space.add_input<decl::Float>("star_density"_ustr).default_value(1.0f);
+  space.add_input<decl::Float>("star_brightness"_ustr).default_value(2.0f);
   space.add_input<decl::Float>("latitude"_ustr).default_value(31.47f);
   space.add_input<decl::Float>("longitude"_ustr).default_value(106.89f);
   
@@ -57,19 +57,26 @@ static void node_declare(NodeDeclarationBuilder &b)
   aurora.add_input<decl::Float>("aurora_speed"_ustr).default_value(0.3f);
   aurora.add_input<decl::Float>("aurora_color_factor"_ustr).default_value(0.0f);
 
+  PanelDeclarationBuilder &moon = space.add_panel("月亮"_ustr).default_closed(true);
+  moon.add_input<decl::Bool>("moon_enable"_ustr).default_value(true);
+  moon.add_input<decl::Float>("moon_height"_ustr).default_value(30.0f);
+  moon.add_input<decl::Float>("moon_rotation"_ustr).default_value(120.0f);
+  moon.add_input<decl::Float>("moon_size"_ustr).default_value(4.0f);
+  moon.add_input<decl::Float>("moon_intensity"_ustr).default_value(1.2f);
+
   PanelDeclarationBuilder &atm = b.add_panel("大气"_ustr).default_closed(true);
   atm.add_input<decl::Bool>("use_atmosphere"_ustr).default_value(true);
-  atm.add_input<decl::Float>("air_density"_ustr).default_value(0.0f);
-  atm.add_input<decl::Float>("aerosol_concentration"_ustr).default_value(1.6f);
+  atm.add_input<decl::Float>("air_density"_ustr).default_value(1.0f);
+  atm.add_input<decl::Float>("aerosol_concentration"_ustr).default_value(0.3f);
   atm.add_input<decl::Float>("ozone_amount"_ustr).default_value(1.0f);
   atm.add_input<decl::Float>("so2_concentration"_ustr).default_value(0.0f);
   atm.add_input<decl::Float>("pm25_concentration"_ustr).default_value(0.0f);
-  atm.add_input<decl::Float>("sun_glow_suppress"_ustr).default_value(0.0f);
+  atm.add_input<decl::Float>("sun_glow_suppress"_ustr).default_value(0.5f);
   
   PanelDeclarationBuilder &atm_adv = atm.add_panel("高级"_ustr).default_closed(true);
   atm_adv.add_input<decl::Color>("zenith_color"_ustr).default_value(ColorGeometry4f(0.109f, 0.375f, 1.0f, 1.0f));
   atm_adv.add_input<decl::Color>("horizon_color"_ustr).default_value(ColorGeometry4f(0.3f, 0.55f, 0.85f, 1.0f));
-  atm_adv.add_input<decl::Int>("atmosphere_steps"_ustr).default_value(0);
+  atm_adv.add_input<decl::Float>("atmosphere_steps"_ustr).default_value(12);
 
   PanelDeclarationBuilder &cloud = b.add_panel("云"_ustr).default_closed(true);
   PanelDeclarationBuilder &cloud_base = cloud.add_panel("基础参数"_ustr).default_closed(true);
@@ -80,6 +87,7 @@ static void node_declare(NodeDeclarationBuilder &b)
   cloud_base.add_input<decl::Float>("detail_noise_scale"_ustr).default_value(1.39f);
   cloud_base.add_input<decl::Vector>("wind_direction"_ustr).default_value(float3(0.894f, 0.447f, 0.0f));
   cloud_base.add_input<decl::Float>("cloud_speed"_ustr).default_value(0.1f);
+  cloud_base.add_input<decl::Float>("time_speed"_ustr).default_value(1.0f);
   
   PanelDeclarationBuilder &cloud_types = cloud.add_panel("云种类"_ustr).default_closed(true);
   PanelDeclarationBuilder &high = cloud_types.add_panel("高云族"_ustr).default_closed(true);
@@ -125,30 +133,65 @@ static void node_declare(NodeDeclarationBuilder &b)
 
   PanelDeclarationBuilder &weather = b.add_panel("天气"_ustr).default_closed(true);
   weather.add_input<decl::Int>("weather_type"_ustr).default_value(0);
-  weather.add_input<decl::Float>("rain_intensity"_ustr).default_value(0.498f);
+  PanelDeclarationBuilder &rain = weather.add_panel("下雨"_ustr).default_closed(true);
+  rain.add_input<decl::Float>("rain_intensity"_ustr).default_value(0.498f);
+  rain.add_input<decl::Bool>("lens_rain_enable"_ustr).default_value(false);
+  rain.add_input<decl::Float>("lens_rain_strength"_ustr).default_value(0.6f);
+  rain.add_input<decl::Float>("lens_rain_length"_ustr).default_value(0.5f);
   weather.add_input<decl::Float>("snow_intensity"_ustr).default_value(0.5f);
   weather.add_input<decl::Float>("lightning_frequency"_ustr).default_value(0.854f);
 
   PanelDeclarationBuilder &sim = b.add_panel("模拟"_ustr).default_closed(true);
   sim.add_input<decl::Float>("max_trace_distance"_ustr).default_value(50.0f);
   sim.add_input<decl::Float>("trace_start_limit"_ustr).default_value(350.0f);
-  sim.add_input<decl::Int>("ray_steps"_ustr).default_value(84);
+  sim.add_input<decl::Float>("ray_steps"_ustr).default_value(84);
   sim.add_input<decl::Float>("light_step"_ustr).default_value(0.025f);
   sim.add_input<decl::Float>("light_step_multiplier"_ustr).default_value(1.5f);
-  sim.add_input<decl::Int>("light_steps"_ustr).default_value(12);
+  sim.add_input<decl::Float>("light_steps"_ustr).default_value(12);
+
 }
 
 
 
+/** Load an image, never returning a link built from a null image.
+ *  A null image would end up binding a null GPU texture at draw time (SIGSEGV). */
+static GPUNodeLink *esky_gpu_image(GPUMaterial *mat, const char *path, Image *fallback)
+{
+  Image *ima = BKE_image_load_exists(G_MAIN, path);
+  if (ima == nullptr) {
+    ima = fallback;
+  }
+  if (ima == nullptr) {
+    ima = BKE_image_load_exists(G_MAIN,
+                                "/home/eridanusepsilon/Code/EBC/EBC5.3/Pic/Flower/"
+                                "Flower_blue_noise.png");
+  }
+  if (ima == nullptr) {
+    return nullptr;
+  }
+  return GPU_image(mat, ima, nullptr, GPUSamplerState::default_sampler());
+}
+
 static int node_shader_gpu_esky(GPUMaterial *mat, bNode *node, bNodeExecData * /*execdata*/, GPUNodeStack *in, GPUNodeStack *out)
 {
-  GPUNodeLink *img_basic = GPU_image(mat, BKE_image_load_exists(G_MAIN, "/home/eridanusepsilon/Code/EBC/EBC5.3/Pic/Flower/cloud_basic_noise.png"), nullptr, GPUSamplerState::default_sampler());
-  GPUNodeLink *img_detail = GPU_image(mat, BKE_image_load_exists(G_MAIN, "/home/eridanusepsilon/Code/EBC/EBC5.3/Pic/Flower/Flower_detail_noise.png"), nullptr, GPUSamplerState::default_sampler());
-  GPUNodeLink *img_weather = GPU_image(mat, BKE_image_load_exists(G_MAIN, "/home/eridanusepsilon/Code/EBC/EBC5.3/Pic/Flower/Flower_weather.tga"), nullptr, GPUSamplerState::default_sampler());
-  GPUNodeLink *img_curl = GPU_image(mat, BKE_image_load_exists(G_MAIN, "/home/eridanusepsilon/Code/EBC/EBC5.3/Pic/Flower/Flower_curl.png"), nullptr, GPUSamplerState::default_sampler());
-  GPUNodeLink *img_blue = GPU_image(mat, BKE_image_load_exists(G_MAIN, "/home/eridanusepsilon/Code/EBC/EBC5.3/Pic/Flower/Flower_blue_noise.png"), nullptr, GPUSamplerState::default_sampler());
+  const char *dir = "/home/eridanusepsilon/Code/EBC/EBC5.3/Pic/Flower/";
+  Image *fallback = BKE_image_load_exists(
+      G_MAIN, "/home/eridanusepsilon/Code/EBC/EBC5.3/Pic/Flower/Flower_blue_noise.png");
 
-  return GPU_stack_link(mat, node, "node_esky", in, out, img_basic, img_detail, img_weather, img_curl, img_blue);
+  GPUNodeLink *img_basic = esky_gpu_image(mat, (std::string(dir) + "cloud_basic_noise.png").c_str(), fallback);
+  GPUNodeLink *img_detail = esky_gpu_image(mat, (std::string(dir) + "Flower_detail_noise.png").c_str(), fallback);
+  GPUNodeLink *img_weather = esky_gpu_image(mat, (std::string(dir) + "Flower_weather_fixed.png").c_str(), fallback);
+  GPUNodeLink *img_curl = esky_gpu_image(mat, (std::string(dir) + "Flower_curl.png").c_str(), fallback);
+  GPUNodeLink *img_blue = esky_gpu_image(mat, (std::string(dir) + "Flower_blue_noise.png").c_str(), fallback);
+  GPUNodeLink *img_moon = esky_gpu_image(mat, (std::string(dir) + "moon_01_diff_1k_fixed.png").c_str(), fallback);
+
+  if (img_basic == nullptr || img_detail == nullptr || img_weather == nullptr ||
+      img_curl == nullptr || img_blue == nullptr || img_moon == nullptr)
+  {
+    return false;
+  }
+
+  return GPU_stack_link(mat, node, "node_esky", in, out, img_basic, img_detail, img_weather, img_curl, img_blue, img_moon);
 }
 
 
@@ -180,10 +223,8 @@ void register_node_type_sh_esky()
   sh_node_type_base(&ntype, "ShaderNodeESky"_ustr, SH_NODE_ESKY);
   ntype.ui_name = "ESky";
   ntype.ui_description = "Procedural sky with built-in Flower textures";
-  ntype.enum_name_legacy = "ESKY";
   ntype.nclass = NODE_CLASS_INPUT;
   ntype.declare = file_ns::node_declare;
-  ntype.add_ui_poll = world_shader_nodes_poll;
   ntype.gpu_fn = file_ns::node_shader_gpu_esky;
   bke::node_register_type(ntype);
 }

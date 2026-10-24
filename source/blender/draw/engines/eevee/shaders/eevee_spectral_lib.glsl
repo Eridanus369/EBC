@@ -43,3 +43,13 @@ float spectral_cauchy_ior(float lambda_nm, float3 cauchy)
   float l2 = lambda_um * lambda_um;
   return cauchy.x + cauchy.y / l2 + cauchy.z / (l2 * l2);
 }
+
+/* XYZ to linear sRGB conversion (D65) */
+float3 xyz_to_rgb(float3 xyz)
+{
+  float3 rgb;
+  rgb.x =  3.2406f * xyz.x - 1.5372f * xyz.y - 0.4986f * xyz.z;
+  rgb.y = -0.9689f * xyz.x + 1.8758f * xyz.y + 0.0415f * xyz.z;
+  rgb.z =  0.0557f * xyz.x - 0.2040f * xyz.y + 1.0570f * xyz.z;
+  return max(rgb, float3(0.0f));
+}

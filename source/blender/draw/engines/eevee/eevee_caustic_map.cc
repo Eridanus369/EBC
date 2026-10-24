@@ -18,8 +18,11 @@ void CausticMap::init()
 
 void CausticMap::sync(int resolution)
 {
-  if (resolution_ != resolution) {
-    resolution_ = resolution;
+  /* The deferred pipeline always binds these textures, so they must exist even when
+   * caustics are disabled (in which case `caustic_resolution` can be zero). */
+  const int res = (resolution > 0) ? resolution : 64;
+  if (resolution_ != res || !color_tx_.is_valid() || !count_tx_.is_valid()) {
+    resolution_ = res;
     
     /* Stack the 4 cascade levels vertically into a single texture. */
     int2 extent = int2(resolution_, resolution_ * LEVELS);

@@ -9661,30 +9661,25 @@ static void rna_def_scene_eevee_spectral_caustics(BlenderRNA *brna)
 
   prop = RNA_def_property(srna, "photon_count", PROP_INT, PROP_NONE);
   RNA_def_property_int_sdna(prop, nullptr, "photon_count");
-  RNA_def_property_int_default(prop, 100000);
   RNA_def_property_range(prop, 50000, 500000);
   RNA_def_property_ui_text(prop, "Photon Count", "Number of photons emitted per frame");
 
   prop = RNA_def_property(srna, "max_bounces", PROP_INT, PROP_NONE);
   RNA_def_property_int_sdna(prop, nullptr, "max_bounces");
-  RNA_def_property_int_default(prop, 4);
   RNA_def_property_range(prop, 1, 16);
   RNA_def_property_ui_text(prop, "Max Bounces", "Maximum number of photon bounces");
 
   prop = RNA_def_property(srna, "caustic_resolution", PROP_INT, PROP_NONE);
   RNA_def_property_int_sdna(prop, nullptr, "caustic_resolution");
-  RNA_def_property_int_default(prop, 512);
   RNA_def_property_range(prop, 256, 2048);
   RNA_def_property_ui_text(prop, "Cascade Resolution", "Resolution of the caustic map cascades");
 
   prop = RNA_def_property(srna, "cauchy_a", PROP_FLOAT, PROP_NONE);
   RNA_def_property_float_sdna(prop, nullptr, "cauchy_a");
-  RNA_def_property_float_default(prop, 1.5f);
   RNA_def_property_ui_text(prop, "Cauchy A", "Base index of refraction");
 
   prop = RNA_def_property(srna, "cauchy_b", PROP_FLOAT, PROP_NONE);
   RNA_def_property_float_sdna(prop, nullptr, "cauchy_b");
-  RNA_def_property_float_default(prop, 0.005f);
   RNA_def_property_ui_text(prop, "Cauchy B", "First dispersion coefficient");
 
   prop = RNA_def_property(srna, "cauchy_c", PROP_FLOAT, PROP_NONE);
@@ -9693,7 +9688,6 @@ static void rna_def_scene_eevee_spectral_caustics(BlenderRNA *brna)
 
   prop = RNA_def_property(srna, "volumetric_scattering", PROP_FLOAT, PROP_NONE);
   RNA_def_property_float_sdna(prop, nullptr, "volumetric_scattering");
-  RNA_def_property_float_default(prop, 1.0f);
   RNA_def_property_ui_text(prop, "Volumetric Scattering", "Scattering coefficient in participating media");
 
   prop = RNA_def_property(srna, "volumetric_anisotropy", PROP_FLOAT, PROP_NONE);

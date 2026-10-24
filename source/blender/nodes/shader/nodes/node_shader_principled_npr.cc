@@ -11,6 +11,7 @@
 #include "BKE_report.hh"
 
 #include "NOD_node_extra_info.hh"
+#include "node_util.hh"
 #include "NOD_principled_npr.hh"
 #include "NOD_socket.hh"
 #include "NOD_socket_items_ops.hh"

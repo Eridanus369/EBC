@@ -164,6 +164,7 @@ void register_node_type_eevee_filter_graph_aov_output();
 void register_node_type_sh_filter_graph_input();
 void register_node_type_sh_output_filter();
 void register_node_type_sh_scene_color();
+void register_node_type_sh_esky();
 void register_node_type_sh_npr_image_sample();
 void register_node_type_sh_npr_input();
 void register_node_type_sh_npr_output();

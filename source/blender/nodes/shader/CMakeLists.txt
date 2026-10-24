@@ -81,6 +81,7 @@ set(SRC
   nodes/node_shader_output_aov.cc
   nodes/node_shader_output_filter.cc
   nodes/node_shader_scene_color.cc
+  nodes/node_shader_esky.cc
   nodes/node_shader_npr_image_sample.cc
   nodes/node_shader_npr_input.cc
   nodes/node_shader_npr_output.cc

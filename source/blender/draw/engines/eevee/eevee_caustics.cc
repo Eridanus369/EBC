@@ -98,6 +98,11 @@ void CausticModule::render(View &view)
     pass.push_constant("level_idx", &i);
     pass.push_constant("photon_count", &active_count);
     
+    float4x4 viewmat = view.viewmat();
+    float4x4 winmat = view.winmat();
+    pass.push_constant("viewmat", &viewmat);
+    pass.push_constant("winmat", &winmat);
+    
     pass.dispatch(int3(dispatch_groups, 1, 1));
     pass.barrier(GPU_BARRIER_TEXTURE_FETCH);
     inst_.manager->submit(pass, view);

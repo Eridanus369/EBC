@@ -629,6 +629,7 @@ set(GLSL_SRC
   shaders/material/gpu_shader_material_add_shader.bsl.hh
   shaders/material/gpu_shader_material_align_rotation_to_vector.bsl.hh
   shaders/material/gpu_shader_material_ambient_occlusion.bsl.hh
+  shaders/material/gpu_shader_material_esky.bsl.hh
   shaders/material/gpu_shader_material_attribute.bsl.hh
   shaders/material/gpu_shader_material_axes_to_rotation.bsl.hh
   shaders/material/gpu_shader_material_axis_angle_to_rotation.bsl.hh

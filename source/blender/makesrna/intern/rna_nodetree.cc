@@ -1147,6 +1147,44 @@ static int rna_node_type_length(PointerRNA *ptr)
   return strlen(legacy_type);
 }
 
+
+static const EnumPropertyItem rna_enum_weather_type_items[] = {
+    {0, "CLEAR", 0, "晴朗", ""},
+    {1, "RAIN", 0, "雨", ""},
+    {2, "STORM", 0, "雷暴", ""},
+    {3, "SNOW", 0, "雪", ""},
+    {0, NULL, 0, NULL, NULL}
+};
+static const EnumPropertyItem rna_enum_high_cloud_type_items[] = {
+    {0, "CIRRUS", 0, "卷云", ""},
+    {1, "CIRROCUMULUS", 0, "卷积云", ""},
+    {2, "CIRROSTRATUS", 0, "卷层云", ""},
+    {0, NULL, 0, NULL, NULL}
+};
+static const EnumPropertyItem rna_enum_mid_cloud_type_items[] = {
+    {0, "ALTOCUMULUS", 0, "高积云", ""},
+    {1, "ALTOSTRATUS", 0, "高层云", ""},
+    {0, NULL, 0, NULL, NULL}
+};
+static const EnumPropertyItem rna_enum_low_cloud_type_items[] = {
+    {0, "STRATUS", 0, "层云", ""},
+    {1, "STRATOCUMULUS", 0, "层积云", ""},
+    {2, "NIMBOSTRATUS", 0, "雨层云", ""},
+    {0, NULL, 0, NULL, NULL}
+};
+static const EnumPropertyItem rna_enum_vertical_cloud_type_items[] = {
+    {0, "CUMULUS", 0, "积云", ""},
+    {1, "CUMULONIMBUS", 0, "积雨云", ""},
+    {0, NULL, 0, NULL, NULL}
+};
+static const EnumPropertyItem rna_enum_special_cloud_type_items[] = {
+    {0, "ASPERITAS", 0, "糙面云", ""},
+    {1, "MAMMATUS", 0, "乳状云", ""},
+    {2, "LENTICULAR", 0, "荚状云", ""},
+    {3, "FLOWER", 0, "Flower云", ""},
+    {0, NULL, 0, NULL, NULL}
+};
+
 static void rna_node_type_get(PointerRNA *ptr, char *value)
 {
   const char *legacy_type = get_legacy_node_type(ptr);
@@ -6809,7 +6847,7 @@ static void def_sh_tex_sky(BlenderRNA *brna, StructRNA *srna)
   prop = RNA_def_property(srna, "sun_disc", PROP_BOOLEAN, PROP_NONE);
   RNA_def_property_ui_text(prop, "Sun Disc", "Include the sun itself in the output");
   RNA_def_property_boolean_sdna(prop, nullptr, "sun_disc", 1);
-  RNA_def_property_boolean_default(prop, true);
+  
   RNA_def_property_update(prop, 0, "rna_ShaderNode_socket_update");
 
   prop = RNA_def_property(srna, "sun_size", PROP_FLOAT, PROP_ANGLE);
@@ -12527,7 +12565,7 @@ static void rna_def_nodetree(BlenderRNA *brna)
 
   prop = RNA_def_property(srna, "bl_use_group_interface", PROP_BOOLEAN, PROP_NONE);
   RNA_def_property_boolean_negative_sdna(prop, nullptr, "typeinfo->no_group_interface", 1);
-  RNA_def_property_boolean_default(prop, true);
+  
   RNA_def_property_flag(prop, PROP_REGISTER_OPTIONAL);
   RNA_def_property_ui_text(prop,
                            "Use Group Interface",
@@ -13040,7 +13078,7 @@ static void def_sh_principled_npr(BlenderRNA * /*brna*/, StructRNA *srna)
   };
   prop = RNA_def_property(srna, "highlight_receive_shadows", PROP_BOOLEAN, PROP_NONE);
   RNA_def_property_boolean_negative_sdna(prop, nullptr, "highlight_ignore_shadow", 1);
-  RNA_def_property_boolean_default(prop, true);
+  
   RNA_def_property_ui_text(prop, "Receive Shadows", "Apply shadow visibility to direct highlights without changing diffuse shadows");
   RNA_def_property_override_flag(prop, PROPOVERRIDE_OVERRIDABLE_LIBRARY);
   RNA_def_property_update(prop, NC_NODE | NA_EDITED, "rna_Node_update");
@@ -13855,6 +13893,7 @@ static void rna_def_nodes(BlenderRNA *brna)
   define("ShaderNode", "ShaderNodeNPRLightInfo", def_sh_npr_light_info);
   define("ShaderNode", "ShaderNodeEeveeLightShaderOutput");
   define("ShaderNode", "ShaderNodeEeveeLightShaderInfo");
+  define("ShaderNode", "ShaderNodeESky");
   define("ShaderNode", "ShaderNodeTexGradient", def_sh_tex_gradient);
   define("ShaderNode", "ShaderNodeTexIES", def_sh_tex_ies);
   define("ShaderNode", "ShaderNodeTexImage", def_sh_tex_image);

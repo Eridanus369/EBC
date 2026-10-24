@@ -10,61 +10,72 @@
 #include "gpu_shader_math_safe.bsl.hh"
 #include "gpu_shader_material_interface.bsl.hh"
 
+/* -------------------------------------------------------------------- */
+/** \name Helpers
+ * \{ */
+
 static float fc_sat(float x) { return clamp(x, 0.0f, 1.0f); }
+
 static float fc_remap(float v, float a0, float a1, float b0, float b1)
 {
   return b0 + fc_sat((v - a0) / max(a1 - a0, 1.0e-5f)) * (b1 - b0);
 }
-static float3 fc_safe_normalize_dir(float3 v)
+
+static float3 fc_safe_normalize(float3 v)
 {
   float l = length(v);
   return l > 1.0e-6f ? v / l : float3(0.0f, 0.0f, 1.0f);
 }
-static float fc_hash13(float3 p)
-{
-  p = fract(p * float3(0.1031f, 0.11369f, 0.13787f));
-  p += dot(p, p.yzx + 19.19f);
-  return fract((p.x + p.y) * p.z);
-}
+
 static float fc_hash(float n) { return fract(sin(n) * 758.5453f); }
-static float fc_cloud_noise(float3 p)
+
+static float fc_hash12(float2 p)
 {
-  float3 i = floor(p);
-  float3 f = fract(p);
-  f = f * f * (3.0f - 2.0f * f);
-  float n000 = fc_hash13(i);
-  float n100 = fc_hash13(i + float3(1.0f, 0.0f, 0.0f));
-  float n010 = fc_hash13(i + float3(0.0f, 1.0f, 0.0f));
-  float n110 = fc_hash13(i + float3(1.0f, 1.0f, 0.0f));
-  float n001 = fc_hash13(i + float3(0.0f, 0.0f, 1.0f));
-  float n101 = fc_hash13(i + float3(1.0f, 0.0f, 1.0f));
-  float n011 = fc_hash13(i + float3(0.0f, 1.0f, 1.0f));
-  float n111 = fc_hash13(i + float3(1.0f, 1.0f, 1.0f));
-  return mix(mix(mix(n000, n100, f.x), mix(n010, n110, f.x), f.y),
-             mix(mix(n001, n101, f.x), mix(n011, n111, f.x), f.y),
-             f.z);
+  return fract(sin(dot(p, float2(127.1f, 311.7f))) * 43758.5453f);
 }
-static float fc_cloud_fbm(float3 p, int octaves)
+
+/** \} */
+
+/* -------------------------------------------------------------------- */
+/** \name 3D noise LUT strip sampling
+ * 贴图为水平切片条带：宽 = slices * res，高 = res。
+ * basic_noise: 128 张 128x128 (16384x128)，detail_noise: 64 张 64x64 (4096x64)。
+ * \{ */
+
+static float fc_sample_3d_lut(sampler2D tex, float3 p, float slices, float res)
 {
-  float a = 0.5f;
-  float r = 0.0f;
-  for (int i = 0; i < 6; i++) {
-    if (i >= octaves) { break; }
-    r += a * fc_cloud_noise(p);
-    p *= 2.02f;
-    a *= 0.5f;
-  }
-  return r;
+  float3 c = fract(p) * slices;
+  float3 f = fract(c);
+  float z0 = floor(c.z);
+  float z1 = mod(z0 + 1.0f, slices);
+  float x0 = clamp(c.x, 0.0f, res - 1.0f);
+  float y0 = clamp(c.y, 0.0f, res - 1.0f);
+  float inv_w = 1.0f / (slices * slices);
+  float v = (y0 + 0.5f) / res;
+  float u0 = (z0 * slices + x0 + 0.5f) * inv_w;
+  float u1 = (z1 * slices + x0 + 0.5f) * inv_w;
+  float s0 = texture(tex, float2(u0, v)).r;
+  float s1 = texture(tex, float2(u1, v)).r;
+  return mix(s0, s1, f.z);
 }
+
+/** \} */
+
+/* -------------------------------------------------------------------- */
+/** \name Scattering / color helpers
+ * \{ */
+
 static float fc_hg(float g, float c)
 {
   float g2 = g * g;
   return (1.0f - g2) / (4.0f * M_PI * pow(max(1.0f + g2 - 2.0f * g * c, 1.0e-4f), 1.5f));
 }
+
 static float fc_dual_lobe(float fg, float bg, float m, float c)
 {
   return mix(fc_hg(bg, c), fc_hg(fg, c), fc_sat(m));
 }
+
 static float3 fc_blackbody(float t_k)
 {
   float t = max(t_k, 2000.0f);
@@ -75,18 +86,51 @@ static float3 fc_blackbody(float t_k)
   float3 cool = mix(warm, hi, smoothstep(0.35f, 1.0f, tn));
   return mix(lo, cool, smoothstep(0.0f, 0.4f, tn));
 }
-static float3 fc_sun_dir(float h_deg, float r_deg)
+
+static float3 fc_calc_sun_direction(float sun_height_deg, float sun_rotation_deg)
 {
-  float h = radians(h_deg);
-  float r = radians(r_deg);
-  return float3(cos(h) * cos(r), cos(h) * sin(r), sin(h));
+  float height_rad = sun_height_deg * M_PI / 180.0f;
+  float rotation_rad = sun_rotation_deg * M_PI / 180.0f;
+  return float3(cos(height_rad) * cos(rotation_rad),
+                cos(height_rad) * sin(rotation_rad),
+                sin(height_rad));
 }
-static float3 fc_sun_disc(float3 rd, float3 sd, float3 sc, float si, float ss, float bi, float hh)
+
+static float3 fc_rgb_to_hsv(float3 c)
+{
+  float4 K = float4(0.0f, -1.0f / 3.0f, 2.0f / 3.0f, -1.0f);
+  float4 p = mix(float4(c.bg, K.wz), float4(c.gb, K.xy), step(c.b, c.g));
+  float4 q = mix(float4(p.xyw, c.r), float4(c.r, p.yzx), step(p.x, c.r));
+  float d = q.x - min(q.w, q.y);
+  float e = 1.0e-10f;
+  return float3(abs(q.z + (q.w - q.y) / (6.0f * d + e)), d / (q.x + e), q.x);
+}
+
+static float3 fc_hsv_to_rgb(float3 c)
+{
+  float4 K = float4(1.0f, 2.0f / 3.0f, 1.0f / 3.0f, 3.0f);
+  float3 p = abs(fract(c.xxx + K.xyz) * 6.0f - K.www);
+  return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0f, 1.0f), c.y);
+}
+
+/** \} */
+
+/* -------------------------------------------------------------------- */
+/** \name Sun & atmosphere
+ * \{ */
+
+static float3 fc_sun_disc(float3 rd,
+                          float3 sd,
+                          float3 sc,
+                          float si,
+                          float ss,
+                          float bi,
+                          float hh)
 {
   float ho = sin(radians(hh));
   if (rd.z < ho) { return float3(0.0f); }
   float ang = acos(clamp(dot(rd, sd), -1.0f, 1.0f));
-  float da = ss * 0.004f;
+  float da = max(ss * 0.004f, 1.0e-4f);
   float ba = da * (4.0f + bi * 6.0f);
   float disc = smoothstep(da, 0.0f, ang);
   float bloom = smoothstep(ba, 0.0f, ang);
@@ -94,64 +138,200 @@ static float3 fc_sun_disc(float3 rd, float3 sd, float3 sc, float si, float ss, f
   float fade = clamp((sd.z - ho) / (da * 3.0f) + 0.5f, 0.0f, 1.0f);
   return pow(sc, float3(0.7f)) * si * b * 2.0f * fade;
 }
-static float3 fc_atmosphere(float3 rd, float3 sd, float ad, float ac, float oz, float so2, float pm, float sgs, float si, float steps_f)
+
+/**
+ * 单次散射大气：以行星球体几何做真实光程积分。
+ * 单位统一为公里：半径 km、高度 km、beta 1/km、scale height km。
+ */
+static float3 fc_atmosphere(float3 rd,
+                            float3 sd,
+                            float radius,
+                            float altitude,
+                            float ad,
+                            float ac,
+                            float oz,
+                            float so2,
+                            float pm,
+                            float sgs,
+                            float si,
+                            float steps_f)
 {
   rd = normalize(rd);
   sd = normalize(sd);
-  float ct = max(dot(rd, sd), 0.0f);
-  float zenith = max(rd.z, 0.0f);
-  float shf = smoothstep(-0.3f, 0.05f, sd.z);
-  float rf = (3.0f / (16.0f * M_PI)) * (1.0f + ct * ct);
+
+  float atmo_r = radius + 100.0f;
+  float3 ro = float3(0.0f, 0.0f, radius + max(altitude, 0.0f));
+  float b = dot(ro, rd);
+  float c = dot(ro, ro) - atmo_r * atmo_r;
+  float h = b * b - c;
+  if (h <= 0.0f) { return float3(0.0f); }
+  h = sqrt(h);
+  float t0 = max(-b - h, 0.0f);
+  float t1 = -b + h;
+  int steps = int(clamp(steps_f, 4.0f, 32.0f));
+  float ds = (t1 - t0) / float(steps);
+
+  float ct = clamp(dot(rd, sd), -1.0f, 1.0f);
+  float ct2 = ct * ct;
+  float ph_r = (3.0f / (16.0f * M_PI)) * (1.0f + ct2);
   float g = 0.76f;
-  float mf = (3.0f / (8.0f * M_PI)) * ((1.0f - g * g) * (1.0f + ct * ct)) /
-             ((2.0f + g * g) * pow(1.0f + g * g - 2.0f * g * ct, 1.5f));
-  float3 kR = float3(5.5e-6f, 13.0e-6f, 22.4e-6f) * ad;
-  float kM = 21e-6f * (0.5f + ac * 0.5f);
-  float shR = 8.0f;
-  float shM = 1.2f;
-  float am = 1.0f / max(zenith, 1.0f / 40.0f);
-  float steps = max(steps_f, 1.0f);
-  float ds = am / steps;
-  float3 tR = float3(0.0f);
-  float3 tM = float3(0.0f);
-  float odR = 0.0f;
-  float odM = 0.0f;
+  float g2 = g * g;
+  float ph_m = (3.0f / (8.0f * M_PI)) * ((1.0f - g2) * (1.0f + ct2)) /
+               ((2.0f + g2) * pow(max(1.0f + g2 - 2.0f * g * ct, 1.0e-4f), 1.5f));
+
+  float3 beta_r = float3(5.5e-3f, 13.0e-3f, 22.4e-3f) * max(ad, 0.05f);
+  float beta_m = 21.0e-3f * (0.5f + ac * 0.5f);
+  float sun_air = 1.0f / max(sd.z, 0.06f);
+
+  float3 sum_r = float3(0.0f);
+  float3 sum_m = float3(0.0f);
+  float3 tau_v = float3(0.0f);
+  float tau_vm = 0.0f;
+
   for (int i = 0; i < 32; i++) {
-    if (float(i) >= steps) { break; }
-    float ih = max(float(i) * ds * shR, 0.0f);
-    float sR = exp(-ih / shR) * ds;
-    float sM = exp(-ih / shM) * ds;
-    odR += sR;
-    odM += sM;
-    float js = max(0.005f, (1.0f + sd.z * 3.0f) / steps);
-    float jR = 0.0f;
-    float jM = 0.0f;
-    for (int j = 0; j < 16; j++) {
-      if (float(j) >= steps) { break; }
-      float jh = max(ih + float(j) * js * shR * max(0.0f, sd.z), 0.0f);
-      jR += exp(-jh / shR) * js;
-      jM += exp(-jh / shM) * js;
-    }
-    float sumR = min(odR + jR, 20.0f);
-    float sumM = min(odM + jM, 20.0f);
-    float3 attn = exp(-(kM * sumM + kR * sumR * 1000.0f));
-    tR += sR * attn;
-    tM += sM * attn;
+    if (i >= steps) { break; }
+    float t = t0 + (float(i) + 0.5f) * ds;
+    float3 pos = ro + rd * t;
+    float hgt = max(length(pos) - radius, 0.0f);
+    float dr = exp(-hgt / 8.0f) * ds;
+    float dm = exp(-hgt / 1.2f) * ds;
+    tau_v += beta_r * dr;
+    tau_vm += beta_m * dm;
+
+    float tau_rl = exp(-hgt / 8.0f) * 8.0f * sun_air;
+    float tau_ml = exp(-hgt / 1.2f) * 1.2f * sun_air;
+    float3 attn = exp(-(tau_v + beta_r * tau_rl) - float3(tau_vm + beta_m * tau_ml));
+    sum_r += dr * attn;
+    sum_m += dm * attn;
   }
-  float3 sky = si * 22.0f * (rf * kR * tR + mf * kM * tM) * 1000.0f;
-  float oza = exp(-oz * 0.0015f * am);
+
+  float3 sky = (ph_r * beta_r * sum_r + float3(ph_m * beta_m) * sum_m) * (si * 22.0f);
+
+  float view_air = 1.0f / max(rd.z, 0.06f);
+  float oza = exp(-oz * 0.0015f * view_air);
   sky *= float3(1.0f, oza, oza * 0.95f);
-  sky += float3(0.15f, 0.12f, 0.05f) * (so2 * 0.3f) * (1.0f - zenith);
-  sky += float3(pm * 0.12f, pm * 0.11f, pm * 0.08f) * (1.0f - zenith * zenith);
-  float hf = exp(-ad * (1.0f - zenith) * 5.0f);
+
+  float zen = fc_sat(rd.z);
+  sky += float3(0.15f, 0.12f, 0.05f) * (so2 * 0.3f) * (1.0f - zen);
+  sky += float3(pm * 0.12f, pm * 0.11f, pm * 0.08f) * (1.0f - zen * zen);
+
+  float hf = exp(-max(ad, 0.0f) * (1.0f - zen) * 5.0f);
   sky += float3(0.1f, 0.15f, 0.25f) * ad * (1.0f - hf) * 0.5f;
-  float sg = smoothstep(0.998f, 1.0f, ct);
-  float sn = smoothstep(0.995f, 1.0f, ct);
-  sky *= 1.0f - sn * sgs * 0.6f;
-  sky *= shf;
-  return sky + float3(1.0f, 0.9f, 0.7f) * sg * 3.0f;
+
+  float sun_near = smoothstep(0.995f, 1.0f, ct);
+  sky *= 1.0f - sun_near * sgs * 0.6f;
+
+  float glow = smoothstep(0.998f, 1.0f, ct);
+  float shf = smoothstep(-0.3f, 0.05f, sd.z);
+  sky += float3(1.0f, 0.9f, 0.7f) * glow * 3.0f;
+  return sky * shf;
 }
-static float3 fc_stars(float3 rd, float nf, float lat, float lon, float time_s, float density, float brightness)
+
+static float3 fc_sky(float3 rd,
+                     float3 sun_direction,
+                     float3 zenith_color,
+                     float3 horizon_color,
+                     float3 sun_color,
+                     float sun_intensity,
+                     float sun_size,
+                     float sun_bloom,
+                     float radius,
+                     float altitude,
+                     float air_density,
+                     float aerosol_concentration,
+                     float ozone_amount,
+                     float so2_concentration,
+                     float pm25_concentration,
+                     float sun_glow_suppress,
+                     float atmosphere_steps,
+                     float use_atmosphere,
+                     float horizon_height_deg,
+                     float overcast)
+{
+  float horizon_offset = sin(radians(horizon_height_deg));
+  float view_above_horizon = smoothstep(-0.02f, 0.02f, rd.z - horizon_offset);
+
+  float3 sky = float3(0.0f);
+  float night_factor = smoothstep(-0.2f, 0.05f, sun_direction.z);
+
+  if (use_atmosphere > 0.5f) {
+    sky = fc_atmosphere(rd, sun_direction, radius, altitude, air_density, aerosol_concentration,
+                        ozone_amount, so2_concentration, pm25_concentration, sun_glow_suppress,
+                        sun_intensity, atmosphere_steps);
+  }
+  else {
+    float horizon = pow(1.0f - fc_sat(rd.z), 1.35f);
+    sky = mix(zenith_color, horizon_color, horizon) * sun_intensity;
+  }
+
+  sky *= night_factor;
+
+  /* 阴天/雨天：去色、压暗、加厚地平线霾。 */
+  float lum = dot(sky, float3(0.2126f, 0.7152f, 0.0722f));
+  sky = mix(sky, float3(lum) * float3(0.85f, 0.9f, 1.0f), overcast * 0.55f);
+  sky *= 1.0f - overcast * 0.7f;
+  sky += float3(0.10f, 0.11f, 0.13f) * overcast * (1.0f - fc_sat(rd.z));
+
+  float sun_horizon_dist = sun_direction.z - horizon_offset;
+  float sunset_factor = clamp(1.0f - sun_horizon_dist / 0.15f, 0.0f, 1.0f);
+
+  float sun_above_horizon = step(horizon_offset, sun_direction.z);
+  float sunset_glow = sunset_factor * sun_above_horizon *
+                      smoothstep(-0.1f, 0.0f, rd.z - horizon_offset);
+
+  float horizon_glow_angle = abs(rd.z - horizon_offset);
+  float horizon_glow = smoothstep(0.0f, 0.15f, horizon_glow_angle) *
+                       (1.0f - smoothstep(0.15f, 0.3f, horizon_glow_angle));
+
+  float3 sunset_color = mix(float3(1.0f, 0.4f, 0.1f),
+                            float3(1.0f, 0.7f, 0.3f),
+                            clamp(sunset_factor, 0.0f, 1.0f));
+  sky += sunset_color * sunset_glow * horizon_glow * sun_intensity * 0.5f * (1.0f - overcast);
+
+  float twilight_strength = clamp((sun_direction.z - horizon_offset + 0.3f) / 0.4f, 0.0f, 1.0f);
+  twilight_strength *= (1.0f - view_above_horizon);
+  sky += float3(0.1f, 0.15f, 0.3f) * twilight_strength * 0.3f;
+
+  float sun_vis = sun_intensity * (1.0f - overcast * 0.9f);
+  if (sun_vis > 0.0f) {
+    sky += fc_sun_disc(rd, sun_direction, sun_color, sun_vis, sun_size, sun_bloom,
+                       horizon_height_deg);
+  }
+
+  float below_fade = 1.0f - smoothstep(0.0f, 0.2f, abs(rd.z - horizon_offset));
+  float3 below_color = float3(0.02f, 0.03f, 0.06f) * air_density * night_factor;
+  below_color += float3(0.05f, 0.03f, 0.01f) * sunset_factor * sun_above_horizon * below_fade *
+                 night_factor;
+
+  /* 地平线附近用天空色做霾，避免天地交界出现硬边。 */
+  float haze_blend = exp(-abs(rd.z - horizon_offset) * 20.0f);
+  below_color = mix(below_color, sky, haze_blend * 0.6f);
+
+  sky = mix(below_color, sky, view_above_horizon);
+  return sky;
+}
+
+/** \} */
+
+/* -------------------------------------------------------------------- */
+/** \name Stars & aurora
+ * \{ */
+
+static float fc_star_hash(float3 x)
+{
+  float3 p = float3(dot(x, float3(214.1f, 127.7f, 125.4f)),
+                    dot(x, float3(260.5f, 183.3f, 954.2f)),
+                    dot(x, float3(209.5f, 571.3f, 961.2f)));
+  return fract(sin(p.x) * 43758.5453123f);
+}
+
+static float3 fc_stars(float3 rd,
+                       float nf,
+                       float lat,
+                       float lon,
+                       float time_s,
+                       float density,
+                       float brightness)
 {
   if (nf < 0.001f) { return float3(0.0f); }
   float3 stars = float3(0.0f);
@@ -189,14 +369,74 @@ static float3 fc_stars(float3 rd, float nf, float lat, float lon, float time_s, 
   }
   return stars * nf;
 }
+
+static float fc_aurora_hash(float n) { return fract(sin(n) * 758.5453f); }
+
+static float fc_aurora_noise(float3 x)
+{
+  float3 p = floor(x);
+  float3 f = fract(x);
+  float n = p.x + p.y * 57.0f + p.z * 800.0f;
+  return mix(mix(mix(fc_aurora_hash(n + 0.0f), fc_aurora_hash(n + 1.0f), f.x),
+                 mix(fc_aurora_hash(n + 57.0f), fc_aurora_hash(n + 58.0f), f.x), f.y),
+             mix(mix(fc_aurora_hash(n + 800.0f), fc_aurora_hash(n + 801.0f), f.x),
+                 mix(fc_aurora_hash(n + 857.0f), fc_aurora_hash(n + 858.0f), f.x), f.y),
+             f.z);
+}
+
+static float fc_aurora_fbm(float3 p)
+{
+  float f = 0.5f * fc_aurora_noise(p);
+  p *= 2.02f; f += 0.25f * fc_aurora_noise(p);
+  p *= 2.03f; f += 0.125f * fc_aurora_noise(p);
+  p *= 2.01f; f += 0.0625f * fc_aurora_noise(p);
+  p *= 2.04f; f += 0.03125f * fc_aurora_noise(p);
+  return f * 1.032258f;
+}
+
+static float fc_get_aurora(float3 p)
+{
+  p += fc_aurora_fbm(float3(p.x, p.y, 0.0f) * 0.5f) * 2.25f;
+  float a = smoothstep(0.0f, 0.9f, fc_aurora_fbm(p * 2.0f) * 2.2f - 1.1f);
+  return max(a, 0.0f);
+}
+
+static float3 fc_aurora(float3 rd,
+                        float nf,
+                        float time_s,
+                        float intensity,
+                        float speed,
+                        float color_factor)
+{
+  if (nf < 0.001f) { return float3(0.0f); }
+  float3 aurora = float3(0.0f);
+  float2 rp = float2(rd.x, rd.z);
+  aurora += float3(0.2f, 0.8f, 0.3f) *
+            fc_get_aurora(float3(rp * float2(1.2f, 1.0f), time_s * speed * 0.22f)) * 0.9f;
+  aurora += float3(0.3f, 0.6f, 0.9f) *
+            fc_get_aurora(float3(rp * float2(1.0f, 0.7f), time_s * speed * 0.27f)) * 0.9f;
+  aurora += float3(0.5f, 0.3f, 0.8f) *
+            fc_get_aurora(float3(rp * float2(0.8f, 0.6f), time_s * speed * 0.29f)) * 0.5f;
+  aurora += float3(0.4f, 0.5f, 0.7f) *
+            fc_get_aurora(float3(rp * float2(0.9f, 0.5f), time_s * speed * 0.20f)) * 0.57f;
+  return aurora * intensity * nf * (1.0f + color_factor * 0.2f);
+}
+
+/** \} */
+
+/* -------------------------------------------------------------------- */
+/** \name Cloud parameters (per family)
+ * \{ */
+
 static float fc_cov(float type, int fam)
 {
   if (fam == 0) { return type < 0.5f ? 0.3f : (type < 1.5f ? 0.4f : 0.8f); }
   if (fam == 1) { return type < 0.5f ? 0.5f : 0.9f; }
   if (fam == 2) { return type < 0.5f ? 0.95f : (type < 1.5f ? 0.6f : 0.95f); }
   if (fam == 3) { return type < 0.5f ? 0.4f : 0.5f; }
-  return type < 0.5f ? 0.4f : (type < 1.5f ? 0.3f : (type < 2.5f ? 0.2f : 0.5f));
+  return type < 0.5f ? 0.4f : (type < 1.5f ? 0.3f : (type < 2.5f ? 0.2f : 1.0f));
 }
+
 static float fc_den(float type, int fam)
 {
   if (fam == 0) { return type < 0.5f ? 0.2f : (type < 1.5f ? 0.15f : 0.25f); }
@@ -205,6 +445,7 @@ static float fc_den(float type, int fam)
   if (fam == 3) { return type < 0.5f ? 0.8f : 2.0f; }
   return type < 0.5f ? 0.6f : (type < 1.5f ? 1.2f : (type < 2.5f ? 0.8f : 1.0f));
 }
+
 static float fc_bsc(float type, int fam)
 {
   if (fam == 0) { return type < 0.5f ? 0.15f : (type < 1.5f ? 0.1f : 0.08f); }
@@ -213,6 +454,7 @@ static float fc_bsc(float type, int fam)
   if (fam == 3) { return type < 0.5f ? 0.25f : 0.2f; }
   return type < 0.5f ? 0.15f : (type < 1.5f ? 0.2f : (type < 2.5f ? 0.08f : 1.0f));
 }
+
 static float fc_dsc(float type, int fam)
 {
   if (fam == 0) { return type < 0.5f ? 0.8f : (type < 1.5f ? 1.2f : 0.5f); }
@@ -221,55 +463,14 @@ static float fc_dsc(float type, int fam)
   if (fam == 3) { return type < 0.5f ? 0.7f : 0.8f; }
   return type < 0.5f ? 1.5f : (type < 1.5f ? 0.5f : (type < 2.5f ? 0.6f : 1.0f));
 }
-static 
 
+/** \} */
 
-float fc_sample_3d_lut(sampler2D tex, float3 lut_pos, float slices) {
-  // 使用 mod 代替 fract，保持空间连续，防止出现一条条的千层糕断层
-  float3 c = mod(lut_pos, 1.0f) * (slices - 1.0f);
-  float3 i = floor(c);
-  float3 a = fract(c);
-  
-  float z0 = i.z;
-  float z1 = mod(i.z + 1.0f, slices);
-  
-  float v0 = (i.y + z0 * slices) / (slices * slices);
-  float v0_next = (i.y + 1.0f + z0 * slices) / (slices * slices);
-  float v1 = (i.y + z1 * slices) / (slices * slices);
-  float v1_next = (i.y + 1.0f + z1 * slices) / (slices * slices);
-  
-  float2 uv00 = float2(i.x / slices, v0);
-  float2 uv10 = float2(mod(i.x + 1.0f, slices) / slices, v0);
-  float2 uv01 = float2(i.x / slices, v0_next);
-  float2 uv11 = float2(mod(i.x + 1.0f, slices) / slices, v0_next);
-  
-  float2 uv02 = float2(i.x / slices, v1);
-  float2 uv12 = float2(mod(i.x + 1.0f, slices) / slices, v1);
-  float2 uv03 = float2(i.x / slices, v1_next);
-  float2 uv13 = float2(mod(i.x + 1.0f, slices) / slices, v1_next);
-  
-  float x000 = texture(tex, uv00).r;
-  float x100 = texture(tex, uv10).r;
-  float x010 = texture(tex, uv01).r;
-  float x110 = texture(tex, uv11).r;
-  
-  float x001 = texture(tex, uv02).r;
-  float x101 = texture(tex, uv12).r;
-  float x011 = texture(tex, uv03).r;
-  float x111 = texture(tex, uv13).r;
-  
-  float x00 = mix(x000, x100, a.x);
-  float x10 = mix(x010, x110, a.x);
-  float x01 = mix(x001, x101, a.x);
-  float x11 = mix(x011, x111, a.x);
-  
-  float y0 = mix(x00, x10, a.y);
-  float y1 = mix(x01, x11, a.y);
-  
-  return mix(y0, y1, a.z);
-}
+/* -------------------------------------------------------------------- */
+/** \name Cloud density field
+ * \{ */
 
-float fc_cloud_map(float3 pos_km,
+static float fc_cloud_map(float3 pos_km,
                           float h01,
                           sampler2D basic_noise,
                           sampler2D detail_noise,
@@ -282,544 +483,45 @@ float fc_cloud_map(float3 pos_km,
                           float2 wind,
                           float speed,
                           float nscale,
-                          float ndetail)
+                          float ndetail,
+                          float detail_lod)
 {
+  /* Flower 噪声为 Y-up，Blender World 为 Z-up：交换竖直轴。 */
   float3 position_km = float3(pos_km.x, pos_km.z, pos_km.y);
   float3 position_meter = position_km * 1000.0f;
-  float3 wind_direction_3d = normalize(float3(wind.x, 0.0f, wind.y));
-  position_meter += wind_direction_3d * h01 * 500.0f;
+  float3 wind_dir = normalize(float3(wind.x, 0.0f, wind.y) + float3(1.0e-5f, 0.0f, 0.0f));
+  position_meter += wind_dir * h01 * 500.0f;
   position_km = position_meter * 0.001f;
-  float3 wind_offset = (wind_direction_3d + float3(0.0f, 0.1f, 0.0f)) * time_s * speed;
+  float3 wind_offset = (wind_dir + float3(0.0f, 0.1f, 0.0f)) * time_s * speed;
 
   float4 weather_value = texture(weather_map, fract(position_km.xz * weather_uv_scale));
-  float local_coverage = texture(curl_noise, mod((time_s * speed * 50.0f + position_meter.xz) * 0.000001f + 0.5f, 1.0f)).r;
-  local_coverage = fc_sat(local_coverage * 3.0f - 0.75f) * 0.2f;
+  float curl = texture(
+      curl_noise,
+      mod((time_s * speed * 50.0f + position_meter.xz) * 1.0e-6f + 0.5f, 1.0f)).r;
+  float local_coverage = fc_sat(curl * 3.0f - 0.75f) * 0.2f;
   float coverage = fc_sat(cov * (local_coverage + weather_value.r));
 
   float gradient_shape = fc_remap(h01, 0.0f, 0.1f, 0.1f, 1.0f) *
                          fc_remap(h01, 0.1f, 0.8f, 1.0f, 0.2f);
-                         
-  float basic = fc_sample_3d_lut(basic_noise, (position_km + wind_offset) * nscale, 128.0f);
+
+  float basic = fc_sample_3d_lut(basic_noise,
+                                 (position_km + wind_offset) * nscale,
+                                 128.0f,
+                                 128.0f);
   float basic_cloud = gradient_shape * basic;
-  float basic_with_coverage = coverage * fc_remap(basic_cloud, 1.0f - coverage, 1.0f, 0.0f, 1.0f);
+  float basic_with_coverage = coverage *
+                              fc_remap(basic_cloud, 1.0f - coverage, 1.0f, 0.0f, 1.0f);
 
   float3 detail_position = position_km - wind_offset * 0.15f;
-  float detail = fc_sample_3d_lut(detail_noise, detail_position * ndetail, 64.0f);
-  float detail_mix = 0.2f * mix(detail, 1.0f - detail, fc_sat(h01 * 10.0f));
-  
+  float detail = fc_sample_3d_lut(detail_noise, detail_position * ndetail, 64.0f, 64.0f);
+  /* 远处细节噪声低于采样频率会产生噪点，按距离淡出。 */
+  float detail_mix = 0.2f * detail_lod * mix(detail, 1.0f - detail, fc_sat(h01 * 10.0f));
+
   float density_shape = fc_sat(0.01f + h01 * 1.15f) * den *
                         fc_remap(h01, 0.0f, 0.1f, 0.0f, 1.0f) *
                         fc_remap(h01, 0.8f, 1.0f, 1.0f, 0.0f);
   float density = fc_remap(basic_with_coverage, detail_mix, 1.0f, 0.0f, 1.0f);
   return max(0.0f, density * density_shape);
-}
-
-
-
-struct FcCloudAccum { float trans; float3 scattered; float dens_sum; float used; };
-struct FcInterval { float t0; float t1; bool hit; };
-static FcInterval fc_interval(float3 ro, float3 rd, float r)
-{
-  FcInterval iv;
-  float b = dot(ro, rd);
-  float c = dot(ro, ro) - r * r;
-  float h = b * b - c;
-  if (h <= 0.0f) { iv.t0 = 0.0f; iv.t1 = 0.0f; iv.hit = false; return iv; }
-  h = sqrt(h);
-  iv.t0 = -b - h;
-  iv.t1 = -b + h;
-  iv.hit = iv.t1 > 0.0f;
-  return iv;
-}
-static FcCloudAccum fc_trace_cloud(float3 ro, float3 rd, float3 sun, float radius, float base, float thick, float type, int fam, float cov_g, float den_g, float nscale, float ndetail, float2 wind, float speed, float time_s, float jitter, float si, float3 sun_col, float3 albedo, float3 amb_col, float amb_str, float p0, float p1, float powder, float ms_ext, float ms_str, float day_night, float max_dist, float ray_steps, float lstep, float lmult, int lsteps, float trans_in, float3 scattered_in, float dens_sum_in, float used_in)
-{
-  FcCloudAccum acc;
-  acc.trans = trans_in; acc.scattered = scattered_in; acc.dens_sum = dens_sum_in; acc.used = used_in;
-  FcInterval inner = fc_interval(ro, rd, radius + base);
-  FcInterval outer = fc_interval(ro, rd, radius + base + thick);
-  float st = inner.hit ? max(inner.t1, 0.0f) : max(outer.t0, 0.0f);
-  float et = min(outer.t1, st + max_dist);
-  if (!outer.hit || et <= st || rd.z <= -0.02f) { return acc; }
-  float lc = cov_g * fc_cov(type, fam);
-  float ld = den_g * fc_den(type, fam);
-  float ls = nscale * fc_bsc(type, fam);
-  float ds = ndetail * fc_dsc(type, fam);
-  float sl = (et - st) / float(ray_steps);
-  float t = st + sl * jitter;
-  for (int i = 0; i < 128; i++) {
-    if (i >= ray_steps || t > et || acc.trans < 0.005f) { break; }
-    float3 pos = ro + rd * t;
-    float alt = length(pos) - radius;
-    float h01 = (alt - base) / max(thick, 1.0e-4f);
-    float d = fc_cloud_map(pos, h01, time_s, lc, ld, wind, speed, ls, ds);
-    if (d > 1.0e-5f) {
-      float lt0 = fc_light_transmittance(pos, sun, radius, base, thick, basic_noise, detail_noise, weather_map, curl_noise, time_s, uv_scale, lc, ld, wind, speed, ls, ds, lstep, lmult, lsteps, 1.0f);
-      float lt1 = fc_light_transmittance(pos, sun, radius, base, thick, basic_noise, detail_noise, weather_map, curl_noise, time_s, uv_scale, lc, ld, wind, speed, ls, ds, lstep, lmult, lsteps, ms_ext);
-      float pd = pow(fc_sat(d * 8.0f), fc_remap(h01, 0.3f, 0.85f, 0.5f, 2.0f));
-      float pw = sqrt(max(pd * 20.0f, 0.0f)) * powder;
-      float3 am = amb_col * max(amb_str, 0.0f) * fc_sat(0.5f + h01) * (0.2f + day_night * 0.8f);
-      float3 l0 = sun_col * si * day_night * lt0 * p0 * pw + am;
-      float3 l1 = sun_col * si * day_night * lt1 * p1 * pw + am * ms_str;
-      float s0 = max(d, 1.0e-6f);
-      float s1 = max(d * ms_ext, 1.0e-6f);
-      float st0 = exp(-s0 * sl * 1000.0f);
-      float st1 = exp(-s1 * sl * 1000.0f);
-      float3 sc0 = albedo * d * l0;
-      float3 sc1 = albedo * d * ms_str * l1;
-      acc.scattered += acc.trans * ((sc0 - sc0 * st0) / s0 + (sc1 - sc1 * st1) / s1);
-      acc.trans *= st0;
-      acc.dens_sum += d;
-    }
-    acc.used += 1.0f;
-    t += sl;
-  }
-  return acc;
-}
-static float fc_lightning_flash(float time, float frequency)
-{
-  if (frequency < 0.01f) { return 0.0f; }
-  float lightning_interval = 5.0f / frequency;
-  float time_since_last = mod(time, lightning_interval);
-  float flash_duration = 0.05f + frequency * 0.05f;
-  float flash_decay = smoothstep(0.0f, flash_duration, time_since_last) * (1.0f - smoothstep(flash_duration, flash_duration * 2.0f, time_since_last));
-  return flash_decay * (0.8f + fract(sin(time * 1000.0f) * 43758.5453f) * 0.4f);
-}
-static float fc_rain_drop(float2 uv, float time, float intensity)
-{
-  float drop_speed = 8.0f + intensity * 12.0f;
-  float drop_length = 0.01f + intensity * 0.015f;
-  float drop_width = 0.0015f + intensity * 0.001f;
-  float hash = fract(sin(dot(uv, float2(12.9898f, 78.233f))) * 43758.5453f);
-  float drop_t = mod(time * drop_speed + hash * 100.0f, 1.0f);
-  float drop_y = uv.y + drop_t - 1.0f;
-  float drop_x = uv.x + sin(hash * 6.283f) * 0.02f;
-  float drop_dist = abs(drop_x - uv.x) / drop_width;
-  float drop = exp(-drop_dist * drop_dist * 50.0f);
-  drop *= smoothstep(0.0f, drop_length, -drop_y) * smoothstep(-drop_length, 0.0f, -drop_y);
-  return drop * intensity * 0.3f;
-}
-static float fc_snow_flake(float2 uv, float time, float intensity)
-{
-  float flake_speed = 1.5f + intensity * 2.0f;
-  float flake_size = 0.003f + intensity * 0.005f;
-  float hash = fract(sin(dot(uv, float2(12.9898f, 78.233f))) * 43758.5453f);
-  float flake_t = mod(time * flake_speed + hash * 100.0f, 1.0f);
-  float flake_y = uv.y + flake_t - 1.0f;
-  float flake_x = uv.x + sin(time * 0.5f + hash * 6.283f) * 0.03f;
-  float flake_dist = length(float2(flake_x - uv.x, flake_y));
-  float flake = exp(-flake_dist * flake_dist / (flake_size * flake_size));
-  return flake * intensity * 0.4f;
-}
-static float fc_aurora_hash(float n) { return fract(sin(n) * 758.5453f); }
-static float fc_aurora_noise(float3 x)
-{
-  float3 p = floor(x);
-  float3 f = fract(x);
-  float n = p.x + p.y * 57.0f + p.z * 800.0f;
-  return mix(mix(mix(fc_aurora_hash(n + 0.0f), fc_aurora_hash(n + 1.0f), f.x),
-                 mix(fc_aurora_hash(n + 57.0f), fc_aurora_hash(n + 58.0f), f.x), f.y),
-             mix(mix(fc_aurora_hash(n + 800.0f), fc_aurora_hash(n + 801.0f), f.x),
-                 mix(fc_aurora_hash(n + 857.0f), fc_aurora_hash(n + 858.0f), f.x), f.y), f.z);
-}
-static float fc_aurora_fbm(float3 p)
-{
-  float f = 0.5f * fc_aurora_noise(p);
-  p *= 2.02f; f += 0.25f * fc_aurora_noise(p);
-  p *= 2.03f; f += 0.125f * fc_aurora_noise(p);
-  p *= 2.01f; f += 0.0625f * fc_aurora_noise(p);
-  p *= 2.04f; f += 0.03125f * fc_aurora_noise(p);
-  return f * 1.032258f;
-}
-static float fc_get_aurora(float3 p)
-{
-  p += fc_aurora_fbm(float3(p.x, p.y, 0.0f) * 0.5f) * 2.25f;
-  float a = smoothstep(0.0f, 0.9f, fc_aurora_fbm(p * 2.0f) * 2.2f - 1.1f);
-  return a < 0.0f ? 0.0f : a;
-}
-static float3 fc_aurora(float3 rd, float nf, float time_s, float intensity, float speed, float color_factor)
-{
-  if (nf < 0.001f) { return float3(0.0f); }
-  float3 aurora = float3(0.0f);
-  float3 rotated_rd = float3(rd.x, rd.z, -rd.y);
-  aurora += float3(0.2f, 0.8f, 0.3f) * fc_get_aurora(float3(rotated_rd.xy * float2(1.2f, 1.0f), time_s * speed * 0.22f)) * 0.9f;
-  aurora += float3(0.3f, 0.6f, 0.9f) * fc_get_aurora(float3(rotated_rd.xy * float2(1.0f, 0.7f), time_s * speed * 0.27f)) * 0.9f;
-  aurora += float3(0.5f, 0.3f, 0.8f) * fc_get_aurora(float3(rotated_rd.xy * float2(0.8f, 0.6f), time_s * speed * 0.29f)) * 0.5f;
-  aurora += float3(0.4f, 0.5f, 0.7f) * fc_get_aurora(float3(rotated_rd.xy * float2(0.9f, 0.5f), time_s * speed * 0.20f)) * 0.57f;
-  return aurora * intensity * nf;
-}
-static float3 fc_rgb_to_hsv(float3 c)
-{
-  float4 K = float4(0.0f, -1.0f / 3.0f, 2.0f / 3.0f, -1.0f);
-  float4 p = mix(float4(c.bg, K.wz), float4(c.gb, K.xy), step(c.b, c.g));
-  float4 q = mix(float4(p.xyw, c.r), float4(c.r, p.yzx), step(p.x, c.r));
-  float d = q.x - min(q.w, q.y);
-  float e = 1.0e-10f;
-  return float3(abs(q.z + (q.w - q.y) / (6.0f * d + e)), d / (q.x + e), q.x);
-}
-static float3 fc_hsv_to_rgb(float3 c)
-{
-  float4 K = float4(1.0f, 2.0f / 3.0f, 1.0f / 3.0f, 3.0f);
-  float3 p = abs(fract(c.xxx + K.xyz) * 6.0f - K.www);
-  return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0f, 1.0f), c.y);
-}
-
-
-
-struct fc_sphere_interval_res {
-  bool hit;
-  float near_t;
-  float far_t;
-};
-
-static fc_sphere_interval_res fc_sphere_interval(float3 ro, float3 rd, float radius)
-{
-  fc_sphere_interval_res res;
-  float b = dot(ro, rd);
-  float c = dot(ro, ro) - radius * radius;
-  float h = b * b - c;
-  if (h <= 0.0f) {
-    res.hit = false;
-    res.near_t = 0.0f;
-    res.far_t = 0.0f;
-    return res;
-  }
-  h = sqrt(h);
-  res.near_t = -b - h;
-  res.far_t = -b + h;
-  res.hit = res.far_t > 0.0f;
-  return res;
-}
-
-
-
-
-
-
-
-
-static float fc_cloud_param_coverage(float cloud_type, float cloud_family) {
-  if (cloud_family == 0.0f) {
-    if (cloud_type < 0.5f) { return 0.3f; }
-    if (cloud_type < 1.5f) { return 0.4f; }
-    return 0.8f;
-  } else if (cloud_family == 1.0f) {
-    if (cloud_type < 0.5f) { return 0.5f; }
-    return 0.9f;
-  } else if (cloud_family == 2.0f) {
-    if (cloud_type < 0.5f) { return 0.95f; }
-    if (cloud_type < 1.5f) { return 0.6f; }
-    return 0.95f;
-  } else if (cloud_family == 3.0f) {
-    if (cloud_type < 0.5f) { return 0.4f; }
-    return 0.5f;
-  } else {
-    if (cloud_type < 0.5f) { return 0.4f; }
-    if (cloud_type < 1.5f) { return 0.3f; }
-    if (cloud_type < 2.5f) { return 0.2f; }
-    return 1.0f;
-  }
-}
-
-static float fc_cloud_param_density(float cloud_type, float cloud_family) {
-  if (cloud_family == 0.0f) {
-    if (cloud_type < 0.5f) { return 0.2f; }
-    if (cloud_type < 1.5f) { return 0.15f; }
-    return 0.25f;
-  } else if (cloud_family == 1.0f) {
-    if (cloud_type < 0.5f) { return 0.4f; }
-    return 0.6f;
-  } else if (cloud_family == 2.0f) {
-    if (cloud_type < 0.5f) { return 0.3f; }
-    if (cloud_type < 1.5f) { return 0.5f; }
-    return 1.5f;
-  } else if (cloud_family == 3.0f) {
-    if (cloud_type < 0.5f) { return 0.8f; }
-    return 2.0f;
-  } else {
-    if (cloud_type < 0.5f) { return 0.6f; }
-    if (cloud_type < 1.5f) { return 1.2f; }
-    if (cloud_type < 2.5f) { return 0.8f; }
-    return 1.0f;
-  }
-}
-
-static float fc_cloud_param_basic_scale(float cloud_type, float cloud_family) {
-  if (cloud_family == 0.0f) {
-    if (cloud_type < 0.5f) { return 0.15f; }
-    if (cloud_type < 1.5f) { return 0.1f; }
-    return 0.08f;
-  } else if (cloud_family == 1.0f) {
-    if (cloud_type < 0.5f) { return 0.12f; }
-    return 0.06f;
-  } else if (cloud_family == 2.0f) {
-    if (cloud_type < 0.5f) { return 0.05f; }
-    if (cloud_type < 1.5f) { return 0.18f; }
-    return 0.04f;
-  } else if (cloud_family == 3.0f) {
-    if (cloud_type < 0.5f) { return 0.25f; }
-    return 0.2f;
-  } else {
-    if (cloud_type < 0.5f) { return 0.15f; }
-    if (cloud_type < 1.5f) { return 0.2f; }
-    if (cloud_type < 2.5f) { return 0.08f; }
-    return 1.0f;
-  }
-}
-
-static float fc_cloud_param_detail_scale(float cloud_type, float cloud_family) {
-  if (cloud_family == 0.0f) {
-    if (cloud_type < 0.5f) { return 0.8f; }
-    if (cloud_type < 1.5f) { return 1.2f; }
-    return 0.5f;
-  } else if (cloud_family == 1.0f) {
-    if (cloud_type < 0.5f) { return 1.0f; }
-    return 0.6f;
-  } else if (cloud_family == 2.0f) {
-    if (cloud_type < 0.5f) { return 0.4f; }
-    if (cloud_type < 1.5f) { return 0.9f; }
-    return 0.3f;
-  } else if (cloud_family == 3.0f) {
-    if (cloud_type < 0.5f) { return 0.7f; }
-    return 0.8f;
-  } else {
-    if (cloud_type < 0.5f) { return 1.5f; }
-    if (cloud_type < 1.5f) { return 0.5f; }
-    if (cloud_type < 2.5f) { return 0.6f; }
-    return 1.0f;
-  }
-}
-
-
-
-
-
-static float3 fc_safe_normalize(float3 v)
-{
-  float length_v = length(v);
-  return length_v > 1.0e-6 ? v / length_v : float3(0.0f, 0.0f, 1.0f);
-}
-
-
-
-
-
-
-
-
-
-static float3 fc_calc_sun_direction(float sun_height_deg, float sun_rotation_deg)
-{
-  float height_rad = sun_height_deg * M_PI / 180.0f;
-  float rotation_rad = sun_rotation_deg * M_PI / 180.0f;
-
-  float cos_h = cos(height_rad);
-  float sin_h = sin(height_rad);
-  float cos_r = cos(rotation_rad);
-  float sin_r = sin(rotation_rad);
-
-  return float3(cos_h * cos_r, cos_h * sin_r, sin_h);
-}
-
-
-
-static float fc_rayleigh(float cos_theta, float density)
-{
-  float x = 1.0f - cos_theta;
-  return (3.0f / (16.0f * M_PI)) * (1.0f + cos_theta * cos_theta) * exp(-x * 4.0f) * density;
-}
-
-static float fc_mie(float cos_theta, float concentration, float g)
-{
-  float g2 = g * g;
-  float denom = 1.0f + g2 - 2.0f * g * cos_theta;
-  return (1.0f - g2) / (4.0f * M_PI * denom * sqrt(denom)) * concentration;
-}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-static 
-
-static 
-
-static float fc_star_hash(float3 x) {
-  float3 p = float3(dot(x, float3(214.1f, 127.7f, 125.4f)),
-                dot(x, float3(260.5f, 183.3f, 954.2f)),
-                dot(x, float3(209.5f, 571.3f, 961.2f)));
-  return fract(sin(p).x * 43758.5453123f);
-}
-
-static float fc_star_noise(float3 st, float time_s, float speed) {
-  st += float3(0.0f, time_s * speed, 0.0f);
-  float3 i = floor(st);
-  float3 f = fract(st);
-  float3 u = f * f * (3.0f - 1.0f * f);
-  
-  float n000 = fc_star_hash(i + float3(0.0f, 0.0f, 0.0f));
-  float n100 = fc_star_hash(i + float3(1.0f, 0.0f, 0.0f));
-  float n010 = fc_star_hash(i + float3(0.0f, 1.0f, 0.0f));
-  float n110 = fc_star_hash(i + float3(1.0f, 1.0f, 0.0f));
-  float n001 = fc_star_hash(i + float3(0.0f, 0.0f, 1.0f));
-  float n101 = fc_star_hash(i + float3(1.0f, 0.0f, 1.0f));
-  float n011 = fc_star_hash(i + float3(0.0f, 1.0f, 1.0f));
-  float n111 = fc_star_hash(i + float3(1.0f, 1.0f, 1.0f));
-  
-  return mix(mix(mix(n000, n100, u.x), mix(n010, n110, u.x), u.y),
-             mix(mix(n001, n101, u.x), mix(n011, n111, u.x), u.y), u.z);
-}
-
-
-
-
-
-
-
-
-
-
-
-static float fc_tri(float x) {
-  return clamp(abs(fract(x) - 0.5f), 0.01f, 0.49f);
-}
-
-static float2 fc_tri2(float2 p) {
-  return float2(fc_tri(p.x) + fc_tri(p.y), fc_tri(p.y + fc_tri(p.x)));
-}
-
-static float2x2 fc_rotate_mat(float a) {
-  float c = cos(a);
-  float s = sin(a);
-  return float2x2(c, -s, s, c);
-}
-
-static float fc_sur_aurora_noise(float2 pos, float time_s, float speed) {
-  float intensity = 1.8f;
-  float size = 2.5f;
-  float rz = 0.0f;
-  pos = fc_rotate_mat(pos.x * 0.06f) * pos;
-  float2 bp = pos;
-  float2x2 fixed_rot = float2x2(0.95534f, 0.29552f, -0.29552f, 0.95534f);
-  for (int i = 0; i < 5; ++i) {
-    float2 dg = fc_tri2(bp * 1.85f) * 0.75f;
-    dg = fc_rotate_mat(time_s * speed) * dg;
-    pos -= dg / size;
-    bp *= 1.3f;
-    size *= 0.45f;
-    intensity *= 0.42f;
-    pos *= 1.21f + (rz - 1.0f) * 0.02f;
-    rz += fc_tri(pos.x + fc_tri(pos.y)) * intensity;
-    pos = fixed_rot * pos;
-  }
-  return clamp(1.0f / pow(rz * 29.0f, 1.3f), 0.0f, 0.55f);
-}
-
-static float4 fc_sur_aurora(float3 pos, float3 ro, float time_s, float speed, float color_factor) {
-  float4 col = float4(0.0f);
-  float4 avg_col = float4(0.0f);
-  
-  for (int i = 0; i < 30; ++i) {
-    float of = 0.006f * fc_hash(pos.x * 12.9898f + pos.y * 4.1414f) * smoothstep(0.0f, 15.0f, float(i));
-    float pt = ((0.8f + pow(float(i), 1.4f) * 0.002f) - ro.y) / (pos.y * 2.0f + 0.8f);
-    pt -= of;
-    float3 bpos = ro + pt * pos;
-    float2 p = bpos.zx;
-    
-    float noise = fc_sur_aurora_noise(p, time_s, speed);
-    float4 col2 = float4(0.0f, 0.0f, 0.0f, noise);
-    col2.rgb = (sin(1.0f - float3(2.15f, -0.5f, 1.2f) + float(i) * color_factor) * 0.8f + 0.5f) * noise;
-    avg_col = mix(avg_col, col2, 0.5f);
-    col += avg_col * exp2(-float(i) * 0.065f - 2.5f) * smoothstep(0.0f, 5.0f, float(i));
-  }
-  
-  col *= clamp(pos.y * 15.0f + 0.4f, 0.0f, 1.0f);
-  return col * 1.8f;
-}
-
-
-
-
-
-static float3 fc_sky(float3 rd,
-            float3 sun_direction,
-            float3 zenith_color,
-            float3 horizon_color,
-            float3 sun_color,
-            float sun_intensity,
-            float sun_size,
-            float sun_bloom,
-            float air_density,
-            float aerosol_concentration,
-            float ozone_amount,
-            float so2_concentration,
-            float pm25_concentration,
-            float sun_glow_suppress,
-            float atmosphere_steps,
-            float use_atmosphere,
-            float horizon_height_deg)
-{
-  float horizon_rad = radians(horizon_height_deg);
-  float horizon_offset = sin(horizon_rad);
-  float horizon_cos = cos(horizon_rad);
-  
-  float view_above_horizon = smoothstep(-0.02f, 0.02f, rd.z - horizon_offset);
-  
-  float3 sky = float3(0.0f);
-  
-  float night_factor = smoothstep(-0.2f, 0.05f, sun_direction.z);
-  
-  if (use_atmosphere > 0.5f) {
-    sky = fc_atmosphere(rd, sun_direction, air_density, aerosol_concentration, ozone_amount, so2_concentration, pm25_concentration, sun_glow_suppress, sun_intensity, atmosphere_steps);
-  } else {
-    float horizon = pow(1.0f - fc_sat(rd.z), 1.35f);
-    sky = mix(zenith_color, horizon_color, horizon);
-  }
-  
-  sky *= night_factor;
-  
-  float sun_horizon_dist = sun_direction.z - horizon_offset;
-  float sunset_factor = clamp(1.0f - sun_horizon_dist / 0.15f, 0.0f, 1.0f);
-  
-  float horizon_blend = smoothstep(-0.05f, 0.05f, rd.z - horizon_offset);
-  
-  float sun_above_horizon = step(horizon_offset, sun_direction.z);
-  float sunset_glow = sunset_factor * sun_above_horizon * smoothstep(-0.1f, 0.0f, rd.z - horizon_offset);
-  
-  float horizon_glow_angle = abs(rd.z - horizon_offset);
-  float horizon_glow = smoothstep(0.0f, 0.15f, horizon_glow_angle) * (1.0f - smoothstep(0.15f, 0.3f, horizon_glow_angle));
-  
-  float3 sunset_color = mix(float3(1.0f, 0.4f, 0.1f), float3(1.0f, 0.7f, 0.3f), clamp(sunset_factor, 0.0f, 1.0f));
-  sky += sunset_color * sunset_glow * horizon_glow * sun_intensity * 0.5f;
-  
-  float twilight_strength = clamp((sun_direction.z - horizon_offset + 0.3f) / 0.4f, 0.0f, 1.0f);
-  twilight_strength *= (1.0f - view_above_horizon);
-  sky += float3(0.1f, 0.15f, 0.3f) * twilight_strength * 0.3f;
-  
-  if (sun_intensity > 0.0f) {
-    sky += fc_sun_disc(rd, sun_direction, sun_color, sun_intensity, sun_size, sun_bloom, horizon_height_deg);
-  }
-  
-  float below_horizon = 1.0f - view_above_horizon;
-  float below_fade = 1.0f - smoothstep(0.0f, 0.2f, abs(rd.z - horizon_offset));
-  
-  float3 below_color = float3(0.02f, 0.03f, 0.06f) * air_density;
-  below_color += float3(0.05f, 0.03f, 0.01f) * sunset_factor * sun_above_horizon * below_fade;
-  
-  sky = mix(below_color, sky, view_above_horizon);
-  
-  return sky;
 }
 
 static float fc_light_transmittance(float3 position_km,
@@ -848,10 +550,8 @@ static float fc_light_transmittance(float3 position_km,
   float step_length = max(light_step, 1.0e-4f);
   float distance_along_light = step_length * 0.5f;
   int count = int(clamp(light_steps, 1.0f, 16.0f));
-  for (int i = 0; i < 16; ++i) {
-    if (float(i) >= float(count)) {
-      break;
-    }
+  for (int i = 0; i < 16; i++) {
+    if (i >= count) { break; }
     float3 sample_position = position_km + sun_direction * distance_along_light;
     float altitude = length(sample_position) - planet_radius;
     float height01 = (altitude - cloud_start) / max(cloud_thickness, 1.0e-4f);
@@ -869,7 +569,9 @@ static float fc_light_transmittance(float3 position_km,
                                     wind,
                                     speed,
                                     nscale,
-                                    ndetail) * step_length * extinction_factor;
+                                    ndetail,
+                                    1.0f) *
+                       step_length * extinction_factor;
     }
     distance_along_light += step_length;
     step_length *= max(light_step_multiplier, 1.0f);
@@ -877,53 +579,270 @@ static float fc_light_transmittance(float3 position_km,
   return exp(-optical_depth * 1000.0f);
 }
 
+/** \} */
 
+/* -------------------------------------------------------------------- */
+/** \name Cloud ray-marching
+ * \{ */
 
-static float2 fc_tri2(float2 p) {
-  return float2(fc_tri(p.x) + fc_tri(p.y), fc_tri(p.y + fc_tri(p.x)));
-}
+struct fc_interval_res {
+  bool hit;
+  float near_t;
+  float far_t;
+};
 
-static float2x2 fc_rotate_mat(float a) {
-  float c = cos(a);
-  float s = sin(a);
-  return float2x2(c, -s, s, c);
-}
-
-
-
-
-
-
-
-
-
-
-
-
-
-static float4 fc_sur_aurora(float3 pos, float3 ro, float time_s, float speed, float color_factor) {
-  float4 col = float4(0.0f);
-  float4 avg_col = float4(0.0f);
-  
-  for (int i = 0.0f; i < 30.0f; ++i) {
-    float of = 0.006f * fc_hash(pos.x * 12.9898f + pos.y * 4.1414f) * smoothstep(0.0f, 15.0f, float(i));
-    float pt = ((0.8f + pow(float(i), 1.4f) * 0.002f) - ro.y) / (pos.y * 2.0f + 0.8f);
-    pt -= of;
-    float3 bpos = ro + pt * pos;
-    float2 p = bpos.zx;
-    
-    float noise = fc_sur_aurora_noise(p, time_s, speed);
-    float4 col2 = float4(0.0f, 0.0f, 0.0f, noise);
-    col2.rgb = (sin(1.0f - float3(2.15f, -0.5f, 1.2f) + float(i) * color_factor) * 0.8f + 0.5f) * noise;
-    avg_col = mix(avg_col, col2, 0.5f);
-    col += avg_col * exp2(-float(i) * 0.065f - 2.5f) * smoothstep(0.0f, 5.0f, float(i));
+static fc_interval_res fc_sphere_interval(float3 ro, float3 rd, float radius)
+{
+  fc_interval_res res;
+  float b = dot(ro, rd);
+  float c = dot(ro, ro) - radius * radius;
+  float h = b * b - c;
+  if (h <= 0.0f) {
+    res.hit = false;
+    res.near_t = 0.0f;
+    res.far_t = 0.0f;
+    return res;
   }
-  
-  col *= clamp(pos.y * 15.0f + 0.4f, 0.0f, 1.0f);
-  return col * 1.8f;
+  h = sqrt(h);
+  res.near_t = -b - h;
+  res.far_t = -b + h;
+  res.hit = res.far_t > 0.0f;
+  return res;
 }
 
+struct FcCloudOut {
+  float trans;
+  float3 scattered;
+  float dens_sum;
+  float used;
+};
 
+static FcCloudOut fc_trace_family(float3 ro,
+                                  float3 rd,
+                                  float3 sun,
+                                  float radius,
+                                  float cloud_base,
+                                  float cloud_thick,
+                                  sampler2D basic_noise,
+                                  sampler2D detail_noise,
+                                  sampler2D weather_map,
+                                  sampler2D curl_noise,
+                                  float time_s,
+                                  float2 uv_scale,
+                                  float cov,
+                                  float den,
+                                  float2 wind,
+                                  float speed,
+                                  float nscale,
+                                  float ndetail,
+                                  float max_dist,
+                                  float trace_start,
+                                  int ray_steps,
+                                  float light_step,
+                                  float light_mult,
+                                  int light_steps,
+                                  float3 sun_col,
+                                  float sun_int,
+                                  float3 albedo,
+                                  float3 amb_col,
+                                  float amb_str,
+                                  float p0,
+                                  float p1,
+                                  float powder,
+                                  float ms_ext,
+                                  float ms_str,
+                                  float jitter,
+                                  float day_night,
+                                  float storm,
+                                  float flash,
+                                  float trans_in,
+                                  float3 scattered_in,
+                                  float dens_in,
+                                  float used_in)
+{
+  FcCloudOut o;
+  o.trans = trans_in;
+  o.scattered = scattered_in;
+  o.dens_sum = dens_in;
+  o.used = used_in;
+
+  float thick = max(cloud_thick, 1.0e-4f);
+  fc_interval_res inner = fc_sphere_interval(ro, rd, radius + cloud_base);
+  fc_interval_res outer = fc_sphere_interval(ro, rd, radius + cloud_base + thick);
+  if (!outer.hit || rd.z <= -0.02f) { return o; }
+
+  float st = inner.hit ? max(inner.far_t, 0.0f) : max(outer.near_t, 0.0f);
+  float et = min(outer.far_t, st + max(max_dist, 1.0f));
+  if (et <= st) { return o; }
+  if (st > max(trace_start, 1.0f)) { return o; }
+
+  int steps = clamp(ray_steps, 16, 128);
+  float sl = (et - st) / float(steps);
+  float t = st + sl * jitter;
+
+  for (int i = 0; i < 128; i++) {
+    if (i >= steps || t > et || o.trans < 0.005f) { break; }
+    float3 pos = ro + rd * t;
+    float alt = length(pos) - radius;
+    float h01 = (alt - cloud_base) / thick;
+    t += sl;
+
+    /* 远处云：细节淡出，避免低于采样频率产生噪点；区间末端渐隐，避免硬切。 */
+    float lod = 1.0f - smoothstep(25.0f, 100.0f, t);
+    float d = fc_cloud_map(pos, h01, basic_noise, detail_noise, weather_map, curl_noise,
+                           time_s, uv_scale, cov, den, wind, speed, nscale, ndetail, lod);
+    d *= 1.0f - smoothstep(0.88f, 1.0f, t / max(et, 1.0f));
+    d *= 1.0f - smoothstep(60.0f, 140.0f, t);
+    o.used += 1.0f;
+    if (d <= 1.0e-5f) { continue; }
+
+    float lt0 = fc_light_transmittance(pos, sun, radius, cloud_base, thick, basic_noise,
+                                       detail_noise, weather_map, curl_noise, time_s, uv_scale,
+                                       cov, den, wind, speed, nscale, ndetail, light_step,
+                                       light_mult, float(light_steps), 1.0f);
+    float lt1 = fc_light_transmittance(pos, sun, radius, cloud_base, thick, basic_noise,
+                                       detail_noise, weather_map, curl_noise, time_s, uv_scale,
+                                       cov, den, wind, speed, nscale, ndetail, light_step,
+                                       light_mult, float(light_steps), ms_ext);
+
+    float pd = pow(fc_sat(d * 8.0f), fc_remap(h01, 0.3f, 0.85f, 0.5f, 2.0f));
+    float pw = sqrt(max(pd * 20.0f, 0.0f)) * powder;
+
+    float3 am = amb_col * max(amb_str, 0.0f) * fc_sat(0.5f + h01) *
+                (0.04f + day_night * 0.96f);
+    am = mix(am, am * float3(0.35f, 0.40f, 0.55f), fc_sat(storm * (1.0f - h01) * 0.8f));
+
+    float3 l0 = sun_col * sun_int * day_night * lt0 * p0 * pw + am;
+    float3 l1 = sun_col * sun_int * day_night * lt1 * p1 * pw + am * ms_str;
+
+    l0 += float3(0.7f, 0.85f, 1.0f) * flash * (1.0f - h01) * 2.5f;
+    l1 += float3(0.7f, 0.85f, 1.0f) * flash * (1.0f - h01) * 1.2f;
+
+    float s0 = max(d, 1.0e-6f);
+    float s1 = max(d * ms_ext, 1.0e-6f);
+    float st0 = exp(-s0 * sl * 1000.0f);
+    float st1 = exp(-s1 * sl * 1000.0f);
+
+    float3 sc0 = albedo * d * l0;
+    float3 sc1 = albedo * d * ms_str * l1;
+    o.scattered += o.trans *
+                   ((sc0 - sc0 * st0) / s0 + (sc1 - sc1 * st1) / s1);
+    o.trans *= st0;
+    o.dens_sum += d;
+  }
+  return o;
+}
+
+/** \} */
+
+/* -------------------------------------------------------------------- */
+/** \name Weather effects
+ * \{ */
+
+static float fc_lightning_flash(float time, float frequency)
+{
+  float f = fc_sat(frequency);
+  if (f < 0.01f) { return 0.0f; }
+  float interval = 3.0f + 6.0f * (1.0f - f);
+  float cyc = floor(time / interval);
+  float local = time - cyc * interval;
+  float rnd = fc_hash(cyc * 13.7f + 1.3f);
+  float t0 = rnd * interval * 0.6f;
+  float bright = 0.55f + 0.45f * fc_hash(cyc * 7.1f + 4.9f);
+  float main_flash = exp(-max(local - t0, 0.0f) * 18.0f) * step(t0, local);
+  float t1 = t0 + 0.06f + 0.09f * fc_hash(cyc * 3.3f + 2.1f);
+  float restrike = exp(-max(local - t1, 0.0f) * 30.0f) * step(t1, local) *
+                   (0.4f + 0.4f * fc_hash(cyc * 5.7f + 8.2f));
+  return (main_flash + restrike) * bright * f;
+}
+
+static float fc_rain_streaks(float2 uv, float t, float intensity, float sky_mask)
+{
+  float acc = 0.0f;
+  for (int layer = 0; layer < 3; layer++) {
+    float fl = float(layer);
+    float2 gv = float2(uv.x * (70.0f + fl * 26.0f), uv.y * (34.0f + fl * 12.0f));
+    gv += float2(fl * 5.3f, t * (6.0f + fl * 2.0f));
+    float2 cell = floor(gv);
+    float2 f = fract(gv);
+    float h = fc_hash12(cell + fl * 37.1f);
+    float x = 0.15f + h * 0.7f;
+    float streak = smoothstep(0.014f + 0.008f * h, 0.0f, abs(f.x - x));
+    float head = smoothstep(0.0f, 0.18f, f.y) * smoothstep(1.0f, 0.6f, f.y);
+    acc += streak * head * step(0.55f, h) * (0.4f + 0.6f * h);
+  }
+  return acc * intensity * sky_mask * 0.55f;
+}
+
+static float fc_snow_flakes(float2 uv, float t, float intensity, float sky_mask)
+{
+  float acc = 0.0f;
+  for (int layer = 0; layer < 2; layer++) {
+    float fl = float(layer);
+    float2 gv = uv * (48.0f + fl * 24.0f);
+    gv += float2(sin(t * 0.6f + fl * 2.1f) * 0.35f, -t * (4.0f + fl * 2.0f));
+    float2 cell = floor(gv);
+    float2 f = fract(gv);
+    float h = fc_hash12(cell + fl * 19.3f);
+    float2 c = float2(0.2f + h * 0.6f, 0.2f + fc_hash12(cell + 2.7f) * 0.6f);
+    float2 d = f - c;
+    float flake = exp(-dot(d, d) * (120.0f - 40.0f * h));
+    acc += flake * step(0.35f, h) * (0.5f + 0.5f * h);
+  }
+  return acc * intensity * sky_mask * 0.5f;
+}
+
+static float fc_lens_rain(float2 uv, float t, float strength, float length)
+{
+  float acc = 0.0f;
+  for (int layer = 0; layer < 2; layer++) {
+    float fl = float(layer);
+    float2 gv = float2(uv.x * (7.0f + fl * 5.0f), uv.y * (11.0f + fl * 4.0f));
+    gv.y += t * (1.2f + fl * 0.7f) + fl * 3.7f;
+    float2 cell = floor(gv);
+    float2 f = fract(gv);
+    float h = fc_hash12(cell + fl * 23.7f);
+    float hx = 0.2f + fc_hash12(cell + 7.3f) * 0.6f;
+    float2 d = float2((f.x - hx) * 45.0f, (f.y - 0.55f) * 30.0f);
+    float drop = exp(-dot(d, d));
+    float tail = smoothstep(0.0f, 0.2f, f.y) * smoothstep(1.0f, 0.35f, f.y);
+    float trail = exp(-abs(f.x - hx) * 90.0f) * tail;
+    acc += (drop + trail * max(length, 0.0f) * 0.8f) * step(h, strength);
+  }
+  return fc_sat(acc * 0.9f);
+}
+
+static float3 fc_moon(float3 rd,
+                      float3 md,
+                      float moon_size,
+                      float3 moon_col,
+                      sampler2D moon_tex,
+                      float ext)
+{
+  float rad = radians(max(moon_size, 0.2f)) * 0.5f;
+  float c = dot(rd, md);
+  if (c < cos(rad)) { return float3(0.0f); }
+
+  float3 ref = float3(0.0f, 0.0f, 1.0f);
+  if (abs(md.z) > 0.9f) { ref = float3(0.0f, 1.0f, 0.0f); }
+  float3 right = normalize(cross(ref, md));
+  float3 up = cross(md, right);
+
+  float denom = max(sin(rad), 1.0e-4f);
+  float2 p = float2(dot(rd, right), dot(rd, up)) / denom;
+  float r2 = dot(p, p);
+  if (r2 > 1.0f) { return float3(0.0f); }
+
+  float3 tex = texture(moon_tex, p * 0.5f + 0.5f).rgb;
+  float limb = smoothstep(1.0f, 0.88f, sqrt(r2));
+  return tex * moon_col * limb * ext;
+}
+
+/** \} */
+
+/* -------------------------------------------------------------------- */
+/** \name Node entry
+ * \{ */
 
 [[node]]
 
@@ -949,6 +868,11 @@ void node_esky(
   float aurora_intensity,
   float aurora_speed,
   float aurora_color_factor,
+  bool moon_enable,
+  float moon_height,
+  float moon_rotation,
+  float moon_size,
+  float moon_intensity,
   bool use_atmosphere,
   float air_density,
   float aerosol_concentration,
@@ -966,24 +890,25 @@ void node_esky(
   float detail_noise_scale,
   float3 wind_direction,
   float cloud_speed,
+  float time_speed,
   bool high_cloud_enable,
-  float high_cloud_type,
+  int high_cloud_type,
   float high_cloud_base,
   float high_cloud_thickness,
   bool mid_cloud_enable,
-  float mid_cloud_type,
+  int mid_cloud_type,
   float mid_cloud_base,
   float mid_cloud_thickness,
   bool low_cloud_enable,
-  float low_cloud_type,
+  int low_cloud_type,
   float low_cloud_base,
   float low_cloud_thickness,
   bool vertical_cloud_enable,
-  float vertical_cloud_type,
+  int vertical_cloud_type,
   float vertical_cloud_base,
   float vertical_cloud_top,
   bool special_cloud_enable,
-  float special_cloud_type,
+  int special_cloud_type,
   float special_cloud_base,
   float special_cloud_thickness,
   float4 cloud_albedo,
@@ -995,8 +920,11 @@ void node_esky(
   float powder_scale,
   float multi_scatter_extinction,
   float multi_scatter_strength,
-  float weather_type,
+  int weather_type,
   float rain_intensity,
+  bool lens_rain_enable,
+  float lens_rain_strength,
+  float lens_rain_length,
   float snow_intensity,
   float lightning_frequency,
   float max_trace_distance,
@@ -1010,412 +938,232 @@ void node_esky(
   sampler2D weather_map,
   sampler2D curl_noise,
   sampler2D blue_noise,
+  sampler2D moon_tex,
   out float4 color,
   out float out_cloud_alpha,
   out float out_cloud_density,
   out float out_cloud_transmittance)
 {
-  float3 view_dir = normalize(g_data.P);
-  float time_seconds = 0.0f;
-  float sample_index = 0.0f;
+  float3 rd = fc_safe_normalize(g_data.P);
 
+  /* 内置场景时间（秒），time_speed 控制云/天气动画快慢。 */
+  float scene_seconds = 0.0f;
+  float scene_frame = 0.0f;
+  scene_time_uniforms(scene_seconds, scene_frame);
+  float time_seconds = scene_seconds * max(time_speed, 0.0f);
 
-  sun_height = sun_height * -10.0f + 900.0f;
-  sun_rotation = sun_rotation * 57.3f;
-  horizon_height = horizon_height * 10.0f;
   weather_uv_scale = weather_uv_scale / 100.0f;
+  float2 uv_scale = float2(weather_uv_scale, weather_uv_scale);
   int ray_steps_i = int(ray_steps);
   int light_steps_i = int(light_steps);
-  float2 uv_scale = float2(weather_uv_scale, weather_uv_scale);
 
-  float3 rd = fc_safe_normalize(view_dir);
   float3 sun = fc_safe_normalize(fc_calc_sun_direction(sun_height, sun_rotation));
-  float3 final_sun_color = fc_blackbody(sun_temperature);
-  
-  float horizon_rad = radians(horizon_height);
-  float horizon_offset = sin(horizon_rad);
-  float sun_height_above_horizon = sun.z - horizon_offset;
-  float day_night_factor = smoothstep(-0.15f, 0.05f, sun_height_above_horizon);
-  
+  float3 sun_col = fc_blackbody(sun_temperature);
+
+  float horizon_offset = sin(radians(horizon_height));
+  float day_night = smoothstep(-0.15f, 0.05f, sun.z - horizon_offset);
+
+  float w_rain = smoothstep(0.5f, 1.5f, weather_type);
+  float w_thunder = smoothstep(1.5f, 2.5f, weather_type);
+  float w_snow = smoothstep(2.5f, 3.5f, weather_type);
+  float overcast = fc_sat(w_rain * 0.85f + w_thunder * 1.0f + w_snow * 0.8f);
+  float storm_f = w_thunder;
+  float flash = fc_lightning_flash(time_seconds, lightning_frequency) * w_thunder;
+
   float radius = max(planet_radius, 100.0f);
-  float3 ro = float3(0.0f, 0.0f, radius + max(altitude, 0.0f));
-  float3 sky = fc_sky(rd, sun, zenith_color.rgb, horizon_color.rgb, final_sun_color, sun_intensity, sun_size, sun_bloom, air_density, aerosol_concentration, ozone_amount, so2_concentration, pm25_concentration, sun_glow_suppress, atmosphere_steps, use_atmosphere ? 1.0f : 0.0f, horizon_height);
+  float cam_alt = max(altitude, 0.0f);
+  float3 ro = float3(0.0f, 0.0f, radius + cam_alt);
+
+  float3 sky = fc_sky(rd, sun, zenith_color.rgb, horizon_color.rgb, sun_col, sun_intensity,
+                      sun_size, sun_bloom, radius, cam_alt, air_density,
+                      aerosol_concentration, ozone_amount, so2_concentration,
+                      pm25_concentration, sun_glow_suppress, atmosphere_steps,
+                      use_atmosphere ? 1.0f : 0.0f, horizon_height, overcast);
 
   float view_light_cosine = dot(rd, sun);
   float phase0 = fc_dual_lobe(phase_forward, phase_backward, phase_mix, -view_light_cosine);
   float phase1 = mix(1.0f / (4.0f * M_PI), phase0, 0.5f);
 
-  float2 blue_uv = fract(float2(atan(rd.y, rd.x) / (2.0f * M_PI) + 0.5f, rd.z * 0.5f + 0.5f) * 64.0f + float2(sample_index * 0.754877669f, sample_index * 0.569840296f));
+  float2 blue_uv = fract(float2(atan(rd.y, rd.x) / (2.0f * M_PI) + 0.5f, rd.z * 0.5f + 0.5f) *
+                         64.0f + float2(0.0f, 0.0f));
   float jitter = texture(blue_noise, blue_uv).r;
 
+  float sun_int_eff = sun_intensity * (1.0f - overcast * 0.55f);
+  float3 albedo = cloud_albedo.rgb;
+  float3 amb_col = ambient_color.rgb;
+  float cov_boost = 1.0f + 0.8f * overcast;
+  float den_boost = 1.0f + 1.5f * overcast;
+
   float transmittance = 1.0f;
-  float3 scattered_light = float3(0.0f);
-  float density_sum = 0.0f;
-  float used_steps = 0.0f;
+  float3 scattered = float3(0.0f);
+  float dens_sum = 0.0f;
+  float used = 0.0f;
 
   if (low_cloud_enable && transmittance > 0.005f) {
-    float lb_low = low_cloud_base;
-    float lt_low = max(low_cloud_thickness, 0.01f);
-    float lc_low = coverage * fc_cloud_param_coverage(low_cloud_type, 2);
-    float ld_low = density * fc_cloud_param_density(low_cloud_type, 2);
-    float ls_low = basic_noise_scale * fc_cloud_param_basic_scale(low_cloud_type, 2);
-    float ds_low = detail_noise_scale * fc_cloud_param_detail_scale(low_cloud_type, 2);
-    
-    float in_low, if_low, on_low, of_low;
-    fc_sphere_interval_res res_in_low = fc_sphere_interval(ro, rd, radius + lb_low);
-    bool ih_low = res_in_low.hit;
-    in_low = res_in_low.near_t;
-    if_low = res_in_low.far_t;
-    fc_sphere_interval_res res_out_low = fc_sphere_interval(ro, rd, radius + lb_low + lt_low);
-    bool oh_low = res_out_low.hit;
-    on_low = res_out_low.near_t;
-    of_low = res_out_low.far_t;
-    float st_low = ih_low ? max(if_low, 0.0f) : max(on_low, 0.0f);
-    float et_low = min(of_low, st_low + max(max_trace_distance, 1.0f));
-    
-    if (oh_low && et_low > st_low && st_low <= max(trace_start_limit, 1.0f) && rd.z > -0.02f) {
-      int stps_low = clamp(ray_steps_i, 16, 128);
-      float sl_low = (et_low - st_low) / float(stps_low);
-      float t_low = st_low + sl_low * jitter;
-      
-      for (int i = 0; i < 128; ++i) {
-        if (i >= stps_low || t_low > et_low || transmittance < 0.005f) { break; }
-        float3 pos_low = ro + rd * t_low;
-        float alt_low = length(pos_low) - radius;
-        float h01_low = (alt_low - lb_low) / max(lt_low, 1.0e-4f);
-        
-        float den_low = fc_cloud_map(pos_low, h01_low, basic_noise, detail_noise, weather_map, curl_noise, time_seconds, uv_scale, lc_low, ld_low, wind_direction.xy, cloud_speed, ls_low, ds_low);
-        
-        if (den_low > 1.0e-5f) {
-          float lt0_low = fc_light_transmittance(pos_low, sun, radius, lb_low, lt_low, basic_noise, detail_noise, weather_map, curl_noise, time_seconds, uv_scale, lc_low, ld_low, wind_direction.xy, cloud_speed, ls_low, ds_low, light_step, light_step_multiplier, float(light_steps_i), 1.0f);
-          float lt1_low = fc_light_transmittance(pos_low, sun, radius, lb_low, lt_low, basic_noise, detail_noise, weather_map, curl_noise, time_seconds, uv_scale, lc_low, ld_low, wind_direction.xy, cloud_speed, ls_low, ds_low, light_step, light_step_multiplier, float(light_steps_i), multi_scatter_extinction);
-          float pd_low = pow(fc_sat(den_low * 8.0f), fc_remap(h01_low, 0.3f, 0.85f, 0.5f, 2.0f));
-          float pw_low = sqrt(max(pd_low * 20.0f, 0.0f)) * powder_scale;
-          float3 at_low = float3(1.0f);
-          if (use_atmosphere) {
-            float mt_low = aerosol_concentration + so2_concentration * 0.5f + pm25_concentration * 0.3f;
-            at_low = mix(float3(1.0f), float3(0.9f, 0.85f, 0.7f) + float3(0.1f, 0.1f, -0.2f) * so2_concentration, mt_low);
-            float ot_low = (ozone_amount - 1.0f) * 0.3f;
-            at_low += float3(0.0f, ot_low, ot_low * 2.0f);
-            float pt_low = pm25_concentration * 0.15f;
-            at_low += float3(0.0f, pt_low, pt_low * 2.0f);
-          }
-          
-          float3 am_low = ambient_color.rgb * max(ambient_strength, 0.0f) * fc_sat(0.5f + h01_low) * (0.2f + day_night_factor * 0.8f);
-          float3 l0_low = final_sun_color * at_low * sun_intensity * day_night_factor * lt0_low * phase0 * pw_low + am_low;
-          float3 l1_low = final_sun_color * at_low * sun_intensity * day_night_factor * lt1_low * phase1 * pw_low + am_low * multi_scatter_strength;
-          float sig0_low = max(den_low, 1.0e-6f);
-          float sig1_low = max(den_low * multi_scatter_extinction, 1.0e-6f);
-          float st0_low = exp(-sig0_low * sl_low * 1000.0f);
-          float st1_low = exp(-sig1_low * sl_low * 1000.0f);
-          float3 sc0_low = cloud_albedo.rgb * den_low * l0_low;
-          float3 sc1_low = cloud_albedo.rgb * den_low * multi_scatter_strength * l1_low;
-          scattered_light += transmittance * ((sc0_low - sc0_low * st0_low) / sig0_low + (sc1_low - sc1_low * st1_low) / sig1_low);
-          transmittance *= st0_low;
-          density_sum += den_low;
-        }
-        used_steps += 1.0f;
-        t_low += sl_low;
-      }
-    }
+    FcCloudOut o = fc_trace_family(ro, rd, sun, radius, low_cloud_base,
+                                   max(low_cloud_thickness, 0.01f), basic_noise, detail_noise,
+                                   weather_map, curl_noise, time_seconds, uv_scale,
+                                   coverage * fc_cov(low_cloud_type, 2) * cov_boost,
+                                   density * fc_den(low_cloud_type, 2) * den_boost,
+                                   wind_direction.xy, cloud_speed,
+                                   basic_noise_scale * fc_bsc(low_cloud_type, 2),
+                                   detail_noise_scale * fc_dsc(low_cloud_type, 2),
+                                   max_trace_distance, trace_start_limit, ray_steps_i, light_step,
+                                   light_step_multiplier, light_steps_i, sun_col, sun_int_eff,
+                                   albedo, amb_col, ambient_strength, phase0, phase1, powder_scale,
+                                   multi_scatter_extinction, multi_scatter_strength, jitter,
+                                   day_night, storm_f, flash, transmittance, scattered,
+                                   dens_sum, used);
+    transmittance = o.trans;
+    scattered = o.scattered;
+    dens_sum = o.dens_sum;
+    used = o.used;
   }
 
   if (mid_cloud_enable && transmittance > 0.005f) {
-    float lb_mid = mid_cloud_base;
-    float lt_mid = max(mid_cloud_thickness, 0.01f);
-    float lc_mid = coverage * fc_cloud_param_coverage(mid_cloud_type, 1);
-    float ld_mid = density * fc_cloud_param_density(mid_cloud_type, 1);
-    float ls_mid = basic_noise_scale * fc_cloud_param_basic_scale(mid_cloud_type, 1);
-    float ds_mid = detail_noise_scale * fc_cloud_param_detail_scale(mid_cloud_type, 1);
-    
-    float in_mid, if_mid, on_mid, of_mid;
-    fc_sphere_interval_res res_in_mid = fc_sphere_interval(ro, rd, radius + lb_mid);
-    bool ih_mid = res_in_mid.hit;
-    in_mid = res_in_mid.near_t;
-    if_mid = res_in_mid.far_t;
-    fc_sphere_interval_res res_out_mid = fc_sphere_interval(ro, rd, radius + lb_mid + lt_mid);
-    bool oh_mid = res_out_mid.hit;
-    on_mid = res_out_mid.near_t;
-    of_mid = res_out_mid.far_t;
-    float st_mid = ih_mid ? max(if_mid, 0.0f) : max(on_mid, 0.0f);
-    float et_mid = min(of_mid, st_mid + max(max_trace_distance, 1.0f));
-    
-    if (oh_mid && et_mid > st_mid && st_mid <= max(trace_start_limit, 1.0f) && rd.z > -0.02f) {
-      int stps_mid = clamp(ray_steps_i, 16, 128);
-      float sl_mid = (et_mid - st_mid) / float(stps_mid);
-      float t_mid = st_mid + sl_mid * jitter;
-      
-      for (int i = 0; i < 128; ++i) {
-        if (i >= stps_mid || t_mid > et_mid || transmittance < 0.005f) { break; }
-        float3 pos_mid = ro + rd * t_mid;
-        float alt_mid = length(pos_mid) - radius;
-        float h01_mid = (alt_mid - lb_mid) / max(lt_mid, 1.0e-4f);
-        
-        float den_mid = fc_cloud_map(pos_mid, h01_mid, basic_noise, detail_noise, weather_map, curl_noise, time_seconds, uv_scale, lc_mid, ld_mid, wind_direction.xy, cloud_speed, ls_mid, ds_mid);
-        
-        if (den_mid > 1.0e-5f) {
-          float lt0_mid = fc_light_transmittance(pos_mid, sun, radius, lb_mid, lt_mid, basic_noise, detail_noise, weather_map, curl_noise, time_seconds, uv_scale, lc_mid, ld_mid, wind_direction.xy, cloud_speed, ls_mid, ds_mid, light_step, light_step_multiplier, float(light_steps_i), 1.0f);
-          float lt1_mid = fc_light_transmittance(pos_mid, sun, radius, lb_mid, lt_mid, basic_noise, detail_noise, weather_map, curl_noise, time_seconds, uv_scale, lc_mid, ld_mid, wind_direction.xy, cloud_speed, ls_mid, ds_mid, light_step, light_step_multiplier, float(light_steps_i), multi_scatter_extinction);
-          float pd_mid = pow(fc_sat(den_mid * 8.0f), fc_remap(h01_mid, 0.3f, 0.85f, 0.5f, 2.0f));
-          float pw_mid = sqrt(max(pd_mid * 20.0f, 0.0f)) * powder_scale;
-          float3 at_mid = float3(1.0f);
-          if (use_atmosphere) {
-            float mt_mid = aerosol_concentration + so2_concentration * 0.5f + pm25_concentration * 0.3f;
-            at_mid = mix(float3(1.0f), float3(0.9f, 0.85f, 0.7f) + float3(0.1f, 0.1f, -0.2f) * so2_concentration, mt_mid);
-          }
-          float3 am_mid = ambient_color.rgb * max(ambient_strength, 0.0f) * fc_sat(0.5f + h01_mid) * (0.2f + day_night_factor * 0.8f);
-          float3 l0_mid = final_sun_color * at_mid * sun_intensity * day_night_factor * lt0_mid * phase0 * pw_mid + am_mid;
-          float3 l1_mid = final_sun_color * at_mid * sun_intensity * day_night_factor * lt1_mid * phase1 * pw_mid + am_mid * multi_scatter_strength;
-          float sig0_mid = max(den_mid, 1.0e-6f);
-          float sig1_mid = max(den_mid * multi_scatter_extinction, 1.0e-6f);
-          float st0_mid = exp(-sig0_mid * sl_mid * 1000.0f);
-          float st1_mid = exp(-sig1_mid * sl_mid * 1000.0f);
-          float3 sc0_mid = cloud_albedo.rgb * den_mid * l0_mid;
-          float3 sc1_mid = cloud_albedo.rgb * den_mid * multi_scatter_strength * l1_mid;
-          scattered_light += transmittance * ((sc0_mid - sc0_mid * st0_mid) / sig0_mid + (sc1_mid - sc1_mid * st1_mid) / sig1_mid);
-          transmittance *= st0_mid;
-          density_sum += den_mid;
-        }
-        used_steps += 1.0f;
-        t_mid += sl_mid;
-      }
-    }
+    FcCloudOut o = fc_trace_family(ro, rd, sun, radius, mid_cloud_base,
+                                   max(mid_cloud_thickness, 0.01f), basic_noise, detail_noise,
+                                   weather_map, curl_noise, time_seconds, uv_scale,
+                                   coverage * fc_cov(mid_cloud_type, 1) * cov_boost,
+                                   density * fc_den(mid_cloud_type, 1) * den_boost,
+                                   wind_direction.xy, cloud_speed,
+                                   basic_noise_scale * fc_bsc(mid_cloud_type, 1),
+                                   detail_noise_scale * fc_dsc(mid_cloud_type, 1),
+                                   max_trace_distance, trace_start_limit, ray_steps_i, light_step,
+                                   light_step_multiplier, light_steps_i, sun_col, sun_int_eff,
+                                   albedo, amb_col, ambient_strength, phase0, phase1, powder_scale,
+                                   multi_scatter_extinction, multi_scatter_strength, jitter,
+                                   day_night, storm_f, flash, transmittance, scattered,
+                                   dens_sum, used);
+    transmittance = o.trans;
+    scattered = o.scattered;
+    dens_sum = o.dens_sum;
+    used = o.used;
   }
 
   if (high_cloud_enable && transmittance > 0.005f) {
-    float lb_high = high_cloud_base;
-    float lt_high = max(high_cloud_thickness, 0.01f);
-    float lc_high = coverage * fc_cloud_param_coverage(high_cloud_type, 0);
-    float ld_high = density * fc_cloud_param_density(high_cloud_type, 0);
-    float ls_high = basic_noise_scale * fc_cloud_param_basic_scale(high_cloud_type, 0);
-    float ds_high = detail_noise_scale * fc_cloud_param_detail_scale(high_cloud_type, 0);
-    
-    float in_high, if_high, on_high, of_high;
-    fc_sphere_interval_res res_in_high = fc_sphere_interval(ro, rd, radius + lb_high);
-    bool ih_high = res_in_high.hit;
-    in_high = res_in_high.near_t;
-    if_high = res_in_high.far_t;
-    fc_sphere_interval_res res_out_high = fc_sphere_interval(ro, rd, radius + lb_high + lt_high);
-    bool oh_high = res_out_high.hit;
-    on_high = res_out_high.near_t;
-    of_high = res_out_high.far_t;
-    float st_high = ih_high ? max(if_high, 0.0f) : max(on_high, 0.0f);
-    float et_high = min(of_high, st_high + max(max_trace_distance, 1.0f));
-    
-    if (oh_high && et_high > st_high && st_high <= max(trace_start_limit, 1.0f) && rd.z > -0.02f) {
-      int stps_high = clamp(ray_steps_i, 16, 128);
-      float sl_high = (et_high - st_high) / float(stps_high);
-      float t_high = st_high + sl_high * jitter;
-      
-      for (int i = 0; i < 128; ++i) {
-        if (i >= stps_high || t_high > et_high || transmittance < 0.005f) { break; }
-        float3 pos_high = ro + rd * t_high;
-        float alt_high = length(pos_high) - radius;
-        float h01_high = (alt_high - lb_high) / max(lt_high, 1.0e-4f);
-        
-        float den_high = fc_cloud_map(pos_high, h01_high, basic_noise, detail_noise, weather_map, curl_noise, time_seconds, uv_scale, lc_high, ld_high, wind_direction.xy, cloud_speed, ls_high, ds_high);
-        
-        if (den_high > 1.0e-5f) {
-          float lt0_high = fc_light_transmittance(pos_high, sun, radius, lb_high, lt_high, basic_noise, detail_noise, weather_map, curl_noise, time_seconds, uv_scale, lc_high, ld_high, wind_direction.xy, cloud_speed, ls_high, ds_high, light_step, light_step_multiplier, float(light_steps_i), 1.0f);
-          float lt1_high = fc_light_transmittance(pos_high, sun, radius, lb_high, lt_high, basic_noise, detail_noise, weather_map, curl_noise, time_seconds, uv_scale, lc_high, ld_high, wind_direction.xy, cloud_speed, ls_high, ds_high, light_step, light_step_multiplier, float(light_steps_i), multi_scatter_extinction);
-          float pd_high = pow(fc_sat(den_high * 8.0f), fc_remap(h01_high, 0.3f, 0.85f, 0.5f, 2.0f));
-          float pw_high = sqrt(max(pd_high * 20.0f, 0.0f)) * powder_scale;
-          float3 at_high = float3(1.0f);
-          if (use_atmosphere) {
-            float mt_high = aerosol_concentration + so2_concentration * 0.5f + pm25_concentration * 0.3f;
-            at_high = mix(float3(1.0f), float3(0.9f, 0.85f, 0.7f) + float3(0.1f, 0.1f, -0.2f) * so2_concentration, mt_high);
-          }
-          float3 am_high = ambient_color.rgb * max(ambient_strength, 0.0f) * fc_sat(0.5f + h01_high) * (0.2f + day_night_factor * 0.8f);
-          float3 l0_high = final_sun_color * at_high * sun_intensity * day_night_factor * lt0_high * phase0 * pw_high + am_high;
-          float3 l1_high = final_sun_color * at_high * sun_intensity * day_night_factor * lt1_high * phase1 * pw_high + am_high * multi_scatter_strength;
-          float sig0_high = max(den_high, 1.0e-6f);
-          float sig1_high = max(den_high * multi_scatter_extinction, 1.0e-6f);
-          float st0_high = exp(-sig0_high * sl_high * 1000.0f);
-          float st1_high = exp(-sig1_high * sl_high * 1000.0f);
-          float3 sc0_high = cloud_albedo.rgb * den_high * l0_high;
-          float3 sc1_high = cloud_albedo.rgb * den_high * multi_scatter_strength * l1_high;
-          scattered_light += transmittance * ((sc0_high - sc0_high * st0_high) / sig0_high + (sc1_high - sc1_high * st1_high) / sig1_high);
-          transmittance *= st0_high;
-          density_sum += den_high;
-        }
-        used_steps += 1.0f;
-        t_high += sl_high;
-      }
-    }
+    FcCloudOut o = fc_trace_family(ro, rd, sun, radius, high_cloud_base,
+                                   max(high_cloud_thickness, 0.01f), basic_noise, detail_noise,
+                                   weather_map, curl_noise, time_seconds, uv_scale,
+                                   coverage * fc_cov(high_cloud_type, 0) * (1.0f + 0.4f * overcast),
+                                   density * fc_den(high_cloud_type, 0) * (1.0f + 0.6f * overcast),
+                                   wind_direction.xy, cloud_speed,
+                                   basic_noise_scale * fc_bsc(high_cloud_type, 0),
+                                   detail_noise_scale * fc_dsc(high_cloud_type, 0),
+                                   max_trace_distance, trace_start_limit, ray_steps_i, light_step,
+                                   light_step_multiplier, light_steps_i, sun_col, sun_int_eff,
+                                   albedo, amb_col, ambient_strength, phase0, phase1, powder_scale,
+                                   multi_scatter_extinction, multi_scatter_strength, jitter,
+                                   day_night, storm_f, flash, transmittance, scattered,
+                                   dens_sum, used);
+    transmittance = o.trans;
+    scattered = o.scattered;
+    dens_sum = o.dens_sum;
+    used = o.used;
   }
 
   if (vertical_cloud_enable && transmittance > 0.005f) {
-    float lb_vt = vertical_cloud_base;
-    float lt_vt = max(vertical_cloud_top - vertical_cloud_base, 0.01f);
-    float lc_vt = coverage * fc_cloud_param_coverage(vertical_cloud_type, 3);
-    float ld_vt = density * fc_cloud_param_density(vertical_cloud_type, 3);
-    float ls_vt = basic_noise_scale * fc_cloud_param_basic_scale(vertical_cloud_type, 3);
-    float ds_vt = detail_noise_scale * fc_cloud_param_detail_scale(vertical_cloud_type, 3);
-    
-    float in_vt, if_vt, on_vt, of_vt;
-    fc_sphere_interval_res res_in_vt = fc_sphere_interval(ro, rd, radius + lb_vt);
-    bool ih_vt = res_in_vt.hit;
-    in_vt = res_in_vt.near_t;
-    if_vt = res_in_vt.far_t;
-    fc_sphere_interval_res res_out_vt = fc_sphere_interval(ro, rd, radius + lb_vt + lt_vt);
-    bool oh_vt = res_out_vt.hit;
-    on_vt = res_out_vt.near_t;
-    of_vt = res_out_vt.far_t;
-    float st_vt = ih_vt ? max(if_vt, 0.0f) : max(on_vt, 0.0f);
-    float et_vt = min(of_vt, st_vt + max(max_trace_distance, 1.0f));
-    
-    if (oh_vt && et_vt > st_vt && st_vt <= max(trace_start_limit, 1.0f) && rd.z > -0.02f) {
-      int stps_vt = clamp(ray_steps_i, 16, 128);
-      float sl_vt = (et_vt - st_vt) / float(stps_vt);
-      float t_vt = st_vt + sl_vt * jitter;
-      
-      for (int i = 0; i < 128; ++i) {
-        if (i >= stps_vt || t_vt > et_vt || transmittance < 0.005f) { break; }
-        float3 pos_vt = ro + rd * t_vt;
-        float alt_vt = length(pos_vt) - radius;
-        float h01_vt = (alt_vt - lb_vt) / max(lt_vt, 1.0e-4f);
-        
-        float den_vt = fc_cloud_map(pos_vt, h01_vt, basic_noise, detail_noise, weather_map, curl_noise, time_seconds, uv_scale, lc_vt, ld_vt, wind_direction.xy, cloud_speed, ls_vt, ds_vt);
-        
-        if (den_vt > 1.0e-5f) {
-          float lt0_vt = fc_light_transmittance(pos_vt, sun, radius, lb_vt, lt_vt, basic_noise, detail_noise, weather_map, curl_noise, time_seconds, uv_scale, lc_vt, ld_vt, wind_direction.xy, cloud_speed, ls_vt, ds_vt, light_step, light_step_multiplier, float(light_steps_i), 1.0f);
-          float lt1_vt = fc_light_transmittance(pos_vt, sun, radius, lb_vt, lt_vt, basic_noise, detail_noise, weather_map, curl_noise, time_seconds, uv_scale, lc_vt, ld_vt, wind_direction.xy, cloud_speed, ls_vt, ds_vt, light_step, light_step_multiplier, float(light_steps_i), multi_scatter_extinction);
-          float pd_vt = pow(fc_sat(den_vt * 8.0f), fc_remap(h01_vt, 0.3f, 0.85f, 0.5f, 2.0f));
-          float pw_vt = sqrt(max(pd_vt * 20.0f, 0.0f)) * powder_scale;
-          float3 at_vt = float3(1.0f);
-          if (use_atmosphere) {
-            float mt_vt = aerosol_concentration + so2_concentration * 0.5f + pm25_concentration * 0.3f;
-            at_vt = mix(float3(1.0f), float3(0.9f, 0.85f, 0.7f) + float3(0.1f, 0.1f, -0.2f) * so2_concentration, mt_vt);
-          }
-          float3 am_vt = ambient_color.rgb * max(ambient_strength, 0.0f) * fc_sat(0.5f + h01_vt) * (0.2f + day_night_factor * 0.8f);
-          float3 l0_vt = final_sun_color * at_vt * sun_intensity * day_night_factor * lt0_vt * phase0 * pw_vt + am_vt;
-          float3 l1_vt = final_sun_color * at_vt * sun_intensity * day_night_factor * lt1_vt * phase1 * pw_vt + am_vt * multi_scatter_strength;
-          float sig0_vt = max(den_vt, 1.0e-6f);
-          float sig1_vt = max(den_vt * multi_scatter_extinction, 1.0e-6f);
-          float st0_vt = exp(-sig0_vt * sl_vt * 1000.0f);
-          float st1_vt = exp(-sig1_vt * sl_vt * 1000.0f);
-          float3 sc0_vt = cloud_albedo.rgb * den_vt * l0_vt;
-          float3 sc1_vt = cloud_albedo.rgb * den_vt * multi_scatter_strength * l1_vt;
-          scattered_light += transmittance * ((sc0_vt - sc0_vt * st0_vt) / sig0_vt + (sc1_vt - sc1_vt * st1_vt) / sig1_vt);
-          transmittance *= st0_vt;
-          density_sum += den_vt;
-        }
-        used_steps += 1.0f;
-        t_vt += sl_vt;
-      }
-    }
+    FcCloudOut o = fc_trace_family(ro, rd, sun, radius, vertical_cloud_base,
+                                   max(vertical_cloud_top - vertical_cloud_base, 0.01f),
+                                   basic_noise, detail_noise, weather_map, curl_noise,
+                                   time_seconds, uv_scale,
+                                   coverage * fc_cov(vertical_cloud_type, 3) * cov_boost,
+                                   density * fc_den(vertical_cloud_type, 3) * den_boost,
+                                   wind_direction.xy, cloud_speed,
+                                   basic_noise_scale * fc_bsc(vertical_cloud_type, 3),
+                                   detail_noise_scale * fc_dsc(vertical_cloud_type, 3),
+                                   max_trace_distance, trace_start_limit, ray_steps_i, light_step,
+                                   light_step_multiplier, light_steps_i, sun_col, sun_int_eff,
+                                   albedo, amb_col, ambient_strength, phase0, phase1, powder_scale,
+                                   multi_scatter_extinction, multi_scatter_strength, jitter,
+                                   day_night, storm_f, flash, transmittance, scattered,
+                                   dens_sum, used);
+    transmittance = o.trans;
+    scattered = o.scattered;
+    dens_sum = o.dens_sum;
+    used = o.used;
   }
 
   if (special_cloud_enable && transmittance > 0.005f) {
-    float lb_sp = special_cloud_base;
-    float lt_sp = max(special_cloud_thickness, 0.01f);
-    float lc_sp = coverage * fc_cloud_param_coverage(special_cloud_type, 4);
-    float ld_sp = density * fc_cloud_param_density(special_cloud_type, 4);
-    float ls_sp = basic_noise_scale * fc_cloud_param_basic_scale(special_cloud_type, 4);
-    float ds_sp = detail_noise_scale * fc_cloud_param_detail_scale(special_cloud_type, 4);
-    
-    float in_sp, if_sp, on_sp, of_sp;
-    fc_sphere_interval_res res_in_sp = fc_sphere_interval(ro, rd, radius + lb_sp);
-    bool ih_sp = res_in_sp.hit;
-    in_sp = res_in_sp.near_t;
-    if_sp = res_in_sp.far_t;
-    fc_sphere_interval_res res_out_sp = fc_sphere_interval(ro, rd, radius + lb_sp + lt_sp);
-    bool oh_sp = res_out_sp.hit;
-    on_sp = res_out_sp.near_t;
-    of_sp = res_out_sp.far_t;
-    float st_sp = ih_sp ? max(if_sp, 0.0f) : max(on_sp, 0.0f);
-    float et_sp = min(of_sp, st_sp + max(max_trace_distance, 1.0f));
-    
-    if (oh_sp && et_sp > st_sp && st_sp <= max(trace_start_limit, 1.0f) && rd.z > -0.02f) {
-      int stps_sp = clamp(ray_steps_i, 16, 128);
-      float sl_sp = (et_sp - st_sp) / float(stps_sp);
-      float t_sp = st_sp + sl_sp * jitter;
-      
-      for (int i = 0; i < 128; ++i) {
-        if (i >= stps_sp || t_sp > et_sp || transmittance < 0.005f) { break; }
-        float3 pos_sp = ro + rd * t_sp;
-        float alt_sp = length(pos_sp) - radius;
-        float h01_sp = (alt_sp - lb_sp) / max(lt_sp, 1.0e-4f);
-        
-        float den_sp = fc_cloud_map(pos_sp, h01_sp, basic_noise, detail_noise, weather_map, curl_noise, time_seconds, uv_scale, lc_sp, ld_sp, wind_direction.xy, cloud_speed, ls_sp, ds_sp);
-        
-        if (den_sp > 1.0e-5f) {
-          float lt0_sp = fc_light_transmittance(pos_sp, sun, radius, lb_sp, lt_sp, basic_noise, detail_noise, weather_map, curl_noise, time_seconds, uv_scale, lc_sp, ld_sp, wind_direction.xy, cloud_speed, ls_sp, ds_sp, light_step, light_step_multiplier, float(light_steps_i), 1.0f);
-          float lt1_sp = fc_light_transmittance(pos_sp, sun, radius, lb_sp, lt_sp, basic_noise, detail_noise, weather_map, curl_noise, time_seconds, uv_scale, lc_sp, ld_sp, wind_direction.xy, cloud_speed, ls_sp, ds_sp, light_step, light_step_multiplier, float(light_steps_i), multi_scatter_extinction);
-          float pd_sp = pow(fc_sat(den_sp * 8.0f), fc_remap(h01_sp, 0.3f, 0.85f, 0.5f, 2.0f));
-          float pw_sp = sqrt(max(pd_sp * 20.0f, 0.0f)) * powder_scale;
-          float3 at_sp = float3(1.0f);
-          if (use_atmosphere) {
-            float mt_sp = aerosol_concentration + so2_concentration * 0.5f + pm25_concentration * 0.3f;
-            at_sp = mix(float3(1.0f), float3(0.9f, 0.85f, 0.7f) + float3(0.1f, 0.1f, -0.2f) * so2_concentration, mt_sp);
-          }
-          float3 am_sp = ambient_color.rgb * max(ambient_strength, 0.0f) * fc_sat(0.5f + h01_sp) * (0.2f + day_night_factor * 0.8f);
-          float3 l0_sp = final_sun_color * at_sp * sun_intensity * day_night_factor * lt0_sp * phase0 * pw_sp + am_sp;
-          float3 l1_sp = final_sun_color * at_sp * sun_intensity * day_night_factor * lt1_sp * phase1 * pw_sp + am_sp * multi_scatter_strength;
-          float sig0_sp = max(den_sp, 1.0e-6f);
-          float sig1_sp = max(den_sp * multi_scatter_extinction, 1.0e-6f);
-          float st0_sp = exp(-sig0_sp * sl_sp * 1000.0f);
-          float st1_sp = exp(-sig1_sp * sl_sp * 1000.0f);
-          float3 sc0_sp = cloud_albedo.rgb * den_sp * l0_sp;
-          float3 sc1_sp = cloud_albedo.rgb * den_sp * multi_scatter_strength * l1_sp;
-          scattered_light += transmittance * ((sc0_sp - sc0_sp * st0_sp) / sig0_sp + (sc1_sp - sc1_sp * st1_sp) / sig1_sp);
-          transmittance *= st0_sp;
-          density_sum += den_sp;
-        }
-        used_steps += 1.0f;
-        t_sp += sl_sp;
-      }
-    }
+    FcCloudOut o = fc_trace_family(ro, rd, sun, radius, special_cloud_base,
+                                   max(special_cloud_thickness, 0.01f), basic_noise, detail_noise,
+                                   weather_map, curl_noise, time_seconds, uv_scale,
+                                   coverage * fc_cov(special_cloud_type, 4) * cov_boost,
+                                   density * fc_den(special_cloud_type, 4) * den_boost,
+                                   wind_direction.xy, cloud_speed,
+                                   basic_noise_scale * fc_bsc(special_cloud_type, 4),
+                                   detail_noise_scale * fc_dsc(special_cloud_type, 4),
+                                   max_trace_distance, trace_start_limit, ray_steps_i, light_step,
+                                   light_step_multiplier, light_steps_i, sun_col, sun_int_eff,
+                                   albedo, amb_col, ambient_strength, phase0, phase1, powder_scale,
+                                   multi_scatter_extinction, multi_scatter_strength, jitter,
+                                   day_night, storm_f, flash, transmittance, scattered,
+                                   dens_sum, used);
+    transmittance = o.trans;
+    scattered = o.scattered;
+    dens_sum = o.dens_sum;
+    used = o.used;
   }
 
   out_cloud_alpha = 1.0f - transmittance;
-  out_cloud_density = density_sum / max(used_steps, 1.0f);
+  out_cloud_density = dens_sum / max(used, 1.0f);
   out_cloud_transmittance = transmittance;
-  float3 result = sky * transmittance + scattered_light;
-  
-  float is_rain = smoothstep(0.5f, 1.5f, weather_type);
-  float is_thunder = smoothstep(1.5f, 2.5f, weather_type);
-  float is_snow = smoothstep(2.5f, 3.5f, weather_type);
-  
-  float lightning = fc_lightning_flash(time_seconds, lightning_frequency * is_thunder);
-  if (is_thunder > 0.01f) {
-    result += float3(lightning * 0.5f);
-    float cloud_bottom_tint = max(0.0f, 1.0f - rd.z) * is_thunder;
-    result = mix(result, result + float3(0.3f, 0.05f, 0.0f) * cloud_bottom_tint, is_thunder * 0.3f);
-  }
-  
-  float2 screen_uv = float2(atan(rd.y, rd.x) / (2.0f * M_PI) + 0.5f, rd.z * 0.5f + 0.5f);
-  float rain_effect = 0.0f;
-  if (is_rain > 0.01f) {
-    for (int i = 0; i < 8; ++i) {
-      float offset = float(i) * 0.125f;
-      rain_effect += fc_rain_drop(screen_uv + float2(offset, 0.0f), time_seconds + offset, rain_intensity * is_rain);
-    }
-    result += float3(0.3f, 0.5f, 0.8f) * rain_effect * 2.0f;
-  }
-  
-  float snow_effect = 0.0f;
-  if (is_snow > 0.01f) {
-    for (int i = 0; i < 6; ++i) {
-      float offset = float(i) * 0.1667f;
-      snow_effect += fc_snow_flake(screen_uv + float2(offset, offset), time_seconds + offset, snow_intensity * is_snow);
-    }
-    result += float3(0.9f, 0.95f, 1.0f) * snow_effect * 1.5f;
-  }
-  
-  float night_factor_for_stars = smoothstep(-0.05f, -0.2f, sun_height_above_horizon);
-  float view_above_horizon_for_stars = step(horizon_offset, rd.z);
-  float night_sky_factor = night_factor_for_stars * view_above_horizon_for_stars;
-  
-  float3 stars = fc_stars(rd, night_sky_factor, latitude, longitude, time_seconds, star_density, star_brightness);
+
+  float3 result = sky * transmittance + scattered;
+
+  /* 闪电照亮整个环境。 */
+  result += float3(0.75f, 0.82f, 1.0f) * flash * 0.35f;
+
+  float night_factor = 1.0f - smoothstep(-0.15f, 0.02f, sun.z - horizon_offset);
+
+  float3 stars = fc_stars(rd, night_factor * step(horizon_offset, rd.z), latitude, longitude,
+                          time_seconds, star_density, star_brightness);
   float3 aurora = float3(0.0f);
   if (aurora_enabled) {
-    aurora = fc_aurora(rd, night_sky_factor, time_seconds, aurora_intensity, aurora_speed, aurora_color_factor);
+    aurora = fc_aurora(rd, night_factor * step(horizon_offset, rd.z), time_seconds,
+                       aurora_intensity, aurora_speed, aurora_color_factor);
   }
-  
-  stars *= transmittance;
-  aurora *= transmittance;
-  result += stars + aurora;
-  
+  result += (stars + aurora) * transmittance;
+
+  /* 月亮：太阳落到地平线以下才显示。 */
+  if (moon_enable && night_factor > 0.001f) {
+    float3 md = fc_safe_normalize(fc_calc_sun_direction(moon_height, moon_rotation));
+    float atm_ext = exp(-max(air_density, 0.0f) * 0.15f / max(rd.z, 0.05f));
+    float3 moon = fc_moon(rd, md, moon_size, float3(moon_intensity), moon_tex, atm_ext);
+    result += moon * transmittance * night_factor;
+  }
+
+  /* 屏幕空间：雨丝 / 雪 / 镜头雨。 */
+  float3 window = coordinate_screen(g_data.P);
+  float2 screen_uv = window.xy;
+  if (window.x == 0.0f && window.y == 0.0f) {
+    screen_uv = float2(atan(rd.y, rd.x) / (2.0f * M_PI) + 0.5f, rd.z * 0.5f + 0.5f);
+  }
+  float sky_mask = smoothstep(-0.05f, 0.1f, rd.z);
+
+  float rain_amt = fc_rain_streaks(screen_uv, time_seconds, rain_intensity, sky_mask) *
+                   w_rain;
+  result += float3(0.55f, 0.68f, 0.85f) * rain_amt * 1.6f;
+
+  float snow_amt = fc_snow_flakes(screen_uv, time_seconds, snow_intensity, sky_mask) * w_snow;
+  result += float3(0.9f, 0.95f, 1.0f) * snow_amt * 1.5f;
+
+  float lens = 0.0f;
+  if (lens_rain_enable) {
+    lens = fc_lens_rain(screen_uv, time_seconds, lens_rain_strength, lens_rain_length) *
+           (w_rain + w_thunder);
+    result *= 1.0f - 0.18f * lens;
+    result += float3(0.55f, 0.65f, 0.75f) * lens * 0.35f;
+  }
+
+  result *= max(exposure, 0.0f);
+  float3 hsv = fc_rgb_to_hsv(max(result, float3(0.0f)));
+  hsv.x = fract(hsv.x + hue - 0.5f);
+  hsv.y = fc_sat(hsv.y * max(saturation, 0.0f));
+  hsv.z = max(hsv.z * max(brightness, 0.0f), 0.0f);
+  result = fc_hsv_to_rgb(hsv);
+
   color = float4(max(result, float3(0.0f)), 1.0f);
 }
+
+/** \} */
