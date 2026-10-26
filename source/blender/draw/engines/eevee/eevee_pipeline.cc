@@ -1299,6 +1299,10 @@ gpu::Texture *DeferredLayer::render(View &render_view,
   /* Update for lighting pass or AO node. */
   inst_.hiz_buffer.update();
 
+  /* Spectral caustics: needs the HiZ buffer for the photon trace and has to be splatted before the
+   * combine pass samples the caustic map. Runs once per frame (see CausticModule::render). */
+  inst_.caustics.render(render_view);
+
   inst_.volume_probes.set_view(render_view);
   inst_.sphere_probes.set_view(render_view);
   inst_.shadows.render(render_view, extent);

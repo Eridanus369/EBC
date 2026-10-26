@@ -140,7 +140,6 @@ void ShadingView::render()
   inst_.volume.draw_prepass(main_view_);
 
   bool volume_compute_done = false;
-  inst_.caustics.render(main_view_);
   inst_.pipelines.deferred.render(main_view_,
                                   render_view_,
                                   prepass_fb_,
@@ -149,7 +148,7 @@ void ShadingView::render()
                                   extent_,
                                   rt_buffer_opaque_,
                                   rt_buffer_refract_,
-                                      volume_compute_done);
+                                  volume_compute_done);
 
   if (DRW_context_get()->is_background_drawing()) {  //UPBGE: for overlay pass
     inst_.pipelines.background.render(render_view_, combined_fb_);

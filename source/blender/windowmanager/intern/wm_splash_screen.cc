@@ -198,13 +198,12 @@ static ImBuf *wm_block_splash_image(int width, int *r_height)
         }
         closedir(d);
         if (!images.empty()) {
-          static bool ebc_seeded = false;
-          if (!ebc_seeded) {
+          static std::string ebc_cached_path;
+          if (ebc_cached_path.empty()) {
             std::srand(unsigned(std::time(nullptr)));
-            ebc_seeded = true;
+            ebc_cached_path = images[std::rand() % images.size()];
           }
-          ibuf = IMB_load_image_from_filepath(
-              images[std::rand() % images.size()].c_str(), ImBufFlags::ByteData);
+          ibuf = IMB_load_image_from_filepath(ebc_cached_path.c_str(), ImBufFlags::ByteData);
         }
       }
     }

@@ -33,6 +33,9 @@ class CausticModule {
   Instance &inst_;
 
   bool enabled_ = false;
+  /* Set every frame by sync(). Consumed by render() so the passes are only dispatched once per
+   * frame, inside the deferred pipeline (the caustic map must be ready before the combine pass). */
+  bool render_pending_ = false;
   int photon_count_ = 0;
   int spectral_samples_ = 0;
 
@@ -44,6 +47,7 @@ class CausticModule {
   PassSimple photon_emit_ps_ = {"PhotonEmit"};
   PassSimple photon_trace_ps_ = {"PhotonTrace"};
   PassSimple photon_splat_ps_ = {"PhotonSplat"};
+  PassSimple photon_resolve_ps_ = {"PhotonResolve"};
 
  public:
   CausticModule(Instance &inst);

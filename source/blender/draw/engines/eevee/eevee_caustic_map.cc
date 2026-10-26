@@ -21,14 +21,18 @@ void CausticMap::sync(int resolution)
   /* The deferred pipeline always binds these textures, so they must exist even when
    * caustics are disabled (in which case `caustic_resolution` can be zero). */
   const int res = (resolution > 0) ? resolution : 64;
-  if (resolution_ != res || !color_tx_.is_valid() || !count_tx_.is_valid()) {
+  if (resolution_ != res || !color_tx_.is_valid() || !accum_r_tx_.is_valid()) {
     resolution_ = res;
     
     /* Stack the 4 cascade levels vertically into a single texture. */
     int2 extent = int2(resolution_, resolution_ * LEVELS);
     
     color_tx_.ensure_2d(gpu::TextureFormat::SFLOAT_16_16_16_16, extent, GPU_TEXTURE_USAGE_GENERAL);
-    count_tx_.ensure_2d(gpu::TextureFormat::SFLOAT_16, extent, GPU_TEXTURE_USAGE_GENERAL);
+    /* Level 0 only: the splat pass works in screen space. */
+    const int2 accum_extent = int2(resolution_);
+    accum_r_tx_.ensure_2d(gpu::TextureFormat::UINT_32, accum_extent, GPU_TEXTURE_USAGE_GENERAL);
+    accum_g_tx_.ensure_2d(gpu::TextureFormat::UINT_32, accum_extent, GPU_TEXTURE_USAGE_GENERAL);
+    accum_b_tx_.ensure_2d(gpu::TextureFormat::UINT_32, accum_extent, GPU_TEXTURE_USAGE_GENERAL);
     
     for (int i = 0; i < LEVELS; ++i) {
       CausticLevelData &data = level_data_buf_[i];
@@ -45,8 +49,10 @@ void CausticMap::clear()
 {
   const float zero_color[4] = {0.0f, 0.0f, 0.0f, 0.0f};
   GPU_texture_clear(color_tx_, GPU_DATA_FLOAT, zero_color);
-  const float zero_scalar = 0.0f;
-  GPU_texture_clear(count_tx_, GPU_DATA_FLOAT, &zero_scalar);
+  const uint32_t zero_accum[4] = {0u, 0u, 0u, 0u};
+  GPU_texture_clear(accum_r_tx_, GPU_DATA_UINT, zero_accum);
+  GPU_texture_clear(accum_g_tx_, GPU_DATA_UINT, zero_accum);
+  GPU_texture_clear(accum_b_tx_, GPU_DATA_UINT, zero_accum);
 }
 
 } // namespace blender::eevee

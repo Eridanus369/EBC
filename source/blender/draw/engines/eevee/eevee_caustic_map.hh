@@ -30,7 +30,13 @@ class CausticMap {
 
   /* Stacked texture holding all cascade levels vertically. */
   Texture color_tx_ = {"caustic_color_tx"};
-  Texture count_tx_ = {"caustic_count_tx"};
+  /* Integer accumulation targets of the photon splat pass. Overlapping photons can only be summed
+   * with atomics, and image atomics only exist for single channel `r32ui` images, hence one texture
+   * per color channel. Resolved into `color_tx_` by the photon resolve pass before the deferred
+   * combine reads it. */
+  Texture accum_r_tx_ = {"caustic_accum_r_tx"};
+  Texture accum_g_tx_ = {"caustic_accum_g_tx"};
+  Texture accum_b_tx_ = {"caustic_accum_b_tx"};
   
   /* Bounds and resolution data for each level. */
   UniformArrayBuffer<CausticLevelData, LEVELS> level_data_buf_ = {"caustic_levels"};
@@ -43,8 +49,11 @@ class CausticMap {
   void sync(int resolution);
   void clear();
   
+  int resolution() const { return resolution_; }
   Texture &color_texture() { return color_tx_; }
-  Texture &count_texture() { return count_tx_; }
+  Texture &accum_r_texture() { return accum_r_tx_; }
+  Texture &accum_g_texture() { return accum_g_tx_; }
+  Texture &accum_b_texture() { return accum_b_tx_; }
   UniformArrayBuffer<CausticLevelData, LEVELS> &level_data() { return level_data_buf_; }
 };
 

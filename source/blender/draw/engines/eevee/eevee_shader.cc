@@ -424,6 +424,8 @@ const char *ShaderModule::static_shader_create_info_name_get(eShaderType shader_
       return "eevee_photon_trace";
     case PHOTON_SPLAT:
       return "eevee_photon_splat";
+    case PHOTON_RESOLVE:
+      return "eevee_photon_resolve";
     case FAST_GI_DENOISE:
       return "eevee_fast_gi_denoise";
     case FAST_GI_RESOLVE:
