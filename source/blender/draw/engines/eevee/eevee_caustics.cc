@@ -93,18 +93,8 @@ void CausticModule::render(View &view)
     pass.shader_set(inst_.shaders.static_shader_get(PHOTON_TRACE));
     
     pass.bind_ssbo("photons", photon_pool_);
-    pass.bind_texture("hiz_tx", &inst_.hiz_buffer.front.ref_tx_);
-    pass.bind_texture("gbuf_header_tx", &inst_.gbuffer.header_tx);
-    pass.bind_texture("gbuf_normal_tx", &inst_.gbuffer.normal_tx);
-    
     pass.push_constant("photon_count", &active_count);
-    const float4x4 &viewmat = view.viewmat();
-    const float4x4 &winmat = view.winmat();
-    const float4x4 &viewinv = view.viewinv();
-    pass.push_constant("viewmat", &viewmat);
-    pass.push_constant("winmat", &winmat);
-    pass.push_constant("viewinv", &viewinv);
-    
+
     pass.dispatch(int3(dispatch_groups, 1, 1));
     pass.barrier(GPU_BARRIER_SHADER_STORAGE);
     inst_.manager->submit(pass, view);

@@ -31,24 +31,23 @@ void trace([[resource_table]] Resources &srt,
   float3 ray_pos = p.position;
   float3 ray_dir = normalize(p.direction);
 
-  /* 中心原点放置一个半径 1.0 的玻璃球 */
+  /* 这里对应你场景里真实的玻璃球中心与半径 */
   float3 sphere_center = float3(0.0f, 0.0f, 0.0f);
   float sphere_radius = 1.0f;
   
   bool inside_glass = false;
 
-  /* 最多反弹 4 次 */
+  /* 最多穿透/反射 4 次 */
   for (int bounce = 0; bounce < 4; bounce++) {
     float3 oc = ray_pos - sphere_center;
     float b = dot(oc, ray_dir);
     float c = dot(oc, oc) - sphere_radius * sphere_radius;
     float h = b * b - c;
     
-    /* 如果没有交点，说明射线飞出去了 */
+    /* 没有撞到球，打向地面 z = -2.5 */
     if (h < 0.0f) {
-      /* 打向地面 (z=-1.5) */
       if (ray_dir.z < 0.0f) {
-        float t_ground = (-1.5f - ray_pos.z) / ray_dir.z;
+        float t_ground = (-2.5f - ray_pos.z) / ray_dir.z;
         ray_pos += ray_dir * t_ground;
       }
       break; 
@@ -57,7 +56,6 @@ void trace([[resource_table]] Resources &srt,
     /* 求出交点 */
     float t = -b - sqrt(h);
     if (inside_glass) {
-      /* 如果已经在球体内部，需要求正向的交点 */
       t = -b + sqrt(h);
     }
     
@@ -65,13 +63,13 @@ void trace([[resource_table]] Resources &srt,
     float3 hit_normal = normalize(hit_pos - sphere_center);
     ray_pos = hit_pos;
 
-    /* 致命修复：确保法线朝向射线来源的反方向（GLSL refract 的硬性要求） */
+    /* 关键：折射法线翻转 */
     float cos_i = dot(ray_dir, hit_normal);
     if (cos_i > 0.0f) {
       hit_normal = -hit_normal;
     }
 
-    /* 根据介质计算折射率 */
+    /* 柯西色散 */
     float3 cauchy = float3(1.5f, 0.15f, 0.0f);
     float eta_glass = spectral_cauchy_ior(p.wavelength, cauchy);
     
@@ -79,15 +77,13 @@ void trace([[resource_table]] Resources &srt,
     float3 refr_dir = refract(ray_dir, hit_normal, eta);
 
     if (dot(refr_dir, refr_dir) < 1e-6f) {
-      /* 全内反射 */
+      /* 全反射 */
       ray_dir = reflect(ray_dir, hit_normal);
     } else {
-      /* 正常折射 */
       ray_dir = refr_dir;
       inside_glass = !inside_glass;
     }
     
-    /* 将起点推离表面一点点 */
     ray_pos += ray_dir * 0.01f;
   }
 
