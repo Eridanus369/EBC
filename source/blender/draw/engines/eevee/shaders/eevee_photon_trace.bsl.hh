@@ -65,6 +65,12 @@ void trace([[resource_table]] Resources &srt,
     float3 hit_normal = normalize(hit_pos - sphere_center);
     ray_pos = hit_pos;
 
+    /* 致命修复：确保法线朝向射线来源的反方向（GLSL refract 的硬性要求） */
+    float cos_i = dot(ray_dir, hit_normal);
+    if (cos_i > 0.0f) {
+      hit_normal = -hit_normal;
+    }
+
     /* 根据介质计算折射率 */
     float3 cauchy = float3(1.5f, 0.15f, 0.0f);
     float eta_glass = spectral_cauchy_ior(p.wavelength, cauchy);

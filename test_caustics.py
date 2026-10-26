@@ -14,26 +14,27 @@ mat_plane = bpy.data.materials.new("PlaneMat")
 mat_plane.use_nodes = True
 bpy.context.object.data.materials.append(mat_plane)
 
-# 2. 玻璃板（稍微倾斜）
-bpy.ops.mesh.primitive_plane_add(size=2, location=(0, 0, 1.0), rotation=(0.5, 0.5, 0))
-glass_plane = bpy.context.object
+# 2. 真实玻璃球 (对齐到原点)
+bpy.ops.mesh.primitive_uv_sphere_add(radius=1.0, location=(0, 0, 0))
+sphere = bpy.context.object
+bpy.ops.object.shade_smooth()
 mat_glass = bpy.data.materials.new("GlassMat")
 mat_glass.use_nodes = True
 bsdf = mat_glass.node_tree.nodes.get("Principled BSDF")
 bsdf.inputs["Transmission Weight"].default_value = 1.0
 bsdf.inputs["Roughness"].default_value = 0.0
 bsdf.inputs["IOR"].default_value = 1.5
-glass_plane.data.materials.append(mat_glass)
-glass_plane.visible_shadow = False # 关闭阴影
+sphere.data.materials.append(mat_glass)
+sphere.visible_shadow = False
 
-# 3. 光源（从正上方打下来）
+# 3. 光源
 bpy.ops.object.light_add(type='SPOT', location=(0, 0, 5))
 light = bpy.context.object
 light.data.energy = 2000
 light.data.spot_size = 1.0
 
-# 4. 相机（斜侧视，同时看到玻璃板和地面）
-bpy.ops.object.camera_add(location=(3, -6, 3), rotation=(1.1, 0.0, 0.4))
+# 4. 相机
+bpy.ops.object.camera_add(location=(4, -6, 4), rotation=(0.9, 0.0, 0.6))
 sc.camera = bpy.context.object
 
 sc.render.filepath = "/tmp/caustic_test.png"
