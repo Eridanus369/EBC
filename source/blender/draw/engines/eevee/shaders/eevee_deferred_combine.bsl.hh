@@ -300,10 +300,28 @@ void combine_frag([[resource_table]] Combine &srt,
   }
 
   frag_out.combined = float4(out_direct + out_indirect, 0.0f);
-  
-  /* Add caustics */
-  float3 caustic_col = texture(srt.caustic_color_tx, float2(v_out.screen_uv.x, v_out.screen_uv.y * 0.25)).rgb;
-  frag_out.combined.rgb += caustic_col;
+
+  /* Add caustics. The caustic map is screen space, so reject photons that ended up behind the
+   * visible surface using the HiZ depth (caustic alpha stores the photon camera distance). */
+  const int2 caustic_size = int2(textureSize(srt.caustic_color_tx, 0).xy);
+  /* Half texel inset so the bilinear tap never crosses into the next cascade level that is stored
+   * below the surface level inside the same texture. */
+  float2 caustic_uv;
+  caustic_uv.x = v_out.screen_uv.x - 0.5f / float(caustic_size.x);
+  caustic_uv.y = v_out.screen_uv.y * 0.25f - 0.5f / float(caustic_size.y);
+  float4 caustic = texture(srt.caustic_color_tx, caustic_uv);
+  if (caustic.a > 0.0f) {
+    const ViewMatrices view = views.get(0);
+    float scene_depth = texelFetch(hiz.hiz_tx, texel, 0).r;
+    float3 P_surf = view.point_screen_to_world(float3(v_out.screen_uv, scene_depth));
+    float surf_dist = distance(P_surf, view.position());
+    if (caustic.a <= surf_dist * 1.03f + 0.005f) {
+      /* The map stores the irradiance reaching the surface, so it still has to be reflected by the
+       * receiver albedo. Without it a caustic glows just as bright on a black floor as on a white
+       * one, and it would also show through the opaque pixels of a glass object. */
+      frag_out.combined.rgb += caustic.rgb * max(diffuse_color, float3(0.0f));
+    }
+  }
   frag_out.combined = any(isnan(frag_out.combined)) ? float4(1.0f, 0.0f, 1.0f, 0.0f) :
                                                       frag_out.combined;
   frag_out.combined = colorspace::safe_color(frag_out.combined);

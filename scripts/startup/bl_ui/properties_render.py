@@ -479,22 +479,25 @@ class RENDER_PT_eevee_spectral_caustics(RenderButtonsPanel, Panel):
 
         col = layout.column(align=True)
         col.prop(caustics, "dispersion_enabled")
-        
+
         col.separator()
+        col.label(text="Photon Tracing:")
         col.prop(caustics, "photon_count")
         col.prop(caustics, "max_bounces")
         col.prop(caustics, "caustic_resolution")
-        
+
         col.separator()
         col.label(text="Dispersion IOR (Cauchy):")
-        col.prop(caustics, "cauchy_a")
         col.prop(caustics, "cauchy_b")
         col.prop(caustics, "cauchy_c")
-        
+
         col.separator()
-        col.label(text="Volumetrics:")
-        col.prop(caustics, "volumetric_scattering")
-        col.prop(caustics, "volumetric_anisotropy")
+        col.label(text="Splatting:")
+        col.prop(caustics, "splat_radius")
+        col.prop(caustics, "splat_gain")
+
+        col.separator()
+        col.prop(caustics, "caustic_volume_gain")
 
 class RENDER_PT_eevee_raytracing_presets(PresetPanel, Panel):
     bl_label = "Raytracing Presets"
@@ -1419,6 +1422,7 @@ classes = (
     RENDER_PT_eevee_gi_approximation,
     RENDER_PT_eevee_volumes,
     RENDER_PT_eevee_volumes_range,
+    RENDER_PT_eevee_spectral_caustics,
     RENDER_PT_eevee_hair,
     RENDER_PT_simplify,
     RENDER_PT_simplify_viewport,

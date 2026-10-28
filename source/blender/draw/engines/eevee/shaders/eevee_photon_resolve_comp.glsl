@@ -23,6 +23,11 @@ void main() {
   /* Clamp fireflies so a few stray photons cannot blow out the whole patch. */
   color = min(color, float3(16.0f));
 
+  /* Alpha stores the camera distance of the closest photon in this texel. Zero means there is no
+   * caustic here. The value is clamped to stay within the half float range. */
+  uint depth_bits = imageLoad(caustic_accum_depth_img, texel).r;
+  float hit_dist = (depth_bits == 0x7F800000u) ? 0.0f : min(uintBitsToFloat(depth_bits), 60000.0f);
+
   /* Level 0 occupies the bottom quarter of the stacked caustic map. */
-  imageStore(caustic_color_img, texel, float4(color, 1.0f));
+  imageStore(caustic_color_img, texel, float4(color, hit_dist));
 }

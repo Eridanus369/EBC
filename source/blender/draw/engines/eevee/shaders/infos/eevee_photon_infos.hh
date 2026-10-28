@@ -1,4 +1,5 @@
 /* SPDX-FileCopyrightText: 2026 Blender Authors
+ *
  * SPDX-License-Identifier: GPL-2.0-or-later */
 
 #pragma once
@@ -16,11 +17,13 @@ DO_STATIC_COMPILATION()
 LOCAL_GROUP_SIZE(256, 1, 1)
 COMPUTE_SOURCE("eevee_photon_emit_comp.glsl")
 STORAGE_BUF(0, write, Photon, photons[])
+STORAGE_BUF(1, read, CausticLightData, lights[])
+STORAGE_BUF(2, read, CausticTargetData, targets[])
 PUSH_CONSTANT(int, photon_count)
-PUSH_CONSTANT(float3, light_position)
-PUSH_CONSTANT(float3, light_direction)
-PUSH_CONSTANT(float, light_radius)
-PUSH_CONSTANT(float, light_power)
+PUSH_CONSTANT(int, light_count)
+PUSH_CONSTANT(int, target_count)
+/* Power carried by a single photon. Already includes the importance sampling compensation. */
+PUSH_CONSTANT(float, photon_power)
 GPU_SHADER_CREATE_END()
 
 GPU_SHADER_CREATE_INFO(eevee_photon_splat)
@@ -33,9 +36,13 @@ STORAGE_BUF(0, read, Photon, photons[])
 IMAGE(1, UINT_32, read_write, uimage2D, caustic_accum_r_img)
 IMAGE(2, UINT_32, read_write, uimage2D, caustic_accum_g_img)
 IMAGE(3, UINT_32, read_write, uimage2D, caustic_accum_b_img)
+/* Minimum camera distance of the photons accumulated per texel, used by the occlusion test. */
+IMAGE(4, UINT_32, read_write, uimage2D, caustic_accum_depth_img)
 PUSH_CONSTANT(int, photon_count)
 PUSH_CONSTANT(float4x4, viewmat)
 PUSH_CONSTANT(float4x4, winmat)
+PUSH_CONSTANT(float, splat_gain)
+PUSH_CONSTANT(float, splat_radius)
 GPU_SHADER_CREATE_END()
 
 GPU_SHADER_CREATE_INFO(eevee_photon_resolve)
@@ -45,5 +52,6 @@ COMPUTE_SOURCE("eevee_photon_resolve_comp.glsl")
 IMAGE(1, UINT_32, read, uimage2D, caustic_accum_r_img)
 IMAGE(2, UINT_32, read, uimage2D, caustic_accum_g_img)
 IMAGE(3, UINT_32, read, uimage2D, caustic_accum_b_img)
-IMAGE(4, SFLOAT_16_16_16_16, write, image2D, caustic_color_img)
+IMAGE(4, UINT_32, read, uimage2D, caustic_accum_depth_img)
+IMAGE(5, SFLOAT_16_16_16_16, write, image2D, caustic_color_img)
 GPU_SHADER_CREATE_END()

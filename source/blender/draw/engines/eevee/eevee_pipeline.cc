@@ -1171,7 +1171,11 @@ void DeferredLayer::end_sync(bool is_first_pass,
       pass.bind_texture("indirect_radiance_3_tx", &indirect_result_.closures[2]);
       Texture &caustic_tx = inst_.caustics.color_texture();
       if (caustic_tx.is_valid()) {
-        pass.bind_texture("caustic_color_tx", &caustic_tx);
+        /* The caustic map is much lower resolution than the frame, so it must be sampled with
+         * hardware bilinear filtering. The default sampler state is nearest, which exposes the
+         * texel grid as blocky aliasing. */
+        GPUSamplerState caustic_sampler = {GPU_SAMPLER_FILTERING_LINEAR};
+        pass.bind_texture("caustic_color_tx", &caustic_tx, caustic_sampler);
       }
       pass.bind_image(RBUFS_COLOR_SLOT, &inst_.render_buffers.rp_color_tx);
       pass.bind_image(RBUFS_VALUE_SLOT, &inst_.render_buffers.rp_value_tx);

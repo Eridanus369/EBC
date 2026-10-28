@@ -1,4 +1,5 @@
 /* SPDX-FileCopyrightText: 2026 Blender Authors
+ *
  * SPDX-License-Identifier: GPL-2.0-or-later */
 
 #include "infos/eevee_photon_infos.hh"
@@ -9,51 +10,62 @@ COMPUTE_SHADER_CREATE_INFO(eevee_photon_splat)
 #include "eevee_spectral_lib.glsl"
 
 #define PHOTON_FIXED_SCALE 4096.0
-#define PHOTON_GAIN 12.0
-/* Gaussian splat radius in texels. A single texel only receives a handful of photons, so spreading
- * each one over a small kernel is what turns the accumulation into a smooth patch. */
-#define SPLAT_RADIUS 2
-#define SPLAT_SIGMA 1.2
+/* Upper bound of the Gaussian kernel radius, in texels. The actual radius is user controlled so
+ * that the splat size can be traded for performance. */
+#define SPLAT_RADIUS_MAX 4
 
-void main() {
+void main()
+{
   uint idx = gl_GlobalInvocationID.x;
   if (idx >= uint(photon_count)) { return; }
 
   Photon p = photons[idx];
+  /* Only photons that ended their path on an opaque surface contribute to the caustic map. */
+  if (p.flags != CAUSTIC_PHOTON_DEPOSITED) { return; }
 
   float4 clip_pos = winmat * viewmat * float4(p.position, 1.0f);
   if (clip_pos.w <= 1e-6f) { return; }
 
   float2 ndc = clip_pos.xy / clip_pos.w;
   float2 uv = ndc * 0.5f + 0.5f;
-
   if (uv.x < 0.0f || uv.x > 1.0f || uv.y < 0.0f || uv.y > 1.0f) { return; }
 
-  /* 将 uv 映射到最底层（level 0） */
-  int2 texel = int2(uv * float(imageSize(caustic_accum_r_img).x));
-  int2 texel_max = int2(imageSize(caustic_accum_r_img).xy) - 1;
+  const int2 accum_size = int2(imageSize(caustic_accum_r_img).xy);
+  /* Continuous texel space center: `-0.5` puts the origin on the center of texel 0 so that the
+   * kernel is not snapped to the texel grid, which would produce visible stair stepping. */
+  const float2 center = uv * float2(accum_size) - 0.5f;
+  const int2 texel = int2(floor(center));
+  const float2 frac = center - float2(texel);
+  const int2 texel_max = accum_size - 1;
 
-  float3 rgb = xyz_to_rgb(cie_1931_cmf(p.wavelength)) * p.power * PHOTON_GAIN;
+  /* Camera space depth of the photon, used by the deferred combine to reject occluded caustics. */
+  float cam_dist = length((viewmat * float4(p.position, 1.0f)).xyz);
+  uint depth_bits = floatBitsToUint(cam_dist);
 
-  /* 归一化高斯核权重固定，能量守恒（每个光子总权重为 1）。 */
-  float weight_sum = 0.0f;
-  for (int dy = -SPLAT_RADIUS; dy <= SPLAT_RADIUS; dy++) {
-    for (int dx = -SPLAT_RADIUS; dx <= SPLAT_RADIUS; dx++) {
-      float2 delta = float2(dx, dy);
-      float w = exp(-0.5f * dot(delta, delta) / (SPLAT_SIGMA * SPLAT_SIGMA));
-      weight_sum += w;
-    }
+  int radius = int(clamp(splat_radius, 0.0f, float(SPLAT_RADIUS_MAX)));
+  float sigma = max(float(radius) * 0.6f, 0.5f);
+
+  float3 rgb = xyz_to_rgb(cie_1931_cmf(p.wavelength)) * p.power * splat_gain;
+  if (abs(rgb.x) + abs(rgb.y) + abs(rgb.z) <= 0.0f) { return; }
+
+  /* The 2D kernel weight sum is the square of the 1D one (separable Gaussian). */
+  float row_sum = 0.0f;
+  for (int d = -radius; d <= radius; d++) {
+    row_sum += exp(-0.5f * float(d * d) / (sigma * sigma));
   }
+  float weight_sum = max(row_sum * row_sum, 1.0f);
 
-  for (int dy = -SPLAT_RADIUS; dy <= SPLAT_RADIUS; dy++) {
-    for (int dx = -SPLAT_RADIUS; dx <= SPLAT_RADIUS; dx++) {
+  for (int dy = -radius; dy <= radius; dy++) {
+    for (int dx = -radius; dx <= radius; dx++) {
       int2 t = clamp(texel + int2(dx, dy), int2(0), texel_max);
-      float2 delta = float2(dx, dy);
-      float w = exp(-0.5f * dot(delta, delta) / (SPLAT_SIGMA * SPLAT_SIGMA)) / weight_sum;
+      float2 d = float2(dx, dy) - frac;
+      float w = exp(-0.5f * dot(d, d) / (sigma * sigma)) / weight_sum;
       uint3 fixed_rgb = uint3(max(rgb * (w * PHOTON_FIXED_SCALE), float3(0.0f)));
       imageAtomicAdd(caustic_accum_r_img, t, fixed_rgb.x);
       imageAtomicAdd(caustic_accum_g_img, t, fixed_rgb.y);
       imageAtomicAdd(caustic_accum_b_img, t, fixed_rgb.z);
+      /* Keep the closest photon distance so occluders in front of the caustic can reject it. */
+      imageAtomicMin(caustic_accum_depth_img, t, depth_bits);
     }
   }
 }

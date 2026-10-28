@@ -26,7 +26,7 @@ class CausticMap {
  private:
   Instance &inst_;
   
-  int resolution_ = 0;
+  int2 resolution_ = int2(0);
 
   /* Stacked texture holding all cascade levels vertically. */
   Texture color_tx_ = {"caustic_color_tx"};
@@ -37,7 +37,16 @@ class CausticMap {
   Texture accum_r_tx_ = {"caustic_accum_r_tx"};
   Texture accum_g_tx_ = {"caustic_accum_g_tx"};
   Texture accum_b_tx_ = {"caustic_accum_b_tx"};
-  
+  /* Minimum camera distance of the photons accumulated in each texel. Used by the deferred combine
+   * pass to reject caustics that are hidden behind the visible surface. */
+  Texture accum_depth_tx_ = {"caustic_accum_depth_tx"};
+
+  /* World space volumetric caustic accumulation. Sampled by the volume scatter pass so that
+   * photons also produce light inside participating media (water, smoke, ...). */
+  Texture volume_accum_r_tx_ = {"caustic_volume_accum_r_tx"};
+  Texture volume_accum_g_tx_ = {"caustic_volume_accum_g_tx"};
+  Texture volume_accum_b_tx_ = {"caustic_volume_accum_b_tx"};
+
   /* Bounds and resolution data for each level. */
   UniformArrayBuffer<CausticLevelData, LEVELS> level_data_buf_ = {"caustic_levels"};
 
@@ -46,14 +55,18 @@ class CausticMap {
   ~CausticMap() {}
 
   void init();
-  void sync(int resolution);
+  void sync(int2 extent);
   void clear();
-  
-  int resolution() const { return resolution_; }
+
+  int2 resolution() const { return resolution_; }
   Texture &color_texture() { return color_tx_; }
   Texture &accum_r_texture() { return accum_r_tx_; }
   Texture &accum_g_texture() { return accum_g_tx_; }
   Texture &accum_b_texture() { return accum_b_tx_; }
+  Texture &accum_depth_texture() { return accum_depth_tx_; }
+  Texture &volume_accum_r_texture() { return volume_accum_r_tx_; }
+  Texture &volume_accum_g_texture() { return volume_accum_g_tx_; }
+  Texture &volume_accum_b_texture() { return volume_accum_b_tx_; }
   UniformArrayBuffer<CausticLevelData, LEVELS> &level_data() { return level_data_buf_; }
 };
 

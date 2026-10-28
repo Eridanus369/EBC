@@ -121,6 +121,11 @@ struct Scatter {
   [[image(5, write, UFLOAT_11_11_10)]] image3D out_scattering_img;
   [[image(6, write, UFLOAT_11_11_10)]] image3D out_extinction_img;
 
+  /* World space volumetric caustic grid, written by the photon trace pass. */
+  [[image(7, read, UINT_32)]] uimage3DAtomic caustic_volume_r_img;
+  [[image(8, read, UINT_32)]] uimage3DAtomic caustic_volume_g_img;
+  [[image(9, read, UINT_32)]] uimage3DAtomic caustic_volume_b_img;
+
   float3 volume_lightprobe_eval([[resource_table]] const Sampling &sampling,
                                 float3 P,
                                 float3 V,
@@ -138,6 +143,55 @@ struct Scatter {
     return spherical_harmonics::dot(volume_radiance_sh, phase_sh).xyz;
   }
 };
+
+/* World space volumetric caustic grid parameters, matching the photon trace push constants. */
+struct CausticVolumeParams {
+  /* xyz: grid minimum bound. w: user gain (0 disables volumetric caustics). */
+  [[push_constant]] float4 caustic_volume_min_gain;
+  /* xyz: inverse grid size. w: unused by the volume pass. */
+  [[push_constant]] float4 caustic_volume_scale;
+  [[push_constant]] int3 caustic_volume_res;
+};
+
+float3 caustic_volume_texel([[resource_table]] Scatter &srt, int3 c)
+{
+  return float3(float(imageLoad(srt.caustic_volume_r_img, c).r),
+                float(imageLoad(srt.caustic_volume_g_img, c).r),
+                float(imageLoad(srt.caustic_volume_b_img, c).r));
+}
+
+/* Trilinear sample of the world space volumetric caustic grid (uint fixed point). */
+float3 caustic_volume_sample([[resource_table]] Scatter &srt,
+                             [[resource_table]] const CausticVolumeParams &cvp,
+                             float3 P)
+{
+  float3 uvw = (P - cvp.caustic_volume_min_gain.xyz) * cvp.caustic_volume_scale.xyz;
+  if (uvw.x < 0.0f || uvw.y < 0.0f || uvw.z < 0.0f) { return float3(0.0f); }
+  if (uvw.x > 1.0f || uvw.y > 1.0f || uvw.z > 1.0f) { return float3(0.0f); }
+
+  int3 res = cvp.caustic_volume_res;
+  float3 c = clamp(uvw * float3(res), float3(0.0f), float3(res) - float3(1.0f));
+  int3 i0 = int3(int(c.x), int(c.y), int(c.z));
+  int3 i1 = min(i0 + int3(1, 1, 1), res - int3(1, 1, 1));
+  float3 f = float3(c.x - float(i0.x), c.y - float(i0.y), c.z - float(i0.z));
+
+  float3 v000 = caustic_volume_texel(srt, int3(i0.x, i0.y, i0.z));
+  float3 v100 = caustic_volume_texel(srt, int3(i1.x, i0.y, i0.z));
+  float3 v010 = caustic_volume_texel(srt, int3(i0.x, i1.y, i0.z));
+  float3 v110 = caustic_volume_texel(srt, int3(i1.x, i1.y, i0.z));
+  float3 v001 = caustic_volume_texel(srt, int3(i0.x, i0.y, i1.z));
+  float3 v101 = caustic_volume_texel(srt, int3(i1.x, i0.y, i1.z));
+  float3 v011 = caustic_volume_texel(srt, int3(i0.x, i1.y, i1.z));
+  float3 v111 = caustic_volume_texel(srt, int3(i1.x, i1.y, i1.z));
+
+  float3 v00 = mix(v000, v100, f.x);
+  float3 v10 = mix(v010, v110, f.x);
+  float3 v01 = mix(v001, v101, f.x);
+  float3 v11 = mix(v011, v111, f.x);
+  float3 v0 = mix(v00, v10, f.y);
+  float3 v1 = mix(v01, v11, f.y);
+  return mix(v0, v1, f.z) / CAUSTIC_VOLUME_FIXED_SCALE;
+}
 
 struct LightEvalCtx {
   float3 radiance;
@@ -210,6 +264,7 @@ namespace eevee::volume {
  * Also do the temporal reprojection to fight aliasing artifacts. */
 [[compute, local_size(VOLUME_GROUP_SIZE, VOLUME_GROUP_SIZE, VOLUME_GROUP_SIZE)]]
 void scatter_main([[resource_table]] Scatter &srt,
+                  [[resource_table]] const CausticVolumeParams &cvp,
                   [[resource_table]] const Uniform &uni,
                   [[resource_table]] const draw::View &views,
                   [[resource_table]] const Sampling &sampling,
@@ -264,6 +319,12 @@ void scatter_main([[resource_table]] Scatter &srt,
   }
 
   float3 indirect_radiance = srt.volume_lightprobe_eval(sampling, P, V, s_anisotropy).xyz;
+
+  /* Volumetric caustics: photons scatter inside participating media (water, smoke, ...). */
+  if (cvp.caustic_volume_min_gain.w > 0.0f) {
+    float3 caustic_radiance = caustic_volume_sample(srt, cvp, P) * cvp.caustic_volume_min_gain.w;
+    direct_radiance += caustic_radiance;
+  }
 
   direct_radiance *= s_scattering;
   indirect_radiance *= s_scattering;

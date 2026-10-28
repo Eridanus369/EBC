@@ -119,6 +119,8 @@ def translation_update(_):
 
 
 def register():
+    from . import rainbow_noodle
+    rainbow_noodle.register()
     from bpy.utils import register_class
     for cls in classes:
         register_class(cls)
@@ -183,6 +185,8 @@ def register():
 
 
 def unregister():
+    from . import rainbow_noodle
+    rainbow_noodle.unregister()
     from bpy.utils import unregister_class
 
     properties_paint_common.unregister()

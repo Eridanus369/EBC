@@ -315,6 +315,19 @@ void VolumeModule::end_sync()
   scatter_ps_.bind_texture("extinction_history_tx", &extinction_tx_.previous(), history_sampler);
   scatter_ps_.bind_image("out_scattering_img", &scatter_tx_.current());
   scatter_ps_.bind_image("out_extinction_img", &extinction_tx_.current());
+  /* World space volumetric caustics accumulated by the photon module. */
+  scatter_ps_.bind_image("caustic_volume_r_img", &inst_.caustics.volume_accum_r_texture());
+  scatter_ps_.bind_image("caustic_volume_g_img", &inst_.caustics.volume_accum_g_texture());
+  scatter_ps_.bind_image("caustic_volume_b_img", &inst_.caustics.volume_accum_b_texture());
+
+  const float4 caustic_volume_min_gain = float4(inst_.caustics.volume_min(),
+                                               inst_.caustics.volume_gain());
+  const float4 caustic_volume_scale = float4(inst_.caustics.volume_size_inv(), 0.0f);
+  const int caustic_res = inst_.caustics.volume_resolution();
+  const int3 caustic_volume_res = int3(caustic_res, caustic_res, caustic_res);
+  scatter_ps_.push_constant("caustic_volume_min_gain", &caustic_volume_min_gain);
+  scatter_ps_.push_constant("caustic_volume_scale", &caustic_volume_scale);
+  scatter_ps_.push_constant("caustic_volume_res", &caustic_volume_res);
   scatter_ps_.bind_texture(RBUFS_UTILITY_TEX_SLOT, inst_.pipelines.utility_tx);
   /* Sync with the property pass. */
   scatter_ps_.barrier(GPU_BARRIER_SHADER_IMAGE_ACCESS | GPU_BARRIER_TEXTURE_FETCH);

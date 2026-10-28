@@ -184,10 +184,15 @@ static void scene_init_data(ID *id)
   /* Initialize spectral caustics defaults. */
   scene->eevee.caustics.photon_count = 100000;
   scene->eevee.caustics.max_bounces = 4;
-  scene->eevee.caustics.caustic_resolution = 512;
+  /* 1024 keeps the caustic texel footprint small enough that the bilinear upscale to the render
+   * resolution does not smear the pattern into a soft blob. */
+  scene->eevee.caustics.caustic_resolution = 1024;
   scene->eevee.caustics.cauchy_a = 1.5f;
   scene->eevee.caustics.cauchy_b = 0.005f;
-  scene->eevee.caustics.volumetric_scattering = 1.0f;
+  /* Tight kernel: the photon density is high enough that a 1 texel radius stays noise free. */
+  scene->eevee.caustics.splat_radius = 1.0f;
+  scene->eevee.caustics.splat_gain = 4.0f;
+  scene->eevee.caustics.caustic_volume_gain = 1.0f;
 
   STRNCPY(scene->r.bake.filepath, U.renderdir);
 

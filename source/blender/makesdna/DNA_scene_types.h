@@ -2919,7 +2919,7 @@ typedef struct EEVEE_SpectralCausticsSettings {
   char dispersion_enabled = 0;
   char _pad0[2] = {};
 
-  int photon_count = 100000;
+  int photon_count = 2000000;
   int max_bounces = 4;
   int caustic_resolution = 512;
 
@@ -2927,9 +2927,13 @@ typedef struct EEVEE_SpectralCausticsSettings {
   float cauchy_b = 0.005f;
   float cauchy_c = 0.0f;
 
-  float volumetric_scattering = 1.0f;
-  float volumetric_anisotropy = 0.0f;
-  char _pad1[4] = {};
+  /* Screen space splat filter size (in pixels) and intensity multiplier. */
+  float splat_radius = 2.0f;
+  /* Kept low on purpose: a brighter splat saturates the caustic core and the view transform then
+   * desaturates it to white, which destroys the spectral tint that makes the dispersion read. */
+  float splat_gain = 4.0f;
+  /* Brightness multiplier of the world space volumetric caustics. Zero disables them. */
+  float caustic_volume_gain = 1.0f;
 } EEVEE_SpectralCausticsSettings;
 
 struct SceneEEVEE {
