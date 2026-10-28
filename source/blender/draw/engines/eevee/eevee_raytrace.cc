@@ -177,6 +177,19 @@ void RayTraceModule::sync()
     pass.bind_image("ray_time_img", &ray_time_tx_);
     pass.bind_texture("radiance_front_tx", &screen_radiance_front_tx_);
     pass.bind_texture("radiance_back_tx", &screen_radiance_back_tx_);
+    /* Spectral caustics: refracted rays add the caustic landing on the surface they hit, since the
+     * caustic map is not part of the back-layer radiance. The map is lower resolution than the
+     * frame, so it needs hardware bilinear filtering (default sampler state is nearest). */
+    {
+      Texture &caustic_tx = inst_.caustics.color_texture();
+      if (caustic_tx.is_valid()) {
+        GPUSamplerState caustic_sampler = {GPU_SAMPLER_FILTERING_LINEAR};
+        pass.bind_texture("caustic_color_tx", &caustic_tx, caustic_sampler);
+      }
+      else {
+        pass.bind_texture("caustic_color_tx", &radiance_dummy_black_tx_);
+      }
+    }
     pass.bind_texture("hiz_front_tx", &inst_.hiz_buffer.front.ref_tx_);
     pass.bind_texture("hiz_back_tx", &inst_.hiz_buffer.back.ref_tx_);
     /* Still bind front to hiz_tx for validation layers. */

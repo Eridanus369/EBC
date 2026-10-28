@@ -79,7 +79,7 @@ void caustic_deposit_volume([[resource_table]] Resources &srt,
 
   float3 min_bound = pc.volume_min_gain.xyz;
   float3 inv_size = pc.volume_scale.xyz;
-  float3 weights = xyz_to_rgb(cie_1931_cmf(p.wavelength)) * p.power * gain;
+  float3 weights = spectral_cmf_weight(p.wavelength) * p.power * gain;
   const float inv_samples = 1.0f / float(CAUSTIC_VOLUME_SAMPLES);
   /* Golden ratio phase jitter per photon to hide the regular sampling pattern. */
   float jitter = fract(float(idx) * 0.618033988749895f);
@@ -247,6 +247,7 @@ void trace([[resource_table]] Resources &srt,
       /* Opaque surface: the photon ends its path here. Only photons that went through at least one
        * refractive interface contribute to the caustic map. */
       p.position = hit_pos;
+      p.normal = normal;
       deposited = transmitted;
       break;
     }
@@ -300,6 +301,7 @@ void trace([[resource_table]] Resources &srt,
    * the splat would land on the lens instead of the receiver surface. */
   if (!deposited) {
     p.position = ray_pos;
+    p.normal = -ray_dir;
   }
   p.direction = ray_dir;
   p.flags = deposited ? CAUSTIC_PHOTON_DEPOSITED : CAUSTIC_PHOTON_LOST;

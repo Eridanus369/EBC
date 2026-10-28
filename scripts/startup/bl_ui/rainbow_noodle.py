@@ -2294,19 +2294,12 @@ def get_socket_loc(node, is_output, index):
         sockets = node.outputs if is_output else node.inputs
         if index < len(sockets):
             socket = sockets[index]
-            # Blender 5.3 结构体发生变化，安全扫描 runtime 指针偏移
-            ptr = socket.as_pointer()
-            for offset in range(440, 560, 8):
-                runtime_ptr = c_void_p.from_address(ptr + offset).value
-                if runtime_ptr and runtime_ptr > 0x1000000:
-                    try:
-                        loc_x = c_float.from_address(runtime_ptr + _SOCKET_RUNTIME_LOCATION_OFFSET).value
-                        loc_y = c_float.from_address(runtime_ptr + _SOCKET_RUNTIME_LOCATION_OFFSET + 4).value
-                        # 合理的坐标数值过滤
-                        if -100000 < loc_x < 100000 and -100000 < loc_y < 100000:
-                            return loc_x, loc_y
-                    except Exception:
-                        pass
+            try:
+                nlocx, nlocy = abs_node_location(node)
+                fac = dpi_fac()
+                return (nlocx + socket.location.x) * fac, (nlocy + socket.location.y) * fac
+            except Exception:
+                pass
     except Exception:
         pass
 

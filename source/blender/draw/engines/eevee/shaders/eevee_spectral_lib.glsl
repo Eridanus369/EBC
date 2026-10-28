@@ -53,3 +53,13 @@ float3 xyz_to_rgb(float3 xyz)
   rgb.z =  0.0557f * xyz.x - 0.2040f * xyz.y + 1.0570f * xyz.z;
   return max(rgb, float3(0.0f));
 }
+
+/* Spectral weight of a single wavelength, white balanced.
+ * The plain CMF average over the visible range is (0.393, 0.243, 0.172) in linear sRGB, which is
+ * strongly red: sampling the wavelength uniformly and using the raw CMF would tint every caustic
+ * red. Dividing by that average (normalized to green so the overall brightness is preserved) maps a
+ * flat spectrum to neutral grey while keeping the per wavelength variation of the dispersion. */
+float3 spectral_cmf_weight(float lambda)
+{
+  return xyz_to_rgb(cie_1931_cmf(lambda)) / float3(1.616f, 1.0f, 0.709f);
+}

@@ -14,6 +14,7 @@
 #include "eevee_light_lib.bsl.hh"
 #include "eevee_light_shared.hh"
 #include "eevee_lightprobe_volume.bsl.hh"
+#include "eevee_photon_shared.hh"
 #include "eevee_renderpass.bsl.hh"
 #include "eevee_shadow.bsl.hh"
 #include "eevee_volume_lib.bsl.hh"

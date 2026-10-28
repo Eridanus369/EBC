@@ -34,6 +34,11 @@ struct [[host_shared]] Photon {
   int flags;
   packed_float3 power;
   float pad;
+  /* World space normal of the receiver at the deposit point. The caustic map is screen space, so it
+   * is otherwise impossible to tell whether a splat is seen from the lit or the back side of the
+   * surface (a caustic would show through a floor viewed from below). */
+  packed_float3 normal;
+  float pad2;
 };
 
 /* One entry per mesh object taking part in the photon simulation. Transmissive objects are stored

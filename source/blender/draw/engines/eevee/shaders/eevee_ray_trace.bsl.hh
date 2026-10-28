@@ -29,6 +29,7 @@ struct Resources {
   [[sampler(0)]] sampler2DDepth depth_tx;
   [[sampler(1)]] sampler2D radiance_front_tx;
   [[sampler(2)]] sampler2D radiance_back_tx;
+  [[sampler(3)]] sampler2D caustic_color_tx;
   [[sampler(4)]] sampler2D hiz_front_tx;
   [[sampler(5)]] sampler2D hiz_back_tx;
 
@@ -174,6 +175,24 @@ void trace([[resource_table]] Resources &srt,
       /* Fetch radiance at hit-point. */
       radiance = raytrace_sample_screen(
           view, srt.radiance_back_tx, uni.raytrace_buf, hit, roughness, hit.ss_hit_P.xy);
+
+      /* Spectral caustics are not part of the back-layer radiance, so a caustic that lands on a
+       * surface seen through a refracting surface would be invisible without this lookup.
+       * The map is screen space and stacked with the other cascade levels below, hence the 0.25
+       * vertical scale and the half texel inset that keeps the bilinear tap inside level 0. */
+      const int2 caustic_size = int2(textureSize(srt.caustic_color_tx, 0).xy);
+      float2 caustic_uv;
+      caustic_uv.x = hit.ss_hit_P.x - 0.5f / float(caustic_size.x);
+      caustic_uv.y = hit.ss_hit_P.y * 0.25f - 0.5f / float(caustic_size.y);
+      float4 caustic = texture(srt.caustic_color_tx, caustic_uv);
+      if (caustic.a > 0.0f) {
+        /* Alpha stores the photon camera distance in view space, so photons hidden behind the
+         * traced surface are rejected the same way the deferred combine pass does. */
+        const float hit_dist = length(hit.v_hit_P);
+        if (caustic.a <= hit_dist * 1.03f + 0.005f) {
+          radiance += caustic.rgb;
+        }
+      }
     }
   }
 
