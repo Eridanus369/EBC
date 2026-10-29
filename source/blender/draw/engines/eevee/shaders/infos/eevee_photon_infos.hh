@@ -24,6 +24,9 @@ PUSH_CONSTANT(int, light_count)
 PUSH_CONSTANT(int, target_count)
 /* Power carried by a single photon. Already includes the importance sampling compensation. */
 PUSH_CONSTANT(float, photon_power)
+/* Per TAA sample offset mixed into the photon hash. Without it every sample traces the exact same
+ * photon set, the caustic noise never converges and the progressive averaging has no effect. */
+PUSH_CONSTANT(int, photon_seed)
 GPU_SHADER_CREATE_END()
 
 GPU_SHADER_CREATE_INFO(eevee_photon_splat)
@@ -53,5 +56,8 @@ IMAGE(1, UINT_32, read, uimage2D, caustic_accum_r_img)
 IMAGE(2, UINT_32, read, uimage2D, caustic_accum_g_img)
 IMAGE(3, UINT_32, read, uimage2D, caustic_accum_b_img)
 IMAGE(4, UINT_32, read, uimage2D, caustic_accum_depth_img)
-IMAGE(5, SFLOAT_16_16_16_16, write, image2D, caustic_color_img)
+IMAGE(5, SFLOAT_16_16_16_16, read_write, image2D, caustic_color_img)
+/* 0 based index of the current TAA sample. The resolve pass progressively averages the color map
+ * over the sequence, otherwise the sparse photon deposits read as colored speckle. */
+PUSH_CONSTANT(int, caustic_sample_index)
 GPU_SHADER_CREATE_END()

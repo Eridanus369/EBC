@@ -49,16 +49,19 @@ void main()
   uint idx = gl_GlobalInvocationID.x;
   if (idx >= uint(photon_count)) { return; }
 
+  /* Decorrelate the photon set between TAA samples (`0x9E3779B9` is the golden ratio increment). */
+  uint seed = uint(photon_seed) * 0x9E3779B9u;
+
   Photon p;
   p.wavelength = SPECTRAL_LAMBDA_MIN +
-                 (SPECTRAL_LAMBDA_MAX - SPECTRAL_LAMBDA_MIN) * hash(idx * 13u);
+                 (SPECTRAL_LAMBDA_MAX - SPECTRAL_LAMBDA_MIN) * hash(idx * 13u + seed);
   p.flags = CAUSTIC_PHOTON_IN_FLIGHT;
   p.power = float3(0.0);
   p.pad = 0.0;
 
   int li = 0;
   int ti = -1;
-  float select = hash(idx * 5u + 11u);
+  float select = hash(idx * 5u + 11u + seed);
 
   if (target_count > 0) {
     /* Pick a (light, target) pair. Pairs are weighted by `light power * solid angle`, which makes
@@ -96,25 +99,25 @@ void main()
   float3 src = light.position;
   if (light.type == 3) {
     if (light.area_shape == 1) {
-      float r = sqrt(hash(idx * 23u + 3u));
-      float phi = CAUSTIC_2PI * hash(idx * 29u + 7u);
+      float r = sqrt(hash(idx * 23u + 3u + seed));
+      float phi = CAUSTIC_2PI * hash(idx * 29u + 7u + seed);
       src += light.axis_x * (r * cos(phi) * light.size_x);
       src += light.axis_y * (r * sin(phi) * light.size_y);
     }
     else {
-      src += light.axis_x * (hash(idx * 23u + 3u) - 0.5) * 2.0 * light.size_x;
-      src += light.axis_y * (hash(idx * 29u + 7u) - 0.5) * 2.0 * light.size_y;
+      src += light.axis_x * (hash(idx * 23u + 3u + seed) - 0.5) * 2.0 * light.size_x;
+      src += light.axis_y * (hash(idx * 29u + 7u + seed) - 0.5) * 2.0 * light.size_y;
     }
   }
   else if (light.radius > 0.0) {
     /* Sphere shaped emitter (point / spot soft shadows). */
-    float3 offset = sample_sphere(hash(idx * 37u + 5u), hash(idx * 41u + 9u));
-    offset *= light.radius * pow(hash(idx * 43u + 13u), 1.0 / 3.0);
+    float3 offset = sample_sphere(hash(idx * 37u + 5u + seed), hash(idx * 41u + 9u + seed));
+    offset *= light.radius * pow(hash(idx * 43u + 13u + seed), 1.0 / 3.0);
     src += offset;
   }
 
-  float u = hash(idx * 7u + 1u);
-  float v = hash(idx * 11u + 3u);
+  float u = hash(idx * 7u + 1u + seed);
+  float v = hash(idx * 11u + 3u + seed);
   bool valid = true;
   float3 dir;
 

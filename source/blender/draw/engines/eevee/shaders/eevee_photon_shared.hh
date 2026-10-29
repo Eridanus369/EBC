@@ -15,7 +15,7 @@
 
 /* Resolution of the world space volumetric caustic grid (one texel is one froxel of the volume
  * in-scattering lookup). */
-#define CAUSTIC_VOLUME_RES 64
+#define CAUSTIC_VOLUME_RES 128
 /* Fixed point scale used by the volumetric caustic accumulation to be able to use image atomics.
  * It must be large enough that a single photon contribution does not truncate to zero when stored
  * into the `r32ui` grid (a photon carries a radiometric power of ~1e-3). */

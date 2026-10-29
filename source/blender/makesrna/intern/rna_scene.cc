@@ -9680,6 +9680,9 @@ static void rna_def_scene_eevee_spectral_caustics(BlenderRNA *brna)
 
   prop = RNA_def_property(srna, "cauchy_b", PROP_FLOAT, PROP_NONE);
   RNA_def_property_float_sdna(prop, nullptr, "cauchy_b");
+  /* Cauchy coefficient of BK7 crown glass. Without a non zero default, enabling dispersion would
+   * produce monochrome (non split) caustics. */
+  RNA_def_property_float_default(prop, 0.0042f);
   RNA_def_property_ui_text(prop, "Cauchy B", "First dispersion coefficient");
 
   prop = RNA_def_property(srna, "cauchy_c", PROP_FLOAT, PROP_NONE);
@@ -9696,7 +9699,12 @@ static void rna_def_scene_eevee_spectral_caustics(BlenderRNA *brna)
   prop = RNA_def_property(srna, "splat_gain", PROP_FLOAT, PROP_NONE);
   RNA_def_property_float_sdna(prop, nullptr, "splat_gain");
   RNA_def_property_range(prop, 0.0f, 100.0f);
-  RNA_def_property_ui_text(prop, "Splat Gain", "Intensity multiplier applied to caustic photons");
+  /* Calibrated so that an average caustic is clearly visible without the highlights clipping to a
+   * flat white slab. Zero means "use the automatic level". */
+  RNA_def_property_float_default(prop, 0.5f);
+  RNA_def_property_ui_text(prop,
+                           "Splat Gain",
+                           "Intensity multiplier applied to caustic photons (0 uses the automatic level)");
 
   prop = RNA_def_property(srna, "caustic_volume_gain", PROP_FLOAT, PROP_NONE);
   RNA_def_property_float_sdna(prop, nullptr, "caustic_volume_gain");

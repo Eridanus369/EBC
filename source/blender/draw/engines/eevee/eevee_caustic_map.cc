@@ -61,10 +61,12 @@ void CausticMap::sync(int2 extent)
   }
 }
 
-void CausticMap::clear()
+void CausticMap::clear(bool clear_color)
 {
-  const float zero_color[4] = {0.0f, 0.0f, 0.0f, 0.0f};
-  GPU_texture_clear(color_tx_, GPU_DATA_FLOAT, zero_color);
+  if (clear_color) {
+    const float zero_color[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+    GPU_texture_clear(color_tx_, GPU_DATA_FLOAT, zero_color);
+  }
   const uint32_t zero_accum[4] = {0u, 0u, 0u, 0u};
   GPU_texture_clear(accum_r_tx_, GPU_DATA_UINT, zero_accum);
   GPU_texture_clear(accum_g_tx_, GPU_DATA_UINT, zero_accum);

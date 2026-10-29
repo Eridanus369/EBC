@@ -71,15 +71,15 @@ void caustic_deposit_volume([[resource_table]] Resources &srt,
                             float3 dir,
                             uint idx)
 {
-  float gain = pc.volume_min_gain.w;
-  if (gain <= 0.0f) { return; }
-
   float3 seg = to - from;
   if (dot(seg, seg) <= 1e-16f) { return; }
 
   float3 min_bound = pc.volume_min_gain.xyz;
   float3 inv_size = pc.volume_scale.xyz;
-  float3 weights = spectral_cmf_weight(p.wavelength) * p.power * gain;
+  /* The user gain is only applied when the grid is displayed (volume scatter and the interior light
+   * path), never here: the ray traced light path inside glass must work even when the volumetric
+   * caustic strength is zero. */
+  float3 weights = spectral_cmf_weight(p.wavelength) * p.power;
   const float inv_samples = 1.0f / float(CAUSTIC_VOLUME_SAMPLES);
   /* Golden ratio phase jitter per photon to hide the regular sampling pattern. */
   float jitter = fract(float(idx) * 0.618033988749895f);

@@ -10,6 +10,7 @@
 #include "eevee_gbuffer_read.bsl.hh"
 #include "eevee_lightprobe.bsl.hh"
 #include "eevee_lightprobe_plane.bsl.hh"
+#include "eevee_photon_shared.hh"
 #include "eevee_ray_trace_screen_lib.bsl.hh"
 #include "eevee_reverse_z_lib.bsl.hh"
 #include "eevee_sampling_lib.bsl.hh"
@@ -29,14 +30,109 @@ struct Resources {
   [[sampler(0)]] sampler2DDepth depth_tx;
   [[sampler(1)]] sampler2D radiance_front_tx;
   [[sampler(2)]] sampler2D radiance_back_tx;
-  [[sampler(3)]] sampler2D caustic_color_tx;
+  /* Slot 8 is free in this pass: 3 is taken by `HIZ_TEX_SLOT` (bound by
+   * `bind_resources(inst_.hiz_buffer.front)`), 6/7 by the volume/sphere probes and 17-19 by the
+   * gbuffer. Binding the caustic map at slot 3 made the shader read the single channel HiZ texture
+   * instead, which returned `(depth, 0, 0, 1)` and turned every refracted ray red. */
+  [[sampler(8)]] sampler2D caustic_color_tx;
   [[sampler(4)]] sampler2D hiz_front_tx;
   [[sampler(5)]] sampler2D hiz_back_tx;
 
   [[image(0, read, SFLOAT_16_16_16_16)]] const image2D ray_data_img;
   [[image(1, write, RAYTRACE_RAYTIME_FORMAT)]] image2D ray_time_img;
   [[image(2, write, RAYTRACE_RADIANCE_FORMAT)]] image2D ray_radiance_img;
+  /* World space volumetric caustic grid (fixed point `r32ui`), one image per color channel. The
+   * photons deposit their energy on every refracted segment, so integrating this grid along the
+   * refracted ray draws the light path inside the glass and the beam leaving it. */
+  [[image(3, read, UINT_32)]] uimage3DAtomic caustic_volume_r_img;
+  [[image(4, read, UINT_32)]] uimage3DAtomic caustic_volume_g_img;
+  [[image(5, read, UINT_32)]] uimage3DAtomic caustic_volume_b_img;
 };
+
+/* World space volumetric caustic grid parameters, matching the photon trace push constants. */
+struct CausticVolumeParams {
+  /* xyz: grid minimum bound. w: user gain (0 disables the volumetric scatter display). */
+  [[push_constant]] float4 caustic_volume_min_gain;
+  /* xyz: inverse grid size. w: unused. */
+  [[push_constant]] float4 caustic_volume_scale;
+  [[push_constant]] int3 caustic_volume_res;
+};
+
+float3 caustic_volume_texel([[resource_table]] Resources &srt, int3 c)
+{
+  return float3(float(imageLoad(srt.caustic_volume_r_img, c).r),
+                float(imageLoad(srt.caustic_volume_g_img, c).r),
+                float(imageLoad(srt.caustic_volume_b_img, c).r));
+}
+
+/* Trilinear sample of the world space volumetric caustic grid (uint fixed point). */
+float3 caustic_volume_sample([[resource_table]] Resources &srt,
+                             [[resource_table]] const CausticVolumeParams &cvp,
+                             float3 P)
+{
+  float3 uvw = (P - cvp.caustic_volume_min_gain.xyz) * cvp.caustic_volume_scale.xyz;
+  if (uvw.x < 0.0f || uvw.y < 0.0f || uvw.z < 0.0f) {
+    return float3(0.0f);
+  }
+  if (uvw.x > 1.0f || uvw.y > 1.0f || uvw.z > 1.0f) {
+    return float3(0.0f);
+  }
+  /* Soft fade over the outer band of the grid so the tight fit around the scene does not read as a
+   * hard rectangular cut of the interior beam. */
+  const float fade_lo = min(uvw.x, min(uvw.y, uvw.z));
+  const float fade_hi = min(1.0f - uvw.x, min(1.0f - uvw.y, 1.0f - uvw.z));
+  const float fade = smoothstep(0.0f, 0.04f, min(fade_lo, fade_hi));
+  if (fade <= 0.0f) {
+    return float3(0.0f);
+  }
+
+  int3 res = cvp.caustic_volume_res;
+  float3 c = clamp(uvw * float3(res), float3(0.0f), float3(res) - float3(1.0f));
+  int3 i0 = int3(int(c.x), int(c.y), int(c.z));
+  int3 i1 = min(i0 + int3(1, 1, 1), res - int3(1, 1, 1));
+  float3 f = float3(c.x - float(i0.x), c.y - float(i0.y), c.z - float(i0.z));
+
+  float3 v000 = caustic_volume_texel(srt, int3(i0.x, i0.y, i0.z));
+  float3 v100 = caustic_volume_texel(srt, int3(i1.x, i0.y, i0.z));
+  float3 v010 = caustic_volume_texel(srt, int3(i0.x, i1.y, i0.z));
+  float3 v110 = caustic_volume_texel(srt, int3(i1.x, i1.y, i0.z));
+  float3 v001 = caustic_volume_texel(srt, int3(i0.x, i0.y, i1.z));
+  float3 v101 = caustic_volume_texel(srt, int3(i1.x, i0.y, i1.z));
+  float3 v011 = caustic_volume_texel(srt, int3(i0.x, i1.y, i1.z));
+  float3 v111 = caustic_volume_texel(srt, int3(i1.x, i1.y, i1.z));
+
+  float3 v00 = mix(v000, v100, f.x);
+  float3 v10 = mix(v010, v110, f.x);
+  float3 v01 = mix(v001, v101, f.x);
+  float3 v11 = mix(v011, v111, f.x);
+  float3 v0 = mix(v00, v10, f.y);
+  float3 v1 = mix(v01, v11, f.y);
+  return mix(v0, v1, f.z) * (fade / CAUSTIC_VOLUME_FIXED_SCALE);
+}
+
+/* Line integral of the photon deposits along the refracted ray. Deposits are accumulated on every
+ * refracted segment, so the integral is the light path itself (parallel beam inside the glass). */
+float3 caustic_ray_integrate([[resource_table]] Resources &srt,
+                             [[resource_table]] const CausticVolumeParams &cvp,
+                             float3 origin,
+                             float3 direction,
+                             float max_distance)
+{
+  if (max_distance <= 0.0f) {
+    return float3(0.0f);
+  }
+  const int steps = 24;
+  const float step_len = max_distance / float(steps);
+  float3 sum = float3(0.0f);
+  for (int i = 0; i < steps; i++) {
+    float3 P = origin + direction * (step_len * (float(i) + 0.5f));
+    sum += caustic_volume_sample(srt, cvp, P) * step_len;
+  }
+  /* Radiance scale of the interior beam. Kept low so the beam reads as a soft glow instead of a
+   * clipped white slab. */
+  const float beam_scale = 0.004f;
+  return sum * beam_scale;
+}
 
 /**
  * Use screen space tracing against depth buffer to find intersection with the scene.
@@ -50,6 +146,7 @@ void trace([[resource_table]] Resources &srt,
            [[resource_table]] const draw::View &views,
            [[resource_table]] const Sampling &sampling,
            [[resource_table]] const gbuffer::Reader &reader,
+           [[resource_table]] const CausticVolumeParams &cvp,
            [[work_group_id]] const uint3 group_id,
            [[local_invocation_id]] const uint3 local_id)
 {
@@ -193,6 +290,14 @@ void trace([[resource_table]] Resources &srt,
           radiance += caustic.rgb;
         }
       }
+
+      /* Interior light path: the photons deposit their energy on every refracted segment, so
+       * integrating the volumetric caustic grid along the refracted ray reveals the beam going
+       * through the glass. Without it the interior of a transmissive object only shows the
+       * surface shading, which reads as an opaque mirror. */
+      const float3 hit_world = transform_point(view.viewinv, hit.v_hit_P);
+      radiance += caustic_ray_integrate(
+          srt, cvp, ray.origin, ray.direction, length(hit_world - ray.origin));
     }
   }
 

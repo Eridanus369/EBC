@@ -56,7 +56,9 @@ class CausticMap {
 
   void init();
   void sync(int2 extent);
-  void clear();
+  /* `clear_color` is false during a TAA sequence: the color map is progressively averaged over the
+   * samples, so only the per frame accumulation targets may be reset. */
+  void clear(bool clear_color = true);
 
   int2 resolution() const { return resolution_; }
   Texture &color_texture() { return color_tx_; }

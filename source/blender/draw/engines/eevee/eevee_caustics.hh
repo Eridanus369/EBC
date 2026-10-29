@@ -38,16 +38,27 @@ class CausticModule {
   Instance &inst_;
 
   bool enabled_ = false;
-  /* Set every frame by sync(). Consumed by render() so the passes are only dispatched once per
-   * frame, inside the deferred pipeline (the caustic map must be ready before the combine pass). */
+  /* Set every frame by sync() as a validity guard for render() (the caustic buffers are only valid
+   * after a sync). It is not consumed: the passes are dispatched on every TAA sample so that the
+   * per sample photon seed and the progressive accumulation of the caustic map actually work. */
   bool render_pending_ = false;
+  /* Zero based index of the current sample inside the frame. Reset by sync() and incremented by
+   * render() on every dispatch. Used as photon seed, progressive average weight and map reset
+   * trigger. `Sampling::sample_index()` cannot be used: sync() runs once per frame, not per
+   * sample, so it always reports the first sample index. */
+  int caustic_sequence_sample_ = 0;
+  /* View matrix of the last sync. The caustic map is a screen space buffer: as soon as the view
+   * changes, everything accumulated in it belongs to the previous framing and would be composited
+   * over the new one (the light trail seen while navigating). Used to restart the accumulation. */
+  float4x4 last_viewmat_ = float4x4::identity();
+  bool has_last_viewmat_ = false;
   int photon_count_ = 0;
   int spectral_samples_ = 0;
   int max_bounces_ = 4;
   float epsilon_ = 1.0e-5f;
 
   /* Splat kernel size in texels and its brightness multiplier. */
-  float splat_gain_ = 4.0f;
+  float splat_gain_ = 0.1f;
   float splat_radius_ = 2.0f;
 
   /* Radiance carried by a single photon. Derived from the scene lights and the importance

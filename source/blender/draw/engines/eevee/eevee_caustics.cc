@@ -46,6 +46,10 @@ namespace blender::eevee {
  * magnitude below what the framebuffer expects. */
 static constexpr float CAUSTIC_RADIOMETRIC_SCALE = 2000.0f;
 static constexpr int CAUSTIC_PHOTON_MAX = 4000000;
+/* Cauchy first coefficient of BK7 crown glass, in um^2. Used when dispersion is enabled but the
+ * scene stores no coefficients (files saved before the panel got a default), so that enabling the
+ * feature does not silently produce a monochrome caustic. */
+static constexpr float CAUSTIC_DEFAULT_CAUCHY_B = 0.0042f;
 
 /* -------------------------------------------------------------------- */
 /** \name Helpers
@@ -379,11 +383,19 @@ void CausticModule::sync()
   max_bounces_ = clamp_i(settings.max_bounces, 1, 16);
   splat_gain_ = settings.splat_gain;
   if (splat_gain_ <= 0.0f) {
-    splat_gain_ = 4.0f;
+    /* 0 means "use the automatic level". The photon deposit is a radiometric power, not an
+     * irradiance, so a gain of 1 can make a focused caustic several times brighter than the direct
+     * lighting of the scene. A dispersive object (a monkey shaped lens) spreads the same energy over
+     * a much larger area than a prism, so a level calibrated on the focused case leaves it
+     * invisible. 0.5 is the compromise; the resolve pass softly rolls off the highlights, which is
+     * what keeps a focused caustic from clipping to a flat white slab at this level. */
+    splat_gain_ = 0.5f;
   }
   splat_radius_ = clamp_f(settings.splat_radius, 0.0f, 4.0f);
   if (splat_radius_ <= 0.0f) {
-    splat_radius_ = 1.0f; /* Tight kernel: a wide one smears the caustic into a soft blob. */
+    /* Two texels wide: one texel of a 1024 map is sub pixel in a 1080p frame, which leaves the
+     * sparse photon deposits as isolated aliased dots. */
+    splat_radius_ = 2.0f;
   }
   volume_gain_ = math::max(settings.caustic_volume_gain, 0.0f);
 
@@ -406,13 +418,43 @@ void CausticModule::sync()
     sync_lights();
   }
 
+  /* The caustic map is a screen space buffer: everything accumulated in it only makes sense for the
+   * framing it was computed with. The viewport never resets its sample counter while navigating, so
+   * without this check the map of the previous framing is progressively averaged into the new one
+   * and the caustics stay glued to the screen while the camera moves (the light trail). */
+  const float4x4 viewmat = inst_.camera.data_get().viewmat;
+  bool view_changed = !has_last_viewmat_;
+  if (has_last_viewmat_) {
+    view_changed = !compare_m4m4(viewmat.ptr(), last_viewmat_.ptr(), 1.0e-5f);
+  }
+  last_viewmat_ = viewmat;
+  has_last_viewmat_ = true;
+
+  /* Also restart when the engine explicitly resets its sampling (viewport redraw, scene update), or
+   * when the sample counter is back at its first sample (interactive sequence restart). `sync()`
+   * also runs in the middle of a sequence (motion blur steps), where the counter must be kept so
+   * that the progressive average of the caustic map keeps converging. */
+  const bool sampling_restarted = (inst_.sampling.sample_index() == 0) ||
+                                  (inst_.is_viewport() && inst_.sampling.is_reset());
+  if (view_changed || sampling_restarted) {
+    caustic_sequence_sample_ = 0;
+  }
   render_pending_ = true;
 }
 
 void CausticModule::sync_geometry()
 {
   const EEVEE_SpectralCausticsSettings &settings = inst_.scene->eevee.caustics;
-  const bool dispersion = settings.dispersion_enabled != 0 && settings.cauchy_b != 0.0f;
+  /* Resolve the Cauchy coefficients once. Scenes saved before the panel got a default store zero,
+   * which would disable dispersion entirely (monochrome caustics); fall back to BK7 crown glass.
+   * `dispersion_enabled` remains the actual on/off switch. */
+  float cauchy_b = settings.cauchy_b;
+  float cauchy_c = settings.cauchy_c;
+  if (settings.dispersion_enabled != 0 && cauchy_b == 0.0f && cauchy_c == 0.0f) {
+    cauchy_b = CAUSTIC_DEFAULT_CAUCHY_B;
+  }
+  const bool dispersion = settings.dispersion_enabled != 0 &&
+                          (cauchy_b != 0.0f || cauchy_c != 0.0f);
 
   const eEvaluationMode eval_mode = DEG_get_mode(inst_.depsgraph);
 
@@ -464,8 +506,8 @@ void CausticModule::sync_geometry()
     if (mat_count == 0) {
       CausticMaterialData data;
       data.ior = ior;
-      data.cauchy_b = dispersion ? settings.cauchy_b : 0.0f;
-      data.cauchy_c = dispersion ? settings.cauchy_c : 0.0f;
+      data.cauchy_b = dispersion ? cauchy_b : 0.0f;
+      data.cauchy_c = dispersion ? cauchy_c : 0.0f;
       data.transmissive = transmissive ? 1 : 0;
       entry.materials.append(data);
     }
@@ -477,8 +519,8 @@ void CausticModule::sync_geometry()
         caustic_single_material_get(mat, slot_transmissive, slot_ior);
         CausticMaterialData data;
         data.ior = slot_ior;
-        data.cauchy_b = dispersion ? settings.cauchy_b : 0.0f;
-        data.cauchy_c = dispersion ? settings.cauchy_c : 0.0f;
+        data.cauchy_b = dispersion ? cauchy_b : 0.0f;
+        data.cauchy_c = dispersion ? cauchy_c : 0.0f;
         data.transmissive = slot_transmissive ? 1 : 0;
         entry.materials.append(data);
       }
@@ -607,8 +649,8 @@ void CausticModule::sync_geometry()
   index_buf_->init(uint(vertex_count), indices, 0, uint(vertex_count - 1), GPU_PRIM_TRIS, false);
 
   const float3 dispersion_coeffs = float3(0.0f,
-                                          dispersion ? settings.cauchy_b : 0.0f,
-                                          dispersion ? settings.cauchy_c : 0.0f);
+                                          dispersion ? cauchy_b : 0.0f,
+                                          dispersion ? cauchy_c : 0.0f);
 
   float3 global_min(FLT_MAX);
   float3 global_max(-FLT_MAX);
@@ -934,18 +976,29 @@ void CausticModule::render(View &view)
   if (!render_pending_) {
     return;
   }
-  render_pending_ = false;
 
-  /* The combine pass samples this map unconditionally, so it must never keep stale data. */
-  caustic_map_.clear();
+  /* While the viewport is being navigated the camera moves every redraw: the photon set would be
+   * invalidated before it is even displayed, and the dispatch cost itself is what makes the
+   * viewport feel like it lags behind. Clearing the map keeps the accumulated caustics of the
+   * previous framing from being composited over the moving image. */
+  const bool navigated = inst_.is_viewport() && inst_.is_navigating;
+  const bool active = !navigated && enabled_ && tlas_ && triangle_count_ != 0 &&
+                      light_count_ != 0 && photon_power_ > 0.0f && photon_count_ > 0;
+  /* Dispatch on every TAA sample: each sample emits a decorrelated photon set and the resolve pass
+   * averages it into the caustic map, which is what turns the sparse photon deposits into a smooth
+   * caustic. */
+  const int sample_index = caustic_sequence_sample_++;
+
+  /* The combine pass samples this map unconditionally, so it must never keep stale data. It is only
+   * reset at the first sample of a sequence (or while the module is inactive) because the resolve
+   * pass progressively averages the map over the TAA samples to remove the photon speckle. */
+  caustic_map_.clear(!active || sample_index == 0);
   /* Reset the throughput probe. The trace pass accumulates into it this frame and `sync()` reads it
    * back on the next one. */
   stats_buf_.clear_to_zero();
   stats_pending_ = true;
 
-  if (!enabled_ || !tlas_ || triangle_count_ == 0 || light_count_ == 0 ||
-      photon_power_ <= 0.0f)
-  {
+  if (!active) {
     return;
   }
 
@@ -977,6 +1030,7 @@ void CausticModule::render(View &view)
     pass.push_constant("light_count", &light_count);
     pass.push_constant("target_count", &target_count);
     pass.push_constant("photon_power", &photon_power_);
+    pass.push_constant("photon_seed", &sample_index);
 
     pass.dispatch(int3(dispatch_groups, 1, 1));
     pass.barrier(GPU_BARRIER_SHADER_STORAGE);
@@ -1056,6 +1110,11 @@ void CausticModule::render(View &view)
     pass.bind_image("caustic_accum_b_img", &caustic_map_.accum_b_texture());
     pass.bind_image("caustic_accum_depth_img", &caustic_map_.accum_depth_texture());
     pass.bind_image("caustic_color_img", &caustic_map_.color_texture());
+
+    /* The progressive average weight must follow the module sequence counter, which restarts with
+     * the framing. `Sampling::sample_index()` keeps growing across viewport redraws, which would
+     * give the freshest samples an almost zero weight and keep the previous framing visible. */
+    pass.push_constant("caustic_sample_index", &sample_index);
 
     const int2 res = caustic_map_.resolution();
     const int2 res_xy = math::divide_ceil(res, int2(8));

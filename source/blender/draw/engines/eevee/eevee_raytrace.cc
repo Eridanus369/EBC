@@ -190,6 +190,19 @@ void RayTraceModule::sync()
         pass.bind_texture("caustic_color_tx", &radiance_dummy_black_tx_);
       }
     }
+    /* Interior light path: the photon deposits are integrated along the refracted ray so that the
+     * beam passing through the glass is visible, not only the surface shading. */
+    pass.bind_image("caustic_volume_r_img", &inst_.caustics.volume_accum_r_texture());
+    pass.bind_image("caustic_volume_g_img", &inst_.caustics.volume_accum_g_texture());
+    pass.bind_image("caustic_volume_b_img", &inst_.caustics.volume_accum_b_texture());
+    const int caustic_res = inst_.caustics.volume_resolution();
+    const float4 caustic_volume_min_gain = float4(inst_.caustics.volume_min(),
+                                                  inst_.caustics.volume_gain());
+    const float4 caustic_volume_scale = float4(inst_.caustics.volume_size_inv(), 0.0f);
+    const int3 caustic_volume_res = int3(caustic_res, caustic_res, caustic_res);
+    pass.push_constant("caustic_volume_min_gain", caustic_volume_min_gain);
+    pass.push_constant("caustic_volume_scale", caustic_volume_scale);
+    pass.push_constant("caustic_volume_res", caustic_volume_res);
     pass.bind_texture("hiz_front_tx", &inst_.hiz_buffer.front.ref_tx_);
     pass.bind_texture("hiz_back_tx", &inst_.hiz_buffer.back.ref_tx_);
     /* Still bind front to hiz_tx for validation layers. */
