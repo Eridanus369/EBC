@@ -76,7 +76,7 @@ class NPVProps(bpy.types.PropertyGroup):
                 "in the editor — select nodes to control what shows"),
                ("MARKED", "Marked", "Only preview nodes whose 'Show Preview' "
                 "checkbox is on (right-click a node, or use the buttons below)")],
-        default="ALL", update=_scope_update)
+        default="SELECTED", update=_scope_update)
     show_all_outputs: bpy.props.BoolProperty(
         name="Show All Linked Outputs",
         description="Preview every linked output of a node side by side (in a "
@@ -87,7 +87,7 @@ class NPVProps(bpy.types.PropertyGroup):
         name="Quality",
         items=[("64", "Low (64px)", ""), ("128", "Medium (128px)", ""),
                ("256", "High (256px)", "")],
-        default="128", update=_mark_dirty)
+        default="64", update=_mark_dirty)
     batch_size: bpy.props.IntProperty(
         name="Nodes / Tick",
         description="Most previews rendered per step",
@@ -109,20 +109,20 @@ class NPVProps(bpy.types.PropertyGroup):
         items=[("SPHERE", "Sphere", "Material-ball preview, lit"),
                ("CUBE", "Cube", "Lit cube, three faces visible"),
                ("PLANE", "Plane", "Flat lit swatch")],
-        default="SPHERE", update=_mark_dirty)
+        default="PLANE", update=_mark_dirty)
     preview_env: bpy.props.EnumProperty(
         name="Environment",
         description="Lighting for shader balls: an even white world, or one of "
                     "Blender's bundled studio HDRIs",
         items=_env_items, update=_mark_dirty)
     world_strength: bpy.props.FloatProperty(
-        name="World Light", default=1.0, min=0.0, max=10.0, update=_mark_dirty)
+        name="World Light", default=0.0, min=0.0, max=10.0, update=_mark_dirty)
     sun_strength: bpy.props.FloatProperty(
         name="Key Light", default=2.0, min=0.0, max=20.0, update=_mark_dirty)
     preview_geometry: bpy.props.BoolProperty(
         name="Geometry Nodes",
         description="Preview geometry-output nodes as a small 3D render",
-        default=False, update=_mark_dirty)
+        default=True, update=_mark_dirty)
     geo_fields: bpy.props.BoolProperty(
         name="Texture / Math Nodes",
         description="Also preview texture / math / colour nodes in Geometry "
@@ -133,7 +133,7 @@ class NPVProps(bpy.types.PropertyGroup):
         description="Preview compositor nodes (rendered through the "
                     "compositor; Compositor Scene Cache sets how the scene is "
                     "rendered for them)",
-        default=False, update=_mark_dirty)
+        default=True, update=_mark_dirty)
     comp_groups: bpy.props.BoolProperty(
         name="Inside Node Groups",
         description="Also preview the nodes inside a compositor node group when "
@@ -162,7 +162,7 @@ class NPVProps(bpy.types.PropertyGroup):
         description="Hidden objects' location, rotation, scale, parent and "
                     "visibility. Very low cost. If unticked, press Refresh "
                     "after changing this",
-        default=True)
+        default=False)
     comp_sig_modifiers: bpy.props.BoolProperty(
         name="Modifiers",
         description="Hidden objects' modifier settings, including Geometry "
@@ -224,7 +224,7 @@ class NPVProps(bpy.types.PropertyGroup):
     thumb_scale: bpy.props.FloatProperty(
         name="Thumbnail Size",
         description="Thumbnail width relative to the node's width",
-        default=1.0, min=0.25, max=3.0, update=_redraw)
+        default=0.55, min=0.25, max=3.0, update=_redraw)
     thumb_position: bpy.props.EnumProperty(
         name="Position",
         description="Where the thumbnail sits relative to its node",
@@ -246,7 +246,7 @@ class NPVProps(bpy.types.PropertyGroup):
         name="Checkerboard",
         description="Draw a checkerboard behind thumbnails so transparency "
                     "shows",
-        default=False, update=_redraw)
+        default=True, update=_redraw)
     show_status: bpy.props.BoolProperty(
         name="Status Markers",
         description="Orange outline: waiting to re-render. Red outline / '!': "

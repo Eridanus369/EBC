@@ -9,8 +9,11 @@ from gpu_extras.batch import batch_for_shader
 from mathutils import Vector
 
 
-# Blender 5.2 的 UString 字段使 runtime.location 从偏移 24 移到 32。
-_SOCKET_RUNTIME_LOCATION_OFFSET = 32 if bpy.app.version >= (5, 2, 0) else 24
+# bNodeSocket 中 runtime 指针的偏移：由本分支 DNA_node_types.h 实测（bNodeStack 占 48 字节）。
+_SOCKET_RUNTIME_OFFSET = 456
+# bNodeSocketRuntime 中 location 的偏移：declaration(8) + UString(8) + changed_flag(4) +
+# total_inputs(2) + inferred_structure_type(1) -> 对齐到 24。
+_SOCKET_RUNTIME_LOCATION_OFFSET = 24
 
 
 class _BNodeSocketRuntime(ctypes.Structure):
@@ -22,13 +25,13 @@ class _BNodeSocketRuntime(ctypes.Structure):
 
 class _BNodeSocket(ctypes.Structure):
     _fields_ = [
-        ("_pad", c_char * 456),
+        ("_pad", c_char * _SOCKET_RUNTIME_OFFSET),
         ("runtime", ctypes.POINTER(_BNodeSocketRuntime)),
     ]
 
 
 def _get_socket_view_loc(socket):
-    """从 socket 指针直接读取视图空间坐标，结果在 _frame_cache['svl'] 内缓存。"""
+    """从 socket 指针直接读取视图空间坐标（已含 UI 缩放），结果在 _frame_cache['svl'] 内缓存。"""
     ptr = socket.as_pointer()
     cache = _frame_cache.get('svl')
     if cache is None:
@@ -37,15 +40,18 @@ def _get_socket_view_loc(socket):
     elif ptr in cache:
         return cache[ptr]
     try:
-        node = socket.node
-        nlocx, nlocy = abs_node_location(node)
-        # 官方安全 API 读取相对坐标
-        result = (nlocx + socket.location.x, nlocy + socket.location.y)
+        bs = _BNodeSocket.from_address(ptr)
+        if not bs.runtime:
+            cache[ptr] = None
+            return None
+        loc = bs.runtime.contents.location
+        result = (loc[0], loc[1])
         cache[ptr] = result
         return result
     except Exception:
         cache[ptr] = None
         return None
+
 
 _DRAW_HANDLE = None
 _OUTLINE_UBO = None
@@ -239,7 +245,12 @@ def get_gradient_params():
     val = _frame_cache.get('grad')
     if val is not None:
         return val
-    val = (0.0, 1.0, 0.65, 0.4)
+    addon = bpy.context.preferences.addons.get(__package__)
+    p = getattr(addon, "preferences", None) if addon else None
+    if p is None:
+        val = (0.0, 1.0, 0.65, 0.4)
+    else:
+        val = (p.hue_start, p.hue_range, p.gradient_saturation, p.gradient_value)
     _frame_cache['grad'] = val
     return val
 
@@ -2293,41 +2304,14 @@ def get_socket_loc(node, is_output, index):
     try:
         sockets = node.outputs if is_output else node.inputs
         if index < len(sockets):
-            socket = sockets[index]
-            try:
-                nlocx, nlocy = abs_node_location(node)
-                fac = dpi_fac()
-                return (nlocx + socket.location.x) * fac, (nlocy + socket.location.y) * fac
-            except Exception:
-                pass
+            loc = _get_socket_view_loc(sockets[index])
+            if loc is not None:
+                return loc
     except Exception:
         pass
-
-    if node.type == 'REROUTE':
-        nlocx, nlocy = abs_node_location(node)
-        fac = dpi_fac()
-        return nlocx * fac, nlocy * fac
-
-    fac = dpi_fac()
+    # 底层读取失败时的兜底：退回节点原点（视图空间，含 UI 缩放）
     nlocx, nlocy = abs_node_location(node)
-    base_x = nlocx * fac
-    base_y = nlocy * fac
-    x = base_x + node.dimensions.x if is_output else base_x
-    header_height = 32.0 * fac
-    socket_height = 21.0 * fac
-    y = base_y - header_height
-    sockets = node.outputs if is_output else node.inputs
-    enabled_sockets = [s for s in sockets if s.enabled]
-    try:
-        real_idx = enabled_sockets.index(sockets[index])
-    except (ValueError, IndexError):
-        real_idx = 0
-    y = y - (real_idx * socket_height) - (socket_height * 0.5)
-    if is_output:
-        y += 0.5 * fac
-    else:
-        y -= 0.5 * fac
-    return x + 0.5 * fac, y + 0.5 * fac
+    return nlocx * dpi_fac(), nlocy * dpi_fac()
 
 
 def _draw_links(context, draw_selected_node_outlines=True, draw_connected_links=True):
@@ -2356,8 +2340,11 @@ def _draw_links(context, draw_selected_node_outlines=True, draw_connected_links=
     _frame_cache['node_bounds'] = {n.as_pointer(): _node_draw_bounds(n) for n in tree.nodes}
     selected_nodes = [node for node in context.selected_nodes if node.as_pointer() in tree_node_ptrs]
 
-    thickness_mul = 1.0
-    trace_linked_flow = True
+    addon = context.preferences.addons.get(__package__)
+    thickness_mul = getattr(getattr(addon, "preferences", None), "connected_rainbow_thickness", 1.0) if addon else 1.0
+    if thickness_mul <= 0.0:
+        return False
+    trace_linked_flow = bool(getattr(getattr(addon, "preferences", None), "trace_linked_flow", True)) if addon else True
 
     time_sec = time.time()
     # 动态降载：用视口变换+节点位置指纹与上帧比对，判断是否正在交互（移动节点/平移视口）
@@ -2512,8 +2499,8 @@ def _draw_links(context, draw_selected_node_outlines=True, draw_connected_links=
         downstream, downstream_reroutes = set(), set()
         link_adj_downstream, link_adj_downstream_reroutes = _collect_adjacent_real_nodes(selected_nodes, down_adj)
 
-    outline_nodes = set(selected_nodes) | upstream | downstream
-    link_scope_nodes = outline_nodes | upstream_reroutes | downstream_reroutes | link_adj_upstream | link_adj_upstream_reroutes | link_adj_downstream | link_adj_downstream_reroutes
+    outline_nodes = set(selected_nodes)
+    link_scope_nodes = set(selected_nodes) | upstream | downstream | upstream_reroutes | downstream_reroutes | link_adj_upstream | link_adj_upstream_reroutes | link_adj_downstream | link_adj_downstream_reroutes
     node_by_ptr = {node.as_pointer(): node for node in tree.nodes}
     tree_ptr = tree.as_pointer()
     current_selected_ptrs = {node.as_pointer() for node in selected_nodes}
@@ -2947,7 +2934,7 @@ def _draw_links(context, draw_selected_node_outlines=True, draw_connected_links=
     # 性能累计
     global _PERF_FRAME_CNT, _PERF_ACCUM_TIME, _PERF_ACCUM_LINKS, _PERF_ACCUM_OCCLUDERS, _PERF_ACCUM_OUTLINES
     global _PERF_ACCUM_SELECTED, _PERF_ACCUM_UPSTREAM, _PERF_ACCUM_DOWNSTREAM
-    debug_perf = False
+    debug_perf = bool(getattr(getattr(addon, "preferences", None), "debug_performance_log", False))
     if not debug_perf:
         _reset_perf_stats()
         return _result
@@ -3275,6 +3262,7 @@ def register():
         pass
     bpy.utils.register_class(RainbowNoodleRandomGradient)
     bpy.utils.register_class(RainbowNoodleRestoreHistory)
+    bpy.utils.register_class(RainbowNoodlePreferences)
     _DRAW_HANDLE = bpy.types.SpaceNodeEditor.draw_handler_add(
         draw_callback_highlight_connections, (), 'WINDOW', 'POST_PIXEL'
     )

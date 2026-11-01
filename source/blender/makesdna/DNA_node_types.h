@@ -1768,6 +1768,8 @@ struct bNode {
 
   /** Used for some builtin nodes that store properties but don't have a storage struct. */
   int16_t custom1 = 0, custom2 = 0;
+  /** Extra integer slots for nodes that need more than two `int16_t` flags/enums. */
+  int16_t custom5 = 0, custom6 = 0, custom7 = 0, custom8 = 0;
   float custom3 = 0, custom4 = 0;
 
   NodeWarningPropagation warning_propagation = NODE_WARNING_PROPAGATION_ALL;

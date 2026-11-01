@@ -692,7 +692,6 @@ class NODE_MT_shader_node_all_base(node_add_menu.NodeMenu):
         layout.separator()
         self.draw_root_assets(layout)
         layout.separator()
-        self.draw_menu(layout, "EBC")
         layout.separator()
         self.draw_menu(layout, "Group")
         self.draw_menu(layout, "Layout")

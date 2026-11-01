@@ -37,7 +37,6 @@ class NPV_OT_help(bpy.types.Operator):
         layout = self.layout
         props = context.scene.npv
         row = layout.row(align=True)
-        row.prop(props, "language", expand=True)
         layout.label(text=_t(props, "help_title"), icon="INFO")
         row = layout.row(align=True)
         for pid, label in _t(props, "help_tabs"):
@@ -70,7 +69,6 @@ class NPV_PT_panel(bpy.types.Panel):
         row = layout.row(align=True)
         row.prop(props, "enabled", toggle=True, text=t("show_previews"),
                  icon="HIDE_OFF" if props.enabled else "HIDE_ON")
-        row.prop(props, "language", expand=True)
         row.operator("node.npv_help", text="", icon="QUESTION")
 
         body = layout.column()

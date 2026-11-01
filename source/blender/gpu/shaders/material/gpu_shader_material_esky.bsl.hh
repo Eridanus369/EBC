@@ -130,13 +130,27 @@ static float3 fc_sun_disc(float3 rd,
   float ho = sin(radians(hh));
   if (rd.z < ho) { return float3(0.0f); }
   float ang = acos(clamp(dot(rd, sd), -1.0f, 1.0f));
-  float da = max(ss * 0.004f, 1.0e-4f);
-  float ba = da * (4.0f + bi * 6.0f);
-  float disc = smoothstep(da, 0.0f, ang);
-  float bloom = smoothstep(ba, 0.0f, ang);
-  float b = pow(disc, 0.2f) * 1.2f + pow(bloom, 3.0f) * (1.0f - disc) * bi * 0.5f;
+
+  /* 真实太阳角半径约 0.2665°，sun_size 做整体缩放。 */
+  float da = max(ss * 0.00465f, 1.0e-4f);
+
+  /* 日面 + 临边昏暗：中心最亮，边缘压暗到约 0.38，符合真实太阳的 limb darkening。 */
+  float r = ang / da;
+  float mu = sqrt(max(1.0f - r * r, 0.0f));
+  float limb = 1.0f - 0.62f * (1.0f - mu);
+  float disc = smoothstep(da * 1.06f, da * 0.94f, ang);
+
+  /* Mie 前向散射 aureole：连续 1/(1+(θ/θ0)^2) 衰减，没有硬边和放射条纹。
+   * 近处紧致光晕 + 远处宽域 veiling glare，符合真实大气散射的太阳光斑形态。 */
+  float t1 = ang / (da * 3.5f);
+  float t2 = ang / (da * 18.0f);
+  float aureole = 0.55f / (1.0f + t1 * t1) + 0.12f / (1.0f + t2 * t2);
+  float veil = exp(-ang / (da * 45.0f)) * 0.10f;
+
+  float glow = (aureole + veil) * max(bi, 0.0f) * (1.0f - disc);
+  float b = disc * (0.85f + 0.6f * limb) + glow;
   float fade = clamp((sd.z - ho) / (da * 3.0f) + 0.5f, 0.0f, 1.0f);
-  return pow(sc, float3(0.7f)) * si * b * 2.0f * fade;
+  return pow(sc, float3(0.7f)) * si * b * 1.6f * fade;
 }
 
 /**
@@ -205,7 +219,9 @@ static float3 fc_atmosphere(float3 rd,
     sum_m += dm * attn;
   }
 
-  float3 sky = (ph_r * beta_r * sum_r + float3(ph_m * beta_m) * sum_m) * (si * 22.0f);
+  /* 这个放大系数决定天空的基础亮度。原来 22.0 会让天空在线性空间内逼近
+   * 1.0，在 AgX 下被压成一片惨白，太阳光斑和云层都失去对比。 */
+  float3 sky = (ph_r * beta_r * sum_r + float3(ph_m * beta_m) * sum_m) * (si * 10.0f);
 
   float view_air = 1.0f / max(rd.z, 0.06f);
   float oza = exp(-oz * 0.0015f * view_air);
@@ -221,9 +237,14 @@ static float3 fc_atmosphere(float3 rd,
   float sun_near = smoothstep(0.995f, 1.0f, ct);
   sky *= 1.0f - sun_near * sgs * 0.6f;
 
-  float glow = smoothstep(0.998f, 1.0f, ct);
+  /* 日面周围的前向散射：用连续的 Mie 型衰减替代原来的硬阈值圆盘，
+   * 避免出现一层突兀的亮圈（真实大气中太阳周围是平滑的 aureole）。 */
+  float sun_ang = acos(clamp(ct, -1.0f, 1.0f));
+  float t_near = sun_ang / 0.030f;
+  float t_wide = sun_ang / 0.200f;
+  float fwd = 0.35f / (1.0f + t_near * t_near) + 0.15f / (1.0f + t_wide * t_wide);
   float shf = smoothstep(-0.3f, 0.05f, sd.z);
-  sky += float3(1.0f, 0.9f, 0.7f) * glow * 3.0f;
+  sky += float3(1.0f, 0.9f, 0.74f) * fwd * (1.0f - sgs * 0.5f);
   return sky * shf;
 }
 
@@ -434,7 +455,7 @@ static float fc_cov(float type, int fam)
   if (fam == 1) { return type < 0.5f ? 0.5f : 0.9f; }
   if (fam == 2) { return type < 0.5f ? 0.95f : (type < 1.5f ? 0.6f : 0.95f); }
   if (fam == 3) { return type < 0.5f ? 0.4f : 0.5f; }
-  return type < 0.5f ? 0.4f : (type < 1.5f ? 0.3f : (type < 2.5f ? 0.2f : 1.0f));
+  return type < 0.5f ? 0.4f : (type < 1.5f ? 0.3f : (type < 2.5f ? 0.2f : 0.5f));
 }
 
 static float fc_den(float type, int fam)
@@ -483,8 +504,7 @@ static float fc_cloud_map(float3 pos_km,
                           float2 wind,
                           float speed,
                           float nscale,
-                          float ndetail,
-                          float detail_lod)
+                          float ndetail)
 {
   /* Flower 噪声为 Y-up，Blender World 为 Z-up：交换竖直轴。 */
   float3 position_km = float3(pos_km.x, pos_km.z, pos_km.y);
@@ -501,21 +521,22 @@ static float fc_cloud_map(float3 pos_km,
   float local_coverage = fc_sat(curl * 3.0f - 0.75f) * 0.2f;
   float coverage = fc_sat(cov * (local_coverage + weather_value.r));
 
-  float gradient_shape = fc_remap(h01, 0.0f, 0.1f, 0.1f, 1.0f) *
-                         fc_remap(h01, 0.1f, 0.8f, 1.0f, 0.2f);
-
-  float basic = fc_sample_3d_lut(basic_noise,
-                                 (position_km + wind_offset) * nscale,
-                                 128.0f,
-                                 128.0f);
+  /* 竖向剖面与 esky.glsl 的 fc_cloud_map 完全一致：云底 0~10% 淡入、
+   * 80% 以上淡出，中段保持满强度。剖面先与噪声相乘，再由覆盖率阈值把
+   * 乘积削成云体，因此云底高度由噪声取值决定，不会出现一条贴着层底的
+   * 水平切面。 */
+  float gradient_shape = fc_remap(h01, 0.00f, 0.10f, 0.10f, 1.0f) *
+                         fc_remap(h01, 0.10f, 0.80f, 1.0f, 0.20f);
+  float3 basic_position = position_km + wind_offset;
+  float basic = fc_sample_3d_lut(basic_noise, basic_position * nscale, 128.0f, 128.0f);
   float basic_cloud = gradient_shape * basic;
   float basic_with_coverage = coverage *
                               fc_remap(basic_cloud, 1.0f - coverage, 1.0f, 0.0f, 1.0f);
 
+  /* 细节噪声按高度在正反两向混合：底部侵蚀云体、顶部蓬松云顶。 */
   float3 detail_position = position_km - wind_offset * 0.15f;
   float detail = fc_sample_3d_lut(detail_noise, detail_position * ndetail, 64.0f, 64.0f);
-  /* 远处细节噪声低于采样频率会产生噪点，按距离淡出。 */
-  float detail_mix = 0.2f * detail_lod * mix(detail, 1.0f - detail, fc_sat(h01 * 10.0f));
+  float detail_mix = 0.2f * mix(detail, 1.0f - detail, fc_sat(h01 * 10.0f));
 
   float density_shape = fc_sat(0.01f + h01 * 1.15f) * den *
                         fc_remap(h01, 0.0f, 0.1f, 0.0f, 1.0f) *
@@ -544,11 +565,13 @@ static float fc_light_transmittance(float3 position_km,
                                     float light_step,
                                     float light_step_multiplier,
                                     float light_steps,
-                                    float extinction_factor)
+                                    float extinction_factor,
+                                    float jitter)
 {
   float optical_depth = 0.0f;
   float step_length = max(light_step, 1.0e-4f);
-  float distance_along_light = step_length * 0.5f;
+  /* 每个像素用蓝噪声抖动首步距离，打散固定采样位置造成的放射状条纹。 */
+  float distance_along_light = step_length * jitter;
   int count = int(clamp(light_steps, 1.0f, 16.0f));
   for (int i = 0; i < 16; i++) {
     if (i >= count) { break; }
@@ -569,8 +592,7 @@ static float fc_light_transmittance(float3 position_km,
                                     wind,
                                     speed,
                                     nscale,
-                                    ndetail,
-                                    1.0f) *
+                                    ndetail) *
                        step_length * extinction_factor;
     }
     distance_along_light += step_length;
@@ -669,16 +691,37 @@ static FcCloudOut fc_trace_family(float3 ro,
   float thick = max(cloud_thick, 1.0e-4f);
   fc_interval_res inner = fc_sphere_interval(ro, rd, radius + cloud_base);
   fc_interval_res outer = fc_sphere_interval(ro, rd, radius + cloud_base + thick);
-  if (!outer.hit || rd.z <= -0.02f) { return o; }
+  if (!outer.hit) { return o; }
 
-  float st = inner.hit ? max(inner.far_t, 0.0f) : max(outer.near_t, 0.0f);
-  float et = min(outer.far_t, st + max(max_dist, 1.0f));
+  float cam_alt = length(ro) - radius;
+  float above_layer = step(cloud_base + thick, cam_alt);
+  /* 地面视角向下没有云；相机在云层之上时允许俯视云顶。 */
+  if (rd.z <= -0.02f && above_layer < 0.5f) { return o; }
+
+  float st = 0.0f;
+  float et = 0.0f;
+  if (above_layer > 0.5f) {
+    /* 相机在云层之上：从云顶(outer.near_t)射入，到云底(inner.far_t)穿出。 */
+    st = max(outer.near_t, 0.0f);
+    et = min(max(inner.far_t, st), st + max(max_dist, 1.0f));
+  }
+  else if (cam_alt >= cloud_base) {
+    /* 相机位于云层内部：从当前位置开始向外。 */
+    st = 0.0f;
+    et = min(outer.far_t, max(max_dist, 1.0f));
+  }
+  else {
+    st = inner.hit ? max(inner.far_t, 0.0f) : max(outer.near_t, 0.0f);
+    et = min(outer.far_t, st + max(max_dist, 1.0f));
+  }
   if (et <= st) { return o; }
   if (st > max(trace_start, 1.0f)) { return o; }
 
   int steps = clamp(ray_steps, 16, 128);
   float sl = (et - st) / float(steps);
-  float t = st + sl * jitter;
+  /* 步进起点固定取步长中点：逐像素固定的蓝噪声抖动会在硬阈值下放大成
+   * 满屏颗粒，而没有 sample_index 时抖动也无法被 TAA 收敛。 */
+  float t = st + sl * 0.5f;
 
   for (int i = 0; i < 128; i++) {
     if (i >= steps || t > et || o.trans < 0.005f) { break; }
@@ -687,11 +730,9 @@ static FcCloudOut fc_trace_family(float3 ro,
     float h01 = (alt - cloud_base) / thick;
     t += sl;
 
-    /* 远处云：细节淡出，避免低于采样频率产生噪点；区间末端渐隐，避免硬切。 */
-    float lod = 1.0f - smoothstep(25.0f, 100.0f, t);
     float d = fc_cloud_map(pos, h01, basic_noise, detail_noise, weather_map, curl_noise,
-                           time_s, uv_scale, cov, den, wind, speed, nscale, ndetail, lod);
-    d *= 1.0f - smoothstep(0.88f, 1.0f, t / max(et, 1.0f));
+                           time_s, uv_scale, cov, den, wind, speed, nscale, ndetail);
+    d *= 1.0f - smoothstep(0.97f, 1.0f, t / max(et, 1.0f));
     d *= 1.0f - smoothstep(60.0f, 140.0f, t);
     o.used += 1.0f;
     if (d <= 1.0e-5f) { continue; }
@@ -699,11 +740,12 @@ static FcCloudOut fc_trace_family(float3 ro,
     float lt0 = fc_light_transmittance(pos, sun, radius, cloud_base, thick, basic_noise,
                                        detail_noise, weather_map, curl_noise, time_s, uv_scale,
                                        cov, den, wind, speed, nscale, ndetail, light_step,
-                                       light_mult, float(light_steps), 1.0f);
+                                       light_mult, float(light_steps), 1.0f, 0.5f);
     float lt1 = fc_light_transmittance(pos, sun, radius, cloud_base, thick, basic_noise,
                                        detail_noise, weather_map, curl_noise, time_s, uv_scale,
                                        cov, den, wind, speed, nscale, ndetail, light_step,
-                                       light_mult, float(light_steps), ms_ext);
+                                       light_mult, float(light_steps), ms_ext,
+                                       0.75f);
 
     float pd = pow(fc_sat(d * 8.0f), fc_remap(h01, 0.3f, 0.85f, 0.5f, 2.0f));
     float pw = sqrt(max(pd * 20.0f, 0.0f)) * powder;
@@ -820,22 +862,52 @@ static float3 fc_moon(float3 rd,
                       float ext)
 {
   float rad = radians(max(moon_size, 0.2f)) * 0.5f;
-  float c = dot(rd, md);
-  if (c < cos(rad)) { return float3(0.0f); }
+  float ang = acos(clamp(dot(rd, md), -1.0f, 1.0f));
+  /* 月晕可延伸到月面半径数倍之外，先按光晕范围裁剪。 */
+  float halo_rad = rad * 4.5f;
+  if (ang > halo_rad) { return float3(0.0f); }
 
   float3 ref = float3(0.0f, 0.0f, 1.0f);
   if (abs(md.z) > 0.9f) { ref = float3(0.0f, 1.0f, 0.0f); }
   float3 right = normalize(cross(ref, md));
   float3 up = cross(md, right);
 
-  float denom = max(sin(rad), 1.0e-4f);
-  float2 p = float2(dot(rd, right), dot(rd, up)) / denom;
-  float r2 = dot(p, p);
-  if (r2 > 1.0f) { return float3(0.0f); }
+  float3 moon = float3(0.0f);
+  if (ang <= rad) {
+    float denom = max(sin(rad), 1.0e-4f);
+    float2 p = float2(dot(rd, right), dot(rd, up)) / denom;
+    float r2 = dot(p, p);
+    if (r2 <= 1.0f) {
+      float rn = sqrt(r2);
+      float3 tex = texture(moon_tex, p * 0.5f + 0.5f).rgb;
+      /* 原贴图对比度极低（几乎平坦），叠加程序化月海/环形山起伏，
+       * 让月面在远景下依然能看出结构。 */
+      float3 lp = float3(p.x, p.y, 0.0f) * 3.0f;
+      float relief = fc_aurora_fbm(lp) - 0.5f;
+      float maria = fc_aurora_fbm(lp * 0.45f + float3(2.7f, 5.1f, 0.3f)) - 0.5f;
+      float shade = 1.0f + relief * 1.6f + maria * 0.9f;
+      /* 乘以过大的系数会让月面直接顶到 1.0，在 AgX 下变成一块白板，
+       * 反而看不清贴图细节，因此这里保持中等增益。 */
+      tex = tex * max(shade, 0.15f) * 1.5f;
+      /* 边缘轻微变暗，增强球体感。 */
+      float limb = smoothstep(1.0f, 0.82f, rn);
+      float edge = 0.6f + 0.4f * smoothstep(1.0f, 0.5f, rn);
+      moon = tex * limb * edge;
+    }
+  }
 
-  float3 tex = texture(moon_tex, p * 0.5f + 0.5f).rgb;
-  float limb = smoothstep(1.0f, 0.88f, sqrt(r2));
-  return tex * moon_col * limb * ext;
+  /* 月晕：贴近月面的柔和光晕 + 外层冰晶光环。
+   * 光晕整体乘以一个在 halo_rad 处衰减到 0 的窗口，否则会在裁剪半径上
+   * 露出一圈生硬的圆盘边缘。 */
+  float dist = max(ang - rad, 0.0f);
+  float glow = exp(-dist / (rad * 0.6f)) * 0.24f;
+  float ring_d = (ang - rad * 2.4f) / (rad * 0.45f);
+  float ring = exp(-ring_d * ring_d) * 0.11f;
+  float window = 1.0f - smoothstep(halo_rad * 0.7f, halo_rad, ang);
+  float halo = (glow + ring) * window;
+  float3 halo_col = float3(0.72f, 0.82f, 1.0f);
+
+  return (moon + halo_col * halo * 0.9f) * moon_col * ext;
 }
 
 /** \} */
@@ -952,7 +1024,6 @@ void node_esky(
   scene_time_uniforms(scene_seconds, scene_frame);
   float time_seconds = scene_seconds * max(time_speed, 0.0f);
 
-  weather_uv_scale = weather_uv_scale / 100.0f;
   float2 uv_scale = float2(weather_uv_scale, weather_uv_scale);
   int ray_steps_i = int(ray_steps);
   int light_steps_i = int(light_steps);

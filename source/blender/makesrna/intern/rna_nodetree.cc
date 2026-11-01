@@ -7884,6 +7884,88 @@ static void def_sh_tex_gradient(BlenderRNA *brna, StructRNA *srna)
   RNA_def_property_update(prop, 0, "rna_Node_update");
 }
 
+
+static void def_sh_esky(BlenderRNA *brna, StructRNA *srna)
+{
+  static const EnumPropertyItem prop_esky_weather_items[] = {
+      {0, "CLEAR", 0, "晴朗", ""},
+      {1, "RAIN", 0, "下雨", ""},
+      {2, "STORM", 0, "雷暴", ""},
+      {3, "SNOW", 0, "下雪", ""},
+      {0, nullptr, 0, nullptr, nullptr},
+  };
+  static const EnumPropertyItem prop_esky_high_items[] = {
+      {0, "CIRRUS", 0, "卷云", ""},
+      {1, "CIRROCUMULUS", 0, "卷积云", ""},
+      {2, "CIRROSTRATUS", 0, "卷层云", ""},
+      {0, nullptr, 0, nullptr, nullptr},
+  };
+  static const EnumPropertyItem prop_esky_mid_items[] = {
+      {0, "ALTOCUMULUS", 0, "高积云", ""},
+      {1, "ALTOSTRATUS", 0, "高层云", ""},
+      {2, "NIMBOSTRATUS", 0, "雨层云", ""},
+      {0, nullptr, 0, nullptr, nullptr},
+  };
+  static const EnumPropertyItem prop_esky_low_items[] = {
+      {0, "STRATUS", 0, "层云", ""},
+      {1, "STRATOCUMULUS", 0, "层积云", ""},
+      {2, "CUMULUS", 0, "积云", ""},
+      {0, nullptr, 0, nullptr, nullptr},
+  };
+  static const EnumPropertyItem prop_esky_vert_items[] = {
+      {0, "CUMULONIMBUS", 0, "积雨云", ""},
+      {1, "CUMULUS_CON", 0, "浓积云", ""},
+      {0, nullptr, 0, nullptr, nullptr},
+  };
+  static const EnumPropertyItem prop_esky_special_items[] = {
+      {0, "LENTICULAR", 0, "荚状云", ""},
+      {1, "KELVIN_HELMHOLTZ", 0, "开尔文-亥姆霍兹云", ""},
+      {0, nullptr, 0, nullptr, nullptr},
+  };
+
+  PropertyRNA *prop;
+
+  /* The enum values are stored in the integer slots of #bNode. `custom3` and
+   * `custom4` are floats and cannot back a PROP_ENUM property. */
+  RNA_def_struct_sdna_from(srna, "bNode", nullptr);
+
+  prop = RNA_def_property(srna, "weather_type", PROP_ENUM, PROP_NONE);
+  RNA_def_property_enum_sdna(prop, nullptr, "custom1");
+  RNA_def_property_enum_items(prop, prop_esky_weather_items);
+  RNA_def_property_ui_text(prop, "Weather Type", "Weather state of the sky");
+  RNA_def_property_update(prop, 0, "rna_Node_update");
+
+  prop = RNA_def_property(srna, "high_cloud_type", PROP_ENUM, PROP_NONE);
+  RNA_def_property_enum_sdna(prop, nullptr, "custom2");
+  RNA_def_property_enum_items(prop, prop_esky_high_items);
+  RNA_def_property_ui_text(prop, "High Cloud Type", "Species of the high cloud layer");
+  RNA_def_property_update(prop, 0, "rna_Node_update");
+
+  prop = RNA_def_property(srna, "mid_cloud_type", PROP_ENUM, PROP_NONE);
+  RNA_def_property_enum_sdna(prop, nullptr, "custom5");
+  RNA_def_property_enum_items(prop, prop_esky_mid_items);
+  RNA_def_property_ui_text(prop, "Mid Cloud Type", "Species of the mid cloud layer");
+  RNA_def_property_update(prop, 0, "rna_Node_update");
+
+  prop = RNA_def_property(srna, "low_cloud_type", PROP_ENUM, PROP_NONE);
+  RNA_def_property_enum_sdna(prop, nullptr, "custom6");
+  RNA_def_property_enum_items(prop, prop_esky_low_items);
+  RNA_def_property_ui_text(prop, "Low Cloud Type", "Species of the low cloud layer");
+  RNA_def_property_update(prop, 0, "rna_Node_update");
+
+  prop = RNA_def_property(srna, "vertical_cloud_type", PROP_ENUM, PROP_NONE);
+  RNA_def_property_enum_sdna(prop, nullptr, "custom7");
+  RNA_def_property_enum_items(prop, prop_esky_vert_items);
+  RNA_def_property_ui_text(prop, "Vertical Cloud Type", "Species of the vertical cloud layer");
+  RNA_def_property_update(prop, 0, "rna_Node_update");
+
+  prop = RNA_def_property(srna, "special_cloud_type", PROP_ENUM, PROP_NONE);
+  RNA_def_property_enum_sdna(prop, nullptr, "custom8");
+  RNA_def_property_enum_items(prop, prop_esky_special_items);
+  RNA_def_property_ui_text(prop, "Special Cloud Type", "Species of the special cloud layer");
+  RNA_def_property_update(prop, 0, "rna_Node_update");
+}
+
 static void def_sh_tex_noise(BlenderRNA *brna, StructRNA *srna)
 {
   static const EnumPropertyItem prop_noise_type[] = {
@@ -13863,7 +13945,7 @@ static void rna_def_nodes(BlenderRNA *brna)
   define("ShaderNode", "ShaderNodeNPRLightInfo", def_sh_npr_light_info);
   define("ShaderNode", "ShaderNodeEeveeLightShaderOutput");
   define("ShaderNode", "ShaderNodeEeveeLightShaderInfo");
-  define("ShaderNode", "ShaderNodeESky");
+  define("ShaderNode", "ShaderNodeESky", def_sh_esky);
   define("ShaderNode", "ShaderNodeTexGradient", def_sh_tex_gradient);
   define("ShaderNode", "ShaderNodeTexIES", def_sh_tex_ies);
   define("ShaderNode", "ShaderNodeTexImage", def_sh_tex_image);

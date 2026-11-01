@@ -5,56 +5,49 @@
  * \ingroup shdnodes
  */
 
+#include <optional>
 #include <string>
+#include "BLI_string.hh"
 #include "node_shader_util.hh"
-#include "UI_interface_layout.hh"
 #include "UI_resources.hh"
 #include "BKE_image.hh"
+#include "BKE_image_gpu.hh"
 #include "BKE_main.hh"
 #include "BKE_global.hh"
 #include "GPU_material.hh"
+#include "BKE_context.hh"
+#include "RNA_access.hh"
+#include "UI_interface_layout.hh"
+#include "BKE_node.hh"
 
 namespace blender {
 
 namespace nodes::node_shader_esky_cc {
 
 
-static const EnumPropertyItem esky_weather_items[] = {
-    {0, "CLEAR", 0, "晴朗", ""},
-    {1, "RAIN", 0, "下雨", ""},
-    {2, "STORM", 0, "雷暴", ""},
-    {3, "SNOW", 0, "下雪", ""},
-    {0, nullptr, 0, nullptr, nullptr}
-};
-static const EnumPropertyItem esky_high_items[] = {
-    {0, "CIRRUS", 0, "卷云", ""},
-    {1, "CIRROCUMULUS", 0, "卷积云", ""},
-    {2, "CIRROSTRATUS", 0, "卷层云", ""},
-    {0, nullptr, 0, nullptr, nullptr}
-};
-static const EnumPropertyItem esky_mid_items[] = {
-    {0, "ALTOCUMULUS", 0, "高积云", ""},
-    {1, "ALTOSTRATUS", 0, "高层云", ""},
-    {0, nullptr, 0, nullptr, nullptr}
-};
-static const EnumPropertyItem esky_low_items[] = {
-    {0, "STRATUS", 0, "层云", ""},
-    {1, "STRATOCUMULUS", 0, "层积云", ""},
-    {2, "NIMBOSTRATUS", 0, "雨层云", ""},
-    {0, nullptr, 0, nullptr, nullptr}
-};
-static const EnumPropertyItem esky_vert_items[] = {
-    {0, "CUMULUS", 0, "积云", ""},
-    {1, "CUMULONIMBUS", 0, "积雨云", ""},
-    {0, nullptr, 0, nullptr, nullptr}
-};
-static const EnumPropertyItem esky_special_items[] = {
-    {0, "ASPERITAS", 0, "糙面云", ""},
-    {1, "MAMMATUS", 0, "乳状云", ""},
-    {2, "LENTICULAR", 0, "荚状云", ""},
-    {3, "FLOWER", 0, "Flower云", ""},
-    {0, nullptr, 0, nullptr, nullptr}
-};
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 static void node_declare(NodeDeclarationBuilder &b)
 {
@@ -118,43 +111,60 @@ static void node_declare(NodeDeclarationBuilder &b)
 
   PanelDeclarationBuilder &cloud = b.add_panel("云"_ustr).default_closed(true);
   PanelDeclarationBuilder &cloud_base = cloud.add_panel("基础参数"_ustr).default_closed(true);
-  cloud_base.add_input<decl::Float>("weather_uv_scale"_ustr).default_value(2.41f);
-  cloud_base.add_input<decl::Float>("coverage"_ustr).default_value(0.426f);
-  cloud_base.add_input<decl::Float>("density"_ustr).default_value(2.82f);
-  cloud_base.add_input<decl::Float>("basic_noise_scale"_ustr).default_value(0.7f);
-  cloud_base.add_input<decl::Float>("detail_noise_scale"_ustr).default_value(1.39f);
+  cloud_base.add_input<decl::Float>("weather_uv_scale"_ustr).default_value(0.02f);
+  cloud_base.add_input<decl::Float>("coverage"_ustr).default_value(0.5f);
+  cloud_base.add_input<decl::Float>("density"_ustr).default_value(1.0f);
+  cloud_base.add_input<decl::Float>("basic_noise_scale"_ustr).default_value(0.3f);
+  cloud_base.add_input<decl::Float>("detail_noise_scale"_ustr).default_value(0.6f);
   cloud_base.add_input<decl::Vector>("wind_direction"_ustr).default_value(float3(0.894f, 0.447f, 0.0f));
-  cloud_base.add_input<decl::Float>("cloud_speed"_ustr).default_value(0.1f);
+  cloud_base.add_input<decl::Float>("cloud_speed"_ustr).default_value(0.05f);
   cloud_base.add_input<decl::Float>("time_speed"_ustr).default_value(1.0f);
   
   PanelDeclarationBuilder &cloud_types = cloud.add_panel("云种类"_ustr).default_closed(true);
   PanelDeclarationBuilder &high = cloud_types.add_panel("高云族"_ustr).default_closed(true);
-  high.add_input<decl::Bool>("high_cloud_enable"_ustr).default_value(true);
-  high.add_input<decl::Menu>("high_cloud_type"_ustr).static_items(esky_high_items);
+  high.add_input<decl::Bool>("high_cloud_enable"_ustr).default_value(false);
+  high.add_layout([](ui::Layout &layout, bContext * /*C*/, PointerRNA *ptr) {
+    layout.prop(ptr, "high_cloud_type", ui::ITEM_R_SPLIT_EMPTY_NAME, IFACE_("高云类型"), ICON_NONE);
+  });
+  high.add_input<decl::Int>("high_cloud_type"_ustr).default_value(0).available(false);
   high.add_input<decl::Float>("high_cloud_base"_ustr).default_value(8.0f);
   high.add_input<decl::Float>("high_cloud_thickness"_ustr).default_value(1.0f);
 
   PanelDeclarationBuilder &mid = cloud_types.add_panel("中云族"_ustr).default_closed(true);
-  mid.add_input<decl::Bool>("mid_cloud_enable"_ustr).default_value(true);
-  mid.add_input<decl::Menu>("mid_cloud_type"_ustr).static_items(esky_mid_items);
+  mid.add_input<decl::Bool>("mid_cloud_enable"_ustr).default_value(false);
+  mid.add_layout([](ui::Layout &layout, bContext * /*C*/, PointerRNA *ptr) {
+    layout.prop(ptr, "mid_cloud_type", ui::ITEM_R_SPLIT_EMPTY_NAME, IFACE_("中云类型"), ICON_NONE);
+  });
+  mid.add_input<decl::Int>("mid_cloud_type"_ustr).default_value(0).available(false);
   mid.add_input<decl::Float>("mid_cloud_base"_ustr).default_value(4.0f);
   mid.add_input<decl::Float>("mid_cloud_thickness"_ustr).default_value(1.5f);
 
   PanelDeclarationBuilder &low = cloud_types.add_panel("低云族"_ustr).default_closed(true);
   low.add_input<decl::Bool>("low_cloud_enable"_ustr).default_value(true);
-  low.add_input<decl::Menu>("low_cloud_type"_ustr).static_items(esky_low_items);
+  low.add_layout([](ui::Layout &layout, bContext * /*C*/, PointerRNA *ptr) {
+    layout.prop(ptr, "low_cloud_type", ui::ITEM_R_SPLIT_EMPTY_NAME, IFACE_("低云类型"), ICON_NONE);
+  });
+  low.add_input<decl::Int>("low_cloud_type"_ustr).default_value(1).available(false);
   low.add_input<decl::Float>("low_cloud_base"_ustr).default_value(0.5f);
   low.add_input<decl::Float>("low_cloud_thickness"_ustr).default_value(1.5f);
 
   PanelDeclarationBuilder &vert = cloud_types.add_panel("直展云族"_ustr).default_closed(true);
-  vert.add_input<decl::Bool>("vertical_cloud_enable"_ustr).default_value(true);
-  vert.add_input<decl::Menu>("vertical_cloud_type"_ustr).static_items(esky_vert_items);
+  vert.add_input<decl::Bool>("vertical_cloud_enable"_ustr).default_value(false);
+  vert.add_layout([](ui::Layout &layout, bContext * /*C*/, PointerRNA *ptr) {
+    layout.prop(ptr, "vertical_cloud_type", ui::ITEM_R_SPLIT_EMPTY_NAME, IFACE_("直展云类型"),
+                ICON_NONE);
+  });
+  vert.add_input<decl::Int>("vertical_cloud_type"_ustr).default_value(0).available(false);
   vert.add_input<decl::Float>("vertical_cloud_base"_ustr).default_value(0.5f);
   vert.add_input<decl::Float>("vertical_cloud_top"_ustr).default_value(8.0f);
 
   PanelDeclarationBuilder &special = cloud_types.add_panel("特殊云族"_ustr).default_closed(true);
-  special.add_input<decl::Bool>("special_cloud_enable"_ustr).default_value(true);
-  special.add_input<decl::Menu>("special_cloud_type"_ustr).static_items(esky_special_items);
+  special.add_input<decl::Bool>("special_cloud_enable"_ustr).default_value(false);
+  special.add_layout([](ui::Layout &layout, bContext * /*C*/, PointerRNA *ptr) {
+    layout.prop(ptr, "special_cloud_type", ui::ITEM_R_SPLIT_EMPTY_NAME, IFACE_("特殊云类型"),
+                ICON_NONE);
+  });
+  special.add_input<decl::Int>("special_cloud_type"_ustr).default_value(0).available(false);
   special.add_input<decl::Float>("special_cloud_base"_ustr).default_value(3.0f);
   special.add_input<decl::Float>("special_cloud_thickness"_ustr).default_value(0.5f);
 
@@ -170,7 +180,10 @@ static void node_declare(NodeDeclarationBuilder &b)
   cloud_adv.add_input<decl::Float>("multi_scatter_strength"_ustr).default_value(1.08f);
 
   PanelDeclarationBuilder &weather = b.add_panel("天气"_ustr).default_closed(true);
-  weather.add_input<decl::Menu>("weather_type"_ustr).static_items(esky_weather_items);
+  weather.add_layout([](ui::Layout &layout, bContext * /*C*/, PointerRNA *ptr) {
+    layout.prop(ptr, "weather_type", ui::ITEM_R_SPLIT_EMPTY_NAME, IFACE_("天气状态"), ICON_NONE);
+  });
+  weather.add_input<decl::Int>("weather_type"_ustr).default_value(0).available(false);
   PanelDeclarationBuilder &rain = weather.add_panel("下雨"_ustr).default_closed(true);
   rain.add_input<decl::Float>("rain_intensity"_ustr).default_value(0.498f);
   rain.add_input<decl::Bool>("lens_rain_enable"_ustr).default_value(false);
@@ -190,10 +203,26 @@ static void node_declare(NodeDeclarationBuilder &b)
 }
 
 
+static void node_shader_buts_esky(ui::Layout &layout, bContext * /*C*/, PointerRNA *ptr)
+{
+  layout.prop(ptr, "weather_type", ui::ITEM_R_SPLIT_EMPTY_NAME, IFACE_("天气状态"), ICON_NONE);
+  layout.prop(ptr, "high_cloud_type", ui::ITEM_R_SPLIT_EMPTY_NAME, IFACE_("高云类型"), ICON_NONE);
+  layout.prop(ptr, "mid_cloud_type", ui::ITEM_R_SPLIT_EMPTY_NAME, IFACE_("中云类型"), ICON_NONE);
+  layout.prop(ptr, "low_cloud_type", ui::ITEM_R_SPLIT_EMPTY_NAME, IFACE_("低云类型"), ICON_NONE);
+  layout.prop(ptr, "vertical_cloud_type", ui::ITEM_R_SPLIT_EMPTY_NAME, IFACE_("直展云类型"),
+              ICON_NONE);
+  layout.prop(ptr, "special_cloud_type", ui::ITEM_R_SPLIT_EMPTY_NAME, IFACE_("特殊云类型"),
+              ICON_NONE);
+}
+
 
 /** Load an image, never returning a link built from a null image.
- *  A null image would end up binding a null GPU texture at draw time (SIGSEGV). */
-static GPUNodeLink *esky_gpu_image(GPUMaterial *mat, const char *path, Image *fallback)
+ *  A null image would end up binding a null GPU texture at draw time (SIGSEGV).
+ *
+ *  All textures are sampled with linear filtering: `GPUSamplerState::default_sampler()`
+ *  means *nearest* filtering, which turns the 3D LUT cloud noise and the moon map into
+ *  visibly blocky voxels. */
+static GPUNodeLink *esky_gpu_image(GPUMaterial *mat, const char *path, Image *fallback, bool raw = false)
 {
   Image *ima = BKE_image_load_exists(G_MAIN, path);
   if (ima == nullptr) {
@@ -207,20 +236,68 @@ static GPUNodeLink *esky_gpu_image(GPUMaterial *mat, const char *path, Image *fa
   if (ima == nullptr) {
     return nullptr;
   }
-  return GPU_image(mat, ima, nullptr, GPUSamplerState::default_sampler());
+
+  /* 云噪声/天气/卷曲贴图是数据贴图，必须按原始 0~1 取值采样。PNG 默认被标为
+   * sRGB，采样时会被解码回线性空间（0.816 → 0.62），而 esky.glsl 的
+   * fc_cloud_map 是直接按原始值做阈值化的，解码后覆盖率阈值几乎永远不成立，
+   * 云会退化成零散小块。 */
+  if (raw && !STREQ(ima->colorspace_settings.name, "Non-Color")) {
+    STRNCPY(ima->colorspace_settings.name, "Non-Color");
+    BKE_image_free_gpu_texture_caches(ima);
+  }
+
+  GPUSamplerState sampler_state = GPUSamplerState::default_sampler();
+  sampler_state.filtering = GPU_SAMPLER_FILTERING_LINEAR;
+  sampler_state.extend_x = GPU_SAMPLER_EXTEND_MODE_REPEAT;
+  sampler_state.extend_yz = GPU_SAMPLER_EXTEND_MODE_REPEAT;
+  return GPU_image(mat, ima, nullptr, sampler_state);
+}
+
+/** Copy the cloud/weather enum values stored in the integer slots of #bNode
+ *  (see `def_sh_esky`) into the hidden declaration sockets, so that the shader
+ *  receives the species selected in the node buttons. */
+static void esky_sync_enum_inputs(const bNode *node, GPUNodeStack *in)
+{
+  struct EnumInput {
+    const char *identifier;
+    int value;
+  };
+  const EnumInput enums[] = {
+      {"weather_type", node->custom1},
+      {"high_cloud_type", node->custom2},
+      {"mid_cloud_type", node->custom5},
+      {"low_cloud_type", node->custom6},
+      {"vertical_cloud_type", node->custom7},
+      {"special_cloud_type", node->custom8},
+  };
+
+  int index = 0;
+  for (const bNodeSocket &socket : node->inputs) {
+    if (in[index].link == nullptr) {
+      for (const EnumInput &item : enums) {
+        if (STREQ(socket.identifier, item.identifier)) {
+          in[index].value = item.value;
+          break;
+        }
+      }
+    }
+    index++;
+  }
 }
 
 static int node_shader_gpu_esky(GPUMaterial *mat, bNode *node, bNodeExecData * /*execdata*/, GPUNodeStack *in, GPUNodeStack *out)
 {
+  esky_sync_enum_inputs(node, in);
+
   const char *dir = "/home/eridanusepsilon/Code/EBC/EBC5.3/Pic/Flower/";
   Image *fallback = BKE_image_load_exists(
       G_MAIN, "/home/eridanusepsilon/Code/EBC/EBC5.3/Pic/Flower/Flower_blue_noise.png");
 
-  GPUNodeLink *img_basic = esky_gpu_image(mat, (std::string(dir) + "cloud_basic_noise.png").c_str(), fallback);
-  GPUNodeLink *img_detail = esky_gpu_image(mat, (std::string(dir) + "Flower_detail_noise.png").c_str(), fallback);
-  GPUNodeLink *img_weather = esky_gpu_image(mat, (std::string(dir) + "Flower_weather_fixed.png").c_str(), fallback);
-  GPUNodeLink *img_curl = esky_gpu_image(mat, (std::string(dir) + "Flower_curl.png").c_str(), fallback);
-  GPUNodeLink *img_blue = esky_gpu_image(mat, (std::string(dir) + "Flower_blue_noise.png").c_str(), fallback);
+  GPUNodeLink *img_basic = esky_gpu_image(mat, (std::string(dir) + "cloud_basic_noise.png").c_str(), fallback, true);
+  GPUNodeLink *img_detail = esky_gpu_image(mat, (std::string(dir) + "Flower_detail_noise.png").c_str(), fallback, true);
+  GPUNodeLink *img_weather = esky_gpu_image(mat, (std::string(dir) + "Flower_weather_fixed.png").c_str(), fallback, true);
+  GPUNodeLink *img_curl = esky_gpu_image(mat, (std::string(dir) + "Flower_curl.png").c_str(), fallback, true);
+  GPUNodeLink *img_blue = esky_gpu_image(mat, (std::string(dir) + "Flower_blue_noise.png").c_str(), fallback, true);
   GPUNodeLink *img_moon = esky_gpu_image(mat, (std::string(dir) + "moon_01_diff_1k_fixed.png").c_str(), fallback);
 
   if (img_basic == nullptr || img_detail == nullptr || img_weather == nullptr ||
@@ -264,6 +341,8 @@ void register_node_type_sh_esky()
   ntype.nclass = NODE_CLASS_INPUT;
   ntype.declare = file_ns::node_declare;
   ntype.gpu_fn = file_ns::node_shader_gpu_esky;
+  ntype.default_width = 200;
+  ntype.draw_buttons = file_ns::node_shader_buts_esky;
   bke::node_register_type(ntype);
 }
 
