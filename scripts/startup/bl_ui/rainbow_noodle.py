@@ -2344,7 +2344,7 @@ def _draw_links(context, draw_selected_node_outlines=True, draw_connected_links=
     thickness_mul = getattr(getattr(addon, "preferences", None), "connected_rainbow_thickness", 1.0) if addon else 1.0
     if thickness_mul <= 0.0:
         return False
-    trace_linked_flow = bool(getattr(getattr(addon, "preferences", None), "trace_linked_flow", True)) if addon else True
+    trace_linked_flow = False
 
     time_sec = time.time()
     # 动态降载：用视口变换+节点位置指纹与上帧比对，判断是否正在交互（移动节点/平移视口）
@@ -3136,7 +3136,7 @@ class RainbowNoodlePreferences(bpy.types.AddonPreferences):
     )
     trace_linked_flow: bpy.props.BoolProperty(
         name="查找相连数据流上下游",
-        default=True,
+        default=False,
     )
     debug_performance_log: bpy.props.BoolProperty(
         name="Debug 性能日志",
