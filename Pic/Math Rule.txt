@@ -1,0 +1,37 @@
+常量
+pi = 3.14159
+e = 2.71828
+
+基础运算符
++ - * /
+% (取余/模)
+^ (乘方)
+() (括号优先级)
+
+数学函数
+基础数学（Float/Int，部分Vec3）：
+sin(a) / cos(a) / tan(a)
+asin(a) / acos(a) / atan(a)
+sqrt(a)
+exp(a) / exp2(a)
+log(a) / log2(a)
+abs(a)
+floor(a)
+ceil(a)
+round(a)
+fract(a)
+
+矢量/矩阵专用
+cross(a, b)：叉乘（仅限 Vec3）
+dot(a, b)：点乘
+length(a)：向量长度
+normalize(a)：向量归一化
+distance(a, b)：两点距离
+reflect(a, b)：反射向量
+
+多参数/限制函数：
+min(a, b) / max(a, b)：最小值/最大值
+clamp(a, min_val, max_val)：限制在范围内
+mix(a, b, fac) / lerp(a, b, fac)：线性插值
+step(edge, x)：阶梯函数
+smoothstep(edge0, edge1, x)：平滑阶梯

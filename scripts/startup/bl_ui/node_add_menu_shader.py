@@ -558,6 +558,7 @@ class NODE_MT_shader_node_math_base(node_add_menu.NodeMenu):
             "ShaderNodeMath",
             "operation",
             defaults_callback=node_add_menu.set_math_node_default_props)
+        self.node_operator(layout, "GeometryNodeMathExpression")
         self.node_operator(layout, "ShaderNodeMix")
 
         self.draw_assets_for_catalog(layout, self.menu_path)

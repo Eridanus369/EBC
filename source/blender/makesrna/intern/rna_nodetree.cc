@@ -4161,6 +4161,37 @@ static void rna_Node_ItemArray_item_update(Main *bmain, Scene * /*scene*/, Point
   BKE_main_ensure_invariants(*bmain, ntree.id);
 }
 
+/**
+ * Update callback for items of the math expression node. Unlike other item array nodes, the
+ * expression node owns two separate item arrays (inputs and outputs), so the owning node has to
+ * be found by checking whether the item pointer lies inside either array.
+ */
+static void rna_NodeMathExpressionItem_update(Main *bmain, Scene * /*scene*/, PointerRNA *ptr)
+{
+  bNodeTree &ntree = *reinterpret_cast<bNodeTree *>(ptr->owner_id);
+  NodeMathExpressionItem *item = static_cast<NodeMathExpressionItem *>(ptr->data);
+  bNode *node = nullptr;
+  ntree.ensure_topology_cache();
+  for (bNode *candidate : ntree.nodes_by_type(UString("GeometryNodeMathExpression"))) {
+    if (candidate->storage == nullptr) {
+      continue;
+    }
+    NodeMathExpression *storage = static_cast<NodeMathExpression *>(candidate->storage);
+    if ((item >= storage->inputs && item < storage->inputs + MATH_EXPR_MAX_INPUTS) ||
+        (item >= storage->outputs && item < storage->outputs + MATH_EXPR_MAX_OUTPUTS))
+    {
+      node = candidate;
+      break;
+    }
+  }
+  if (node == nullptr) {
+    return;
+  }
+
+  BKE_ntree_update_tag_node_property(&ntree, node);
+  BKE_main_ensure_invariants(*bmain, ntree.id);
+}
+
 template<typename Accessor>
 static const EnumPropertyItem *rna_Node_ItemArray_socket_type_itemf(bContext * /*C*/,
                                                                     PointerRNA *ptr,
@@ -7458,6 +7489,40 @@ static void def_sh_portal_out(BlenderRNA * /*brna*/, StructRNA *srna)
   RNA_def_property_update(prop, NC_NODE | NA_EDITED, "rna_Node_socket_update");
 
   RNA_def_struct_sdna_from(srna, "bNode", nullptr);
+}
+
+static const EnumPropertyItem math_expression_socket_type_items[] = {
+    {SOCK_FLOAT, "FLOAT", ICON_NODE_SOCKET_FLOAT, "Float", "Evaluate to a floating-point value"},
+    {SOCK_INT, "INT", ICON_NODE_SOCKET_INT, "Integer", "Evaluate to an integer value"},
+    {SOCK_VECTOR, "VECTOR", ICON_NODE_SOCKET_VECTOR, "Vector", "Evaluate to a vector value"},
+    {SOCK_RGBA, "RGBA", ICON_NODE_SOCKET_RGBA, "Color", "Evaluate to a color value"},
+    {SOCK_MATRIX, "MATRIX", ICON_NODE_SOCKET_MATRIX, "Matrix", "Evaluate to a matrix value"},
+    {0, nullptr, 0, nullptr, nullptr},
+};
+
+static void rna_def_geo_math_expression_item(BlenderRNA *brna)
+{
+  StructRNA *srna = RNA_def_struct(brna, "GeometryNodeMathExpressionItem", nullptr);
+  RNA_def_struct_ui_text(srna, "Math Expression Item", "Output socket and its expression");
+  RNA_def_struct_sdna(srna, "NodeMathExpressionItem");
+
+  PropertyRNA *prop = RNA_def_property(srna, "expression", PROP_STRING, PROP_NONE);
+  RNA_def_property_string_sdna(prop, nullptr, "expression");
+  RNA_def_property_ui_text(
+      prop, "Expression", "Expression referencing input ports as {0}, {1}, ...");
+  RNA_def_property_update(prop, NC_NODE | NA_EDITED, "rna_NodeMathExpressionItem_update");
+
+  prop = RNA_def_property(srna, "socket_type", PROP_ENUM, PROP_NONE);
+  RNA_def_property_enum_sdna(prop, nullptr, "socket_type");
+  RNA_def_property_enum_items(prop, math_expression_socket_type_items);
+  RNA_def_property_ui_text(prop, "Type", "Data type of the output socket");
+  RNA_def_property_update(prop, NC_NODE | NA_EDITED, "rna_NodeMathExpressionItem_update");
+}
+
+static void def_geo_math_expression(BlenderRNA *brna, StructRNA *srna)
+{
+  rna_def_geo_math_expression_item(brna);
+  RNA_def_struct_sdna_from(srna, "NodeMathExpression", "storage");
 }
 
 static void def_sh_image_to_closure(BlenderRNA * /*brna*/, StructRNA *srna)
@@ -14310,6 +14375,7 @@ static void rna_def_nodes(BlenderRNA *brna)
   define("GeometryNode", "GeometryNodeListLength");
   define("GeometryNode", "GeometryNodeGeometryMaterials");
   define("GeometryNode", "GeometryNodeMaterialSelection");
+  define("GeometryNode", "GeometryNodeMathExpression", def_geo_math_expression);
   define("GeometryNode", "GeometryNodeMenuSwitch", def_geo_menu_switch);
   define("GeometryNode", "GeometryNodeMergeByDistance");
   define("GeometryNode", "GeometryNodeMergeLayers", def_geo_merge_layers);

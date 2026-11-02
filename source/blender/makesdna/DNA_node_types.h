@@ -3388,6 +3388,30 @@ struct NodeShaderScriptExpression {
 #endif
 };
 
+/** Maximum number of inputs of a #NodeMathExpression node. */
+#define MATH_EXPR_MAX_INPUTS 16
+/** Maximum number of outputs of a #NodeMathExpression node. */
+#define MATH_EXPR_MAX_OUTPUTS 8
+/** Maximum length of an output expression string of a #NodeMathExpression node. */
+#define MATH_EXPR_TEXT_MAX 256
+
+struct NodeMathExpressionItem {
+  /** Expression that evaluates to the socket value. Unused for inputs. */
+  char expression[/*MATH_EXPR_TEXT_MAX*/ 256] = "";
+  /** #eNodeSocketDatatype. */
+  short socket_type = SOCK_FLOAT;
+  short _pad = 0;
+};
+
+struct NodeMathExpression {
+  DNA_DEFINE_CXX_METHODS(NodeMathExpression)
+
+  int inputs_num = 0;
+  int outputs_num = 0;
+  NodeMathExpressionItem inputs[/*MATH_EXPR_MAX_INPUTS*/ 16];
+  NodeMathExpressionItem outputs[/*MATH_EXPR_MAX_OUTPUTS*/ 8];
+};
+
 struct NodeShaderPortal {
   DNA_DEFINE_CXX_METHODS(NodeShaderPortal)
 
