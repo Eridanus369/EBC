@@ -2620,6 +2620,12 @@ def _draw_links(context, draw_selected_node_outlines=True, draw_connected_links=
         initial_links = set()
         # 直接遍历 tree.links 替代 4 重嵌套循环遍历 socket
         for link in tree.links:
+            # 【新增】跳过相同标号的网络连线
+            if link.from_node and link.to_node:
+                n1 = link.from_node.get("net_name")
+                n2 = link.to_node.get("net_name")
+                if n1 and n2 and n1 == n2:
+                    continue
             if link.from_node in scope_nodes and link.to_node in scope_nodes:
                 if link.from_socket.enabled and link.to_socket.enabled:
                     initial_links.add(link)
@@ -2832,6 +2838,12 @@ def _draw_links(context, draw_selected_node_outlines=True, draw_connected_links=
     _reg_h = context.region.height
     _reg_margin = 200.0
     for link in links_to_draw:
+        # 【新增兜底】跳过相同标号的网络连线
+        if link.from_node and link.to_node:
+            n1 = link.from_node.get("net_name")
+            n2 = link.to_node.get("net_name")
+            if n1 and n2 and n1 == n2:
+                continue
         link_is_current = link in current_links_to_draw
         link_is_shared = link_is_current and link in fade_links_to_draw
         link_alpha = min(1.0, display_alpha + fade_alpha) if link_is_shared else (

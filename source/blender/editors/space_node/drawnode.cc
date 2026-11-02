@@ -2472,6 +2472,20 @@ void node_draw_link(const bContext &C,
                     const bNodeLink &link,
                     const bool selected)
 {
+  /* --- 注入: 只有两端标号相同的转接点之间的连线才隐藏 --- */
+  if (link.fromnode && link.tonode) {
+    IDProperty *p1 = link.fromnode->prop ? IDP_GetPropertyFromGroup(link.fromnode->prop, "net_name") : nullptr;
+    IDProperty *p2 = link.tonode->prop ? IDP_GetPropertyFromGroup(link.tonode->prop, "net_name") : nullptr;
+    if (p1 && p2 && p1->type == IDP_STRING && p2->type == IDP_STRING) {
+      const char *str1 = (const char *)p1->data.pointer;
+      const char *str2 = (const char *)p2->data.pointer;
+      if (str1 && str2 && strcmp(str1, str2) == 0) {
+        return;
+      }
+    }
+  }
+  /* --------------------------------------------------- */
+
   int th_col1 = TH_WIRE_INNER, th_col2 = TH_WIRE_INNER, th_col3 = TH_WIRE;
 
   if (link.fromsock == nullptr && link.tosock == nullptr) {

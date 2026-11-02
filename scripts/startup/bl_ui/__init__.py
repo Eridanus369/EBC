@@ -185,6 +185,8 @@ def register():
     node_note.register()
     from . import node_arrange
     node_arrange.register()
+    from . import enet_schematic
+    enet_schematic.ENetSchematic.register()
 
     # done...
 
@@ -192,6 +194,8 @@ def register():
 def unregister():
     from . import node_arrange
     node_arrange.unregister()
+    from . import enet_schematic
+    enet_schematic.ENetSchematic.unregister()
     from . import node_note
     node_note.unregister()
     from . import rainbow_noodle
