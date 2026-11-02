@@ -123,10 +123,18 @@ def ensure_preview_scene(res, world_strength=1.0, sun_strength=2.0,
         scn.render.engine = engine
     except TypeError:
         scn.render.engine = "BLENDER_EEVEE"
+
+    # 【极限性能压榨】强制低采样，保证瞬间出图
     if scn.render.engine == "CYCLES":
         try:
-            scn.cycles.samples = 16
-            scn.cycles.use_denoising = True
+            scn.cycles.samples = 1
+            scn.cycles.use_denoising = False
+            scn.cycles.use_adaptive_sampling = False
+        except Exception:
+            pass
+    elif scn.render.engine in {"BLENDER_EEVEE_NEXT", "BLENDER_EEVEE"}:
+        try:
+            scn.eevee.taa_render_samples = 1
         except Exception:
             pass
     r = scn.render

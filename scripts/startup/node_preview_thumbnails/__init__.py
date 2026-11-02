@@ -232,7 +232,10 @@ def unregister():
     _state["editors"].clear()
     _state["shader_image"] = None
     _state["shader_color"] = None
-    _cleanup_datablocks()
+    try:
+        _cleanup_datablocks()
+    except Exception:
+        pass
     del bpy.types.Scene.npv
     for c in reversed(_classes):
         try:

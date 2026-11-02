@@ -3,6 +3,7 @@
 frame change, file load / save) that mark previews out of date."""
 
 import bpy
+import time
 from bpy.app.handlers import persistent
 
 from . import drawing, preview_scene, queue, sources
@@ -129,7 +130,11 @@ def _timer():
         return 0.25
     shown = len(_state["textures"])
     if _state["dirty"] and props.auto_update:
+        # 【防抖逻辑】如果 0.15 秒内有新的修改，直接跳过本帧的渲染
+        if time.perf_counter() - _state.get("last_update_time", 0) < 0.15:
+            return 0.05
         _state["dirty"] = False
+        _state["last_update_time"] = 0.0
         saved_hint = _state["src_hint"]
         try:
             for tree, kind, path, hint in _editor_targets():
@@ -154,7 +159,7 @@ def _timer():
     # out, node deleted, cache pruned) so they don't linger on screen.
     if rendered or len(_state["textures"]) < shown:
         queue._tag_node_editors()
-    return 0.15
+    return 0.05
 
 
 def _ensure_timer():
@@ -274,6 +279,7 @@ def _on_depsgraph(scene, depsgraph):
             # changed (recorded above): re-hash; the image's counter is part
             # of its hash, the data's content of its GN previews' (_data_sig).
             _state["dirty"] = True
+            _state["last_update_time"] = time.perf_counter()
         elif idt == "OBJECT":
             # Moving / rotating an object changes nothing a preview shows
             # (geometry previews render a copy with a neutral transform), and
@@ -286,9 +292,11 @@ def _on_depsgraph(scene, depsgraph):
                     not in _state["xform_watch"]:
                 continue
             _state["dirty"] = True
+            _state["last_update_time"] = time.perf_counter()
         elif idt in {"MATERIAL", "NODETREE", "WORLD", "SCENE", "LIGHT"}:
             # SCENE: e.g. a render engine switch (part of the hash).
             _state["dirty"] = True
+            _state["last_update_time"] = time.perf_counter()
 
 
 @persistent

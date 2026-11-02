@@ -1,0 +1,22 @@
+schema_version = "1.0.0"
+id = "node_note"
+version = "1.3.1"
+name = "Node Note/节点随记"
+tagline = "Powerful node notes with text and images/强大的节点图文笔记工具"
+maintainer = "無東;W_Cloud"
+type = "add-on"
+tags = ["Node"]
+blender_version_min = "4.2.0"
+license = ["SPDX:GPL-3.0-or-later"]
+website = "https://space.bilibili.com/1109241880"
+[permissions]
+files = "Import image or use font from disk"
+clipboard = "Paste text/image from the clipboard and copy text to clipboard"
+[build]
+paths_exclude_pattern = [
+  "__pycache__/",
+  ".*",
+  "*.zip",
+  "*.log",
+  "*.md",
+]

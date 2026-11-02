@@ -85,19 +85,20 @@ class NPVProps(bpy.types.PropertyGroup):
         default=False, update=_node_show_update)
     resolution: bpy.props.EnumProperty(
         name="Quality",
-        items=[("64", "Low (64px)", ""), ("128", "Medium (128px)", ""),
+        items=[("32", "Very Low (32px)", ""), ("64", "Low (64px)", ""), 
+               ("128", "Medium (128px)", ""),
                ("256", "High (256px)", "")],
-        default="64", update=_mark_dirty)
+        default="32", update=_mark_dirty)
     batch_size: bpy.props.IntProperty(
         name="Nodes / Tick",
         description="Most previews rendered per step",
-        default=2, min=1, max=8)
+        default=1, min=1, max=8)
     time_budget: bpy.props.IntProperty(
         name="Time Budget",
         description="Stop a step's renders once this much time is spent (at "
                     "least one render per step). Lower = smoother UI, slower "
                     "refresh",
-        default=250, min=20, max=2000)
+        default=15, min=5, max=2000)
     update_on_frame: bpy.props.BoolProperty(
         name="Update on Frame Change",
         description="Re-render previews when the frame changes (Scene Time, "

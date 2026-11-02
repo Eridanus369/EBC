@@ -181,10 +181,15 @@ def register():
 
     bpy.app.handlers.translation_update_post.append(translation_update)
 
+    from . import node_note
+    node_note.register()
+
     # done...
 
 
 def unregister():
+    from . import node_note
+    node_note.unregister()
     from . import rainbow_noodle
     rainbow_noodle.unregister()
     from bpy.utils import unregister_class
