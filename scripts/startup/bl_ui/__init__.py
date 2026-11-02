@@ -183,11 +183,15 @@ def register():
 
     from . import node_note
     node_note.register()
+    from . import node_arrange
+    node_arrange.register()
 
     # done...
 
 
 def unregister():
+    from . import node_arrange
+    node_arrange.unregister()
     from . import node_note
     node_note.unregister()
     from . import rainbow_noodle
