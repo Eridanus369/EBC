@@ -2,7 +2,6 @@ name: update submodules daily
 
 on:
   schedule:
-    # Every day at 03:00 UTC
     - cron: "0 3 * * *"
   workflow_dispatch:
 
@@ -12,11 +11,10 @@ jobs:
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
-        env:
-          GIT_LFS_SKIP_SMUDGE: 1
         with:
           fetch-depth: 0
           submodules: recursive
+          persist-credentials: false
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Configure git
@@ -24,19 +22,10 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Update all submodules to latest master
-        env:
-          GIT_LFS_SKIP_SMUDGE: 1
+      - name: Update specific submodules
         run: |
           cd scripts/addons_core
-          git submodule update --init --recursive --remote .
-          cd bge_netlogic
-          git checkout master
-          git pull --rebase origin master
-          cd ../bge_bricknodes
-          git checkout master
-          git pull --rebase origin master
-          cd ../bge_easyonline
+          cd bge_easyonline
           git checkout master
           git pull --rebase origin master
           cd ../bge_thelightmapper
