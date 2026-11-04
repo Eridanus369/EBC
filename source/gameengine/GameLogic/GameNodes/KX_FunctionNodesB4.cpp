@@ -119,7 +119,14 @@ void SetAttr(KX_FunctionNode &node,
   if (handle < 0) {
     return;
   }
-  ctx.UI().SetAttribute(handle, key, node.In(ctx, index));
+  /* Unconnected optional inputs read as a zeroed slot of type NONE; keep the
+   * element default instead of overwriting its layout with zeros. The raw slot
+   * is checked because a declared type conversion would turn NONE into 0. */
+  const KX_RuntimeValue &raw = ctx.Value(node.InputOffset(index));
+  if (raw.type == KX_VALUE_NONE) {
+    return;
+  }
+  ctx.UI().SetAttribute(handle, key, raw);
 }
 
 void SetAttrValue(KX_FunctionNode &node,
@@ -132,6 +139,25 @@ void SetAttrValue(KX_FunctionNode &node,
   if (handle >= 0) {
     ctx.UI().SetAttribute(handle, key, value);
   }
+}
+
+/** Two component vector attribute, skipping unconnected optional inputs. */
+void SetAttrVector(KX_FunctionNode &node,
+                   KX_ExecutionContext &ctx,
+                   int handle,
+                   const char *key,
+                   uint32_t index)
+{
+  if (handle < 0) {
+    return;
+  }
+  const KX_RuntimeValue &raw = ctx.Value(node.InputOffset(index));
+  if (raw.type == KX_VALUE_NONE) {
+    return;
+  }
+  float value[3] = {0.0f, 0.0f, 0.0f};
+  node.InVector(ctx, index, value);
+  ctx.UI().SetAttribute(handle, key, KX_RuntimeValue::Vector(value[0], value[1], 0.0f));
 }
 
 /* ------------------------------------------------------------------------- */
@@ -296,13 +322,17 @@ const KX_FuncPort kGetWidgetAttrOutputs[] = {
 /* State                                                                     */
 /* ------------------------------------------------------------------------- */
 
+/* The runtime data buffer zeroes node state, so a "created" flag tracks the
+ * first successful creation instead of relying on a negative handle sentinel. */
 struct KX_UIHandleState {
   int handle = -1;
+  bool created = false;
 };
 
 struct KX_UISliderState {
   int handle = -1;
   float value = 0.0f;
+  bool created = false;
 };
 
 /* ------------------------------------------------------------------------- */
@@ -313,8 +343,9 @@ void FuncCreateCanvas(KX_FunctionNode &node, KX_ExecutionContext &ctx)
 {
   KX_UIHandleState *state = node.StateBlock<KX_UIHandleState>(ctx);
   const bool trigger = node.InTrigger(ctx, 0);
-  if (trigger && state != nullptr && state->handle < 0) {
+  if (trigger && state != nullptr && !state->created) {
     state->handle = ctx.UI().CreateCanvas(std::string());
+    state->created = state->handle >= 0;
     if (state->handle >= 0) {
       SetAttrValue(node,
                    ctx,
@@ -338,9 +369,10 @@ void FuncCreateLayout(KX_FunctionNode &node, KX_ExecutionContext &ctx)
 {
   KX_UIHandleState *state = node.StateBlock<KX_UIHandleState>(ctx);
   const bool trigger = node.InTrigger(ctx, 0);
-  if (trigger && state != nullptr && state->handle < 0) {
+  if (trigger && state != nullptr && !state->created) {
     const int parent = node.InInt(ctx, 1);
     state->handle = ctx.UI().CreateLayout(parent, node.ConfigInt("layout_type", 0));
+    state->created = state->handle >= 0;
     if (state->handle >= 0) {
       SetAttrValue(node,
                    ctx,
@@ -358,13 +390,9 @@ void FuncCreateLayout(KX_FunctionNode &node, KX_ExecutionContext &ctx)
                    "layout_type",
                    KX_RuntimeValue::Int(node.ConfigInt("layout_type", 0)));
       SetAttr(node, ctx, state->handle, "rel_pos", 2);
-      float pos[3] = {0.0f, 0.0f, 0.0f};
-      node.InVector(ctx, 3, pos);
-      SetAttrValue(node, ctx, state->handle, "position", KX_RuntimeValue::Vector(pos[0], pos[1], 0.0f));
+      SetAttrVector(node, ctx, state->handle, "position", 3);
       SetAttr(node, ctx, state->handle, "rel_size", 4);
-      float size[3] = {0.0f, 0.0f, 0.0f};
-      node.InVector(ctx, 5, size);
-      SetAttrValue(node, ctx, state->handle, "size", KX_RuntimeValue::Vector(size[0], size[1], 0.0f));
+      SetAttrVector(node, ctx, state->handle, "size", 5);
       SetAttr(node, ctx, state->handle, "angle", 6);
       SetAttr(node, ctx, state->handle, "color", 7);
       SetAttr(node, ctx, state->handle, "border_width", 8);
@@ -385,15 +413,14 @@ void FuncCreateLabel(KX_FunctionNode &node, KX_ExecutionContext &ctx)
 {
   KX_UIHandleState *state = node.StateBlock<KX_UIHandleState>(ctx);
   const bool trigger = node.InTrigger(ctx, 0);
-  if (trigger && state != nullptr && state->handle < 0) {
+  if (trigger && state != nullptr && !state->created) {
     const int parent = node.InInt(ctx, 1);
     const std::string text = InString(node, ctx, 5);
     state->handle = ctx.UI().CreateLabel(parent, text);
+    state->created = state->handle >= 0;
     if (state->handle >= 0) {
       SetAttr(node, ctx, state->handle, "rel_pos", 2);
-      float pos[3] = {0.0f, 0.0f, 0.0f};
-      node.InVector(ctx, 3, pos);
-      SetAttrValue(node, ctx, state->handle, "position", KX_RuntimeValue::Vector(pos[0], pos[1], 0.0f));
+      SetAttrVector(node, ctx, state->handle, "position", 3);
       SetAttr(node, ctx, state->handle, "angle", 4);
       SetAttr(node, ctx, state->handle, "text", 5);
       const std::string port_font = InString(node, ctx, 6);
@@ -442,22 +469,19 @@ void FuncCreateImage(KX_FunctionNode &node, KX_ExecutionContext &ctx)
 {
   KX_UIHandleState *state = node.StateBlock<KX_UIHandleState>(ctx);
   const bool trigger = node.InTrigger(ctx, 0);
-  if (trigger && state != nullptr && state->handle < 0) {
+  if (trigger && state != nullptr && !state->created) {
     const int parent = node.InInt(ctx, 1);
     std::string texture = InString(node, ctx, 7);
     if (texture.empty()) {
       texture = node.ConfigString("texture");
     }
     state->handle = ctx.UI().CreateImage(parent, texture);
+    state->created = state->handle >= 0;
     if (state->handle >= 0) {
       SetAttr(node, ctx, state->handle, "rel_pos", 2);
-      float pos[3] = {0.0f, 0.0f, 0.0f};
-      node.InVector(ctx, 3, pos);
-      SetAttrValue(node, ctx, state->handle, "position", KX_RuntimeValue::Vector(pos[0], pos[1], 0.0f));
+      SetAttrVector(node, ctx, state->handle, "position", 3);
       SetAttr(node, ctx, state->handle, "rel_size", 4);
-      float size[3] = {0.0f, 0.0f, 0.0f};
-      node.InVector(ctx, 5, size);
-      SetAttrValue(node, ctx, state->handle, "size", KX_RuntimeValue::Vector(size[0], size[1], 0.0f));
+      SetAttrVector(node, ctx, state->handle, "size", 5);
       SetAttr(node, ctx, state->handle, "angle", 6);
       SetAttrValue(node,
                    ctx,
@@ -487,18 +511,15 @@ void FuncCreateButton(KX_FunctionNode &node, KX_ExecutionContext &ctx)
 {
   KX_UIHandleState *state = node.StateBlock<KX_UIHandleState>(ctx);
   const bool trigger = node.InTrigger(ctx, 0);
-  if (trigger && state != nullptr && state->handle < 0) {
+  if (trigger && state != nullptr && !state->created) {
     const int parent = node.InInt(ctx, 1);
     state->handle = ctx.UI().CreateButton(parent, InString(node, ctx, 11));
+    state->created = state->handle >= 0;
     if (state->handle >= 0) {
       SetAttr(node, ctx, state->handle, "rel_pos", 2);
-      float pos[3] = {0.0f, 0.0f, 0.0f};
-      node.InVector(ctx, 3, pos);
-      SetAttrValue(node, ctx, state->handle, "position", KX_RuntimeValue::Vector(pos[0], pos[1], 0.0f));
+      SetAttrVector(node, ctx, state->handle, "position", 3);
       SetAttr(node, ctx, state->handle, "rel_size", 4);
-      float size[3] = {0.0f, 0.0f, 0.0f};
-      node.InVector(ctx, 5, size);
-      SetAttrValue(node, ctx, state->handle, "size", KX_RuntimeValue::Vector(size[0], size[1], 0.0f));
+      SetAttrVector(node, ctx, state->handle, "size", 5);
       SetAttr(node, ctx, state->handle, "angle", 6);
       SetAttr(node, ctx, state->handle, "color", 7);
       SetAttr(node, ctx, state->handle, "hover_color", 8);
@@ -555,20 +576,17 @@ void FuncCreateSlider(KX_FunctionNode &node, KX_ExecutionContext &ctx)
 {
   KX_UISliderState *state = node.StateBlock<KX_UISliderState>(ctx);
   const bool trigger = node.InTrigger(ctx, 0);
-  if (trigger && state != nullptr && state->handle < 0) {
+  if (trigger && state != nullptr && !state->created) {
     const int parent = node.InInt(ctx, 1);
     const float initial = node.InFloat(ctx, 17);
     state->handle = ctx.UI().CreateSlider(parent, initial, node.InInt(ctx, 18), node.InBool(ctx, 19));
+    state->created = state->handle >= 0;
     state->value = initial;
     if (state->handle >= 0) {
       SetAttr(node, ctx, state->handle, "rel_pos", 2);
-      float pos[3] = {0.0f, 0.0f, 0.0f};
-      node.InVector(ctx, 3, pos);
-      SetAttrValue(node, ctx, state->handle, "position", KX_RuntimeValue::Vector(pos[0], pos[1], 0.0f));
+      SetAttrVector(node, ctx, state->handle, "position", 3);
       SetAttr(node, ctx, state->handle, "rel_size", 4);
-      float size[3] = {0.0f, 0.0f, 0.0f};
-      node.InVector(ctx, 5, size);
-      SetAttrValue(node, ctx, state->handle, "size", KX_RuntimeValue::Vector(size[0], size[1], 0.0f));
+      SetAttrVector(node, ctx, state->handle, "size", 5);
       SetAttr(node, ctx, state->handle, "angle", 6);
       SetAttr(node, ctx, state->handle, "bar_width", 7);
       SetAttr(node, ctx, state->handle, "bar_color", 8);
@@ -761,6 +779,10 @@ KX_NodeSignature MakeB4Signature(const KX_FunctionSpec &spec)
   signature.state_alignment = spec.state_alignment;
   signature.needs_tick = spec.needs_tick || spec.tick != nullptr;
   signature.breaks_trigger_cycles = spec.breaks_trigger_cycles;
+  /* SetUIWidgetAttr takes the Value type from the selected widget attribute. */
+  if (std::string(spec.type_id) == "SetUIWidgetAttr" && signature.inputs.size() > 2) {
+    signature.inputs[2].dynamic_type = true;
+  }
   return signature;
 }
 

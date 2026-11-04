@@ -112,6 +112,7 @@ class KX_FunctionNode final : public KX_LogicNodeRuntime {
   void FinishPendingTriggers(KX_ExecutionContext &ctx) override;
   bool Configure(const std::string &config, std::string *error) override;
   bool IsValueNode() const override;
+  KX_ValueType ResolvedPortType(bool input, uint32_t port) const override;
 
   const KX_FunctionSpec &Spec() const
   {

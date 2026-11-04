@@ -54,6 +54,48 @@
 
 namespace {
 
+/** Value type each widget_attr entry carries, used to type SetUIWidgetAttr. */
+KX_ValueType WidgetAttrValueType(int attr)
+{
+  switch (attr) {
+    case 0:  /* show */
+    case 18: /* wrap */
+    case 19: /* shadow */
+      return KX_VALUE_BOOL;
+    case 1:  /* bg_color */
+    case 9:  /* border_color */
+    case 10: /* hover_color */
+    case 13: /* font_color */
+    case 21: /* shadow_color */
+      return KX_VALUE_COLOR;
+    case 3:  /* pos */
+    case 4:  /* size */
+    case 20: /* shadow_offset */
+      return KX_VALUE_VECTOR;
+    case 11: /* text */
+    case 12: /* font */
+    case 22: /* texture */
+      return KX_VALUE_STRING;
+    case 2:  /* opacity */
+    case 5:  /* angle */
+    case 15: /* line_height */
+      return KX_VALUE_FLOAT;
+    default: /* width, height, border_width, font_size, alignment, spacing, ... */
+      return KX_VALUE_INT;
+  }
+}
+
+KX_ValueType ResolveWidgetAttrPort(const KX_FunctionSpec *spec, int attr)
+{
+  if (spec == nullptr) {
+    return KX_VALUE_NONE;
+  }
+  if (std::strcmp(spec->type_id, "SetUIWidgetAttr") != 0) {
+    return KX_VALUE_NONE;
+  }
+  return WidgetAttrValueType(attr);
+}
+
 std::string InString(KX_FunctionNode &node, KX_ExecutionContext &ctx, uint32_t index)
 {
   const KX_RuntimeValue value = node.In(ctx, index);
@@ -1304,6 +1346,18 @@ bool KX_FunctionNode::Configure(const std::string &config, std::string *error)
 bool KX_FunctionNode::IsValueNode() const
 {
   return spec_->is_value_node;
+}
+
+KX_ValueType KX_FunctionNode::ResolvedPortType(bool input, uint32_t port) const
+{
+  /* SetUIWidgetAttr carries the attribute type on its Value port (port 2). */
+  if (input && port == 2) {
+    const KX_ValueType type = ResolveWidgetAttrPort(spec_, ConfigInt("widget_attr", -1));
+    if (type != KX_VALUE_NONE) {
+      return type;
+    }
+  }
+  return KX_LogicNodeRuntime::ResolvedPortType(input, port);
 }
 
 float KX_FunctionNode::ConfigFloat(const char *key, float fallback) const
