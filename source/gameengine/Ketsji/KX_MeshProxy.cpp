@@ -161,6 +161,13 @@ PyObject *KX_MeshProxy::PyGetVertex(PyObject *args, PyObject *kwds)
     return nullptr;
 
   RAS_IDisplayArray *array = m_meshobj->GetDisplayArray(matindex);
+  if (array == nullptr) {
+    /* An out of range material index used to crash before the length was even
+     * checked, because GetDisplayArray can return nullptr. */
+    PyErr_SetString(PyExc_IndexError,
+                    "mesh.getVertex(mat_idx, vert_idx): KX_MeshProxy, invalid material index");
+    return nullptr;
+  }
   if (vertexindex < 0 || vertexindex >= array->GetVertexCount()) {
     PyErr_SetString(PyExc_ValueError,
                     "mesh.getVertex(mat_idx, vert_idx): KX_MeshProxy, could not get a vertex at "
@@ -169,6 +176,11 @@ PyObject *KX_MeshProxy::PyGetVertex(PyObject *args, PyObject *kwds)
   }
 
   RAS_IVertex *vertex = array->GetVertex(vertexindex);
+  if (vertex == nullptr) {
+    PyErr_SetString(PyExc_IndexError,
+                    "mesh.getVertex(mat_idx, vert_idx): KX_MeshProxy, vertex is not available");
+    return nullptr;
+  }
 
   return (new KX_VertexProxy(array, vertex))->NewProxy(true);
 }

@@ -10,6 +10,7 @@ from bpy.types import NodeReroute
 from bpy.props import StringProperty
 from bpy.props import BoolProperty
 import bpy
+import blf
 
 
 WIDGETS = {}
@@ -19,12 +20,108 @@ _nodes = []
 _node_manual_map = []
 
 
+_TEXT_SIZE = 12
+# Arrow, widget margins and the rounding slack observed in the node editor.
+_TEXT_PADDING = 52.0
+
+# Node width is ID data and cannot be written from a draw callback, so the
+# measured width is applied by a timer after the redraw finishes.
+_PENDING_WIDTH = {}
+_FLUSH_SCHEDULED = False
+# Required width is a property of the class, measured once per node class.
+_ENUM_WIDTH = {}
+
+
+def _measure_text(text):
+    try:
+        blf.size(0, _TEXT_SIZE)
+        return blf.dimensions(0, text)[0]
+    except Exception:
+        return len(text) * 7.0
+
+
+def _flush_widths():
+    global _FLUSH_SCHEDULED
+    _FLUSH_SCHEDULED = False
+    pending = list(_PENDING_WIDTH.values())
+    _PENDING_WIDTH.clear()
+    for node, width in pending:
+        try:
+            if node.width < width:
+                node.width = width
+        except Exception:
+            pass
+    return None
+
+
+def _request_width(node, width):
+    global _FLUSH_SCHEDULED
+    try:
+        pointer = node.as_pointer()
+    except Exception:
+        return
+    _PENDING_WIDTH[pointer] = (node, width)
+    if _FLUSH_SCHEDULED:
+        return
+    _FLUSH_SCHEDULED = True
+    bpy.app.timers.register(_flush_widths, first_interval=0.02)
+
+
+def _enum_needed_width(cls):
+    if cls in _ENUM_WIDTH:
+        return _ENUM_WIDTH[cls]
+    annotations = getattr(cls, '__annotations__', None)
+    widest = 0.0
+    label_width = 0.0
+    if annotations:
+        for key in annotations:
+            try:
+                prop = cls.bl_rna.properties[key]
+            except Exception:
+                continue
+            if prop.type != 'ENUM' or prop.is_enum_flag:
+                continue
+            label_width = max(label_width, _measure_text(prop.name))
+            for item in prop.enum_items:
+                if item.identifier in ('', 'NONE') or not item.name:
+                    continue
+                widest = max(widest, _measure_text(item.name))
+    if widest > 0.0:
+        # Table driven native nodes draw their dropdowns without a label column.
+        if not getattr(cls, 'native_only', False):
+            widest += label_width
+        widest += _TEXT_PADDING
+    _ENUM_WIDTH[cls] = widest
+    return widest
+
+
+def fit_enum_width(node):
+    """Widen the node so the widest enum entry stays inside its border."""
+    needed = _enum_needed_width(type(node))
+    if needed > 0.0 and node.width < needed:
+        _request_width(node, needed)
+
+
+def _wrap_width_fit(obj):
+    draw = obj.__dict__.get('draw_buttons')
+    if draw is None or getattr(draw, '_nl_fits_width', False):
+        return
+
+    def draw_buttons(self, context, layout):
+        draw(self, context, layout)
+        fit_enum_width(self)
+
+    draw_buttons._nl_fits_width = True
+    obj.draw_buttons = draw_buttons
+
+
 def node_type(obj):
     if obj.nl_module is None:
         error(f'{obj.bl_label}: Uplogic Module not defined! Node not registered.')
         return
     _nodes.append(obj)
     _node_manual_map.append((f"bpy.types.{obj.bl_idname}", "page_one"),)
+    _wrap_width_fit(obj)
     return obj
 
 
@@ -38,6 +135,44 @@ class LogicNode:
     deprecation_message = 'Delete to avoid issues.'
     nl_label: StringProperty(default='')
     ready: BoolProperty(default=False)
+
+    # Native runtime export contract. The C++ node signature stays the single
+    # source of truth for port order and types; these declarations only map
+    # editor sockets to those ports.
+    runtime_type_id = ''
+    native_only = False
+    native_inputs = ()
+    native_outputs = ()
+    native_port_types = {}
+    # Table driven nodes build their IR port list from the enabled sockets.
+    native_dynamic_ports = False
+
+    def export_ir(self, ctx):
+        return ctx.add_node(self)
+
+    def export_config(self):
+        return {}
+
+    def resolve_native_port(self, port_name, is_input, ctx):
+        return self.native_port_types.get(port_name)
+
+    def native_port_socket(self, port_name, is_input=True):
+        """Editor socket mapped to a native port, or None."""
+        mapping = self.native_inputs if is_input else self.native_outputs
+        identifier = dict(mapping).get(port_name)
+        sockets = self.inputs if is_input else self.outputs
+        if identifier is not None:
+            for socket in sockets:
+                if getattr(socket, 'identifier', '') == identifier:
+                    return socket
+        for socket in sockets:
+            if socket.name == port_name:
+                return socket
+        return None
+
+    def native_linked_type(self, port_name, ctx):
+        """Runtime value tag of the socket connected to an input port."""
+        return ctx.linked_value_tag(self.native_port_socket(port_name, True))
 
     def set_socket_state(self, socket, enabled=True, name=None):
         socket.enabled = enabled

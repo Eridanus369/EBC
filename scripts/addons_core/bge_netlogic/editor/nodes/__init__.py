@@ -349,4 +349,30 @@ from .fmod.fmodgeteventparameter import LogicNodeFModGetEventParameter
 from .fmod.fmodseteventparameter import LogicNodeFModSetEventParameter
 from .fmod.fmodmodifyeventparameter import LogicNodeFModModifyEventParameter
 
+from .native import GameNodeOnInit
+from .native import GameNodeOnUpdate
+from .native import GameNodeBranch
+from .native import GameNodeDelay
+from .native import GameNodeSink
+from .native import GameNodeAssetGet
+from .native import GameNodeAssetSet
+
+# Bulk migrated native node families (port contract mirrors KX_FunctionNode.cpp).
+from . import native_batch
+
+# Legacy editor nodes mapped onto the native runtime (second batch).
+from . import native_catalog
+
+# B2 native families: math, colour, string and list nodes.
+from . import native_b2
+
+# B3 native family: animation playback and queries.
+from . import native_b3
+
+# B4B native family: save games, file IO and JSON conversion.
+from . import native_b4b
+
+# B4.1 native family: UI canvas, widgets and attribute access.
+from . import native_b4
+
 # from .groupnode import NodeGroupInputLogic

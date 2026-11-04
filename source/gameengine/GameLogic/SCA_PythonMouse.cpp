@@ -26,6 +26,8 @@
 
 #include "SCA_PythonMouse.h"
 
+#include <algorithm>
+
 #include "RAS_ICanvas.h"
 #include "SCA_IInputDevice.h"
 
@@ -224,8 +226,15 @@ PyObject *SCA_PythonMouse::pyattr_get_position(EXP_PyObjectPlus *self_v,
 
   float x_coord, y_coord;
 
-  x_coord = self->m_canvas->GetMouseNormalizedX(xevent.m_values[xevent.m_values.size() - 1]);
-  y_coord = self->m_canvas->GetMouseNormalizedY(yevent.m_values[yevent.m_values.size() - 1]);
+  /* An empty value list means the input device never saw a mouse event, which
+   * happens in headless runs and before the first frame. Returning the origin
+   * keeps the getter safe instead of indexing size() - 1. */
+  x_coord = (self->m_canvas == nullptr || xevent.m_values.empty()) ?
+                0.0f :
+                self->m_canvas->GetMouseNormalizedX(xevent.m_values.back());
+  y_coord = (self->m_canvas == nullptr || yevent.m_values.empty()) ?
+                0.0f :
+                self->m_canvas->GetMouseNormalizedY(yevent.m_values.back());
 
   PyObject *ret = PyTuple_New(2);
 
@@ -244,7 +253,14 @@ int SCA_PythonMouse::pyattr_set_position(EXP_PyObjectPlus *self_v,
   float pyx, pyy;
   if (!PyArg_ParseTuple(value, "ff:position", &pyx, &pyy))
     return PY_SET_ATTR_FAIL;
+  if (self->m_canvas == nullptr) {
+    return PY_SET_ATTR_FAIL;
+  }
 
+  /* Normalized 0..1 coordinates; clamp so out of range values do not warp the
+   * cursor outside the viewport. */
+  pyx = std::max(0.0f, std::min(pyx, 1.0f));
+  pyy = std::max(0.0f, std::min(pyy, 1.0f));
   x = (int)(pyx * self->m_canvas->GetWidth());
   y = (int)(pyy * self->m_canvas->GetHeight());
 

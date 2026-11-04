@@ -52,6 +52,7 @@
 #include "KX_Globals.h"
 #include "KX_NetworkMessageScene.h"
 #include "KX_PythonInit.h"  // for updatePythonJoysticks
+#include "KX_RuntimeNodes.h"
 #include "PHY_IPhysicsEnvironment.h"
 #include "RAS_FrameBuffer.h"
 #include "RAS_ICanvas.h"
@@ -256,6 +257,12 @@ void KX_KetsjiEngine::SetConverter(BL_Converter *converter)
 
 void KX_KetsjiEngine::StartEngine()
 {
+  /* The launcher (used by both the player and the embedded game start) builds
+   * the first KX_Scene directly instead of going through CreateScene(), so the
+   * built-in game nodes must be registered here as well. Registration is
+   * idempotent. */
+  RegisterBuiltinGameNodes();
+
   // Reset the clock to start at 0.0.
   m_clock.Reset();
 
@@ -279,6 +286,12 @@ void KX_KetsjiEngine::EndFrame()
 
   m_rasterizer->FlushDebugDraw(m_canvas);
 
+  /* Native UI HUD: the scene pass is complete and the GPU state is already the
+   * screen space ortho used by the debug draw, so the UI batches can be drawn
+   * before the backbuffer swap. */
+  if (KX_Scene *front = m_scenes->GetFront()) {
+    front->GraphDrawUI();
+  }
   double tottime = m_logger.GetAverage();
   if (tottime < 1e-6)
     tottime = 1e-6;
@@ -324,6 +337,11 @@ void KX_KetsjiEngine::EndFrameViewportRender()
 
   m_rasterizer->FlushDebugDraw(m_canvas);
 
+  /* Editor viewport path: no swap here, the result is composited by the
+   * editor, but the HUD still has to be part of the viewport texture. */
+  if (KX_Scene *front = m_scenes->GetFront()) {
+    front->GraphDrawUI();
+  }
   double tottime = m_logger.GetAverage();
   if (tottime < 1e-6)
     tottime = 1e-6;
@@ -513,6 +531,13 @@ bool KX_KetsjiEngine::NextFrame()
        * update. */
       m_logger.StartLog(tc_logic);
 
+      if (scene->IsSuspended()) {
+        /* Suspend holds this scene's logic tick and physics step. Rendering
+         * below is unaffected, so the scene keeps drawing its last state. */
+        m_logger.StartLog(tc_services);
+        continue;
+      }
+
       if (i == 0) {  // No need to UpdateObjectActivity several times
         scene->UpdateObjectActivity();
       }
@@ -558,6 +583,12 @@ bool KX_KetsjiEngine::NextFrame()
 
       m_logger.StartLog(tc_scenegraph);
       scene->UpdateParents(m_frameTime);
+
+      /* Native game node graphs run after physics and the resulting scenegraph
+       * flush, so a Raycast sees this frame's physics state and the graph
+       * output can still influence the same frame's rendering. They run after
+       * the legacy Python logic path, which stays the default executor. */
+      scene->GraphTick(times.framestep);
 
       m_logger.StartLog(tc_services);
     }
@@ -1344,6 +1375,10 @@ void KX_KetsjiEngine::RemoveScheduledScenes()
 
 KX_Scene *KX_KetsjiEngine::CreateScene(blender::Scene *scene, bool libloading)
 {
+  /* Idempotent: makes sure the native node types are available before a
+   * manifest is mounted on the scene. */
+  RegisterBuiltinGameNodes();
+
   KX_Scene *tmpscene = new KX_Scene(
       m_inputDevice, scene->id.name + 2, scene, m_canvas, m_networkMessageManager);
 

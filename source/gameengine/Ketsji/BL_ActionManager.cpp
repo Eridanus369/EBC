@@ -90,6 +90,22 @@ void BL_ActionManager::SetPlayMode(short layer, short mode)
     action->SetPlayMode(mode);
 }
 
+void BL_ActionManager::SetActionSpeed(short layer, float speed)
+{
+  BL_Action *action = GetAction(layer);
+
+  if (action)
+    action->SetSpeed(speed);
+}
+
+void BL_ActionManager::SetLayerWeight(short layer, float weight)
+{
+  BL_Action *action = GetAction(layer);
+
+  if (action)
+    action->SetLayerWeight(weight);
+}
+
 bool BL_ActionManager::PlayAction(const std::string &name,
                                   float start,
                                   float end,

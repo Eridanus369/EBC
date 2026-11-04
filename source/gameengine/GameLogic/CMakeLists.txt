@@ -35,6 +35,7 @@ set(INC
   ../Rasterizer
   ../SceneGraph
   ../../blender/blenkernel
+  ../../blender/blenfont
   ../../blender/gpu
   ../../blender/python/generic
   ../../../intern/termcolor
@@ -184,11 +185,69 @@ set(SRC
   SCA_VisibilityActuator.h
   SCA_XNORController.h
   SCA_XORController.h
+
+  # Native game node runtime (compiled graph execution, no Python in the loop).
+  GameNodes/KX_AssetRegistry.cpp
+  GameNodes/KX_ExecutionContext.cpp
+  GameNodes/KX_ExecutionContextPhysics.cpp
+  GameNodes/KX_FunctionNode.cpp
+  GameNodes/KX_FunctionNodesExtra.cpp
+  GameNodes/KX_FunctionNodesB2.cpp
+  GameNodes/KX_FunctionNodesB3.cpp
+  GameNodes/KX_GameAdapters.cpp
+  GameNodes/KX_GameAdaptersEngine.cpp
+  GameNodes/KX_GameDataAsset.cpp
+  GameNodes/KX_GraphCompiler.cpp
+  GameNodes/KX_GraphIR.cpp
+  GameNodes/KX_GraphInstance.cpp
+  GameNodes/KX_GraphSceneManager.cpp
+  GameNodes/KX_LogicNodeRuntime.cpp
+  GameNodes/KX_NodeRegistry.cpp
+  GameNodes/KX_PropertyAccessor.cpp
+  GameNodes/KX_PropertyAccessorEngine.cpp
+  GameNodes/KX_RuntimeData.cpp
+  GameNodes/KX_RuntimeNodes.cpp
+  GameNodes/KX_SceneManifest.cpp
+  GameNodes/KX_UIAdapterEngine.cpp
+  GameNodes/KX_ValuePool.cpp
+  GameNodes/KX_FileAdapter.cpp
+  GameNodes/KX_FileAdapterEngine.cpp
+  GameNodes/KX_FunctionNodesB4File.cpp
+  GameNodes/KX_FunctionNodesB4.cpp
+  GameNodes/KX_UIRenderer.cpp
+
+  GameNodes/KX_AssetRegistry.h
+  GameNodes/KX_ExecutionContext.h
+  GameNodes/KX_ExecutionPlan.h
+  GameNodes/KX_FunctionNode.h
+  GameNodes/KX_GameAdapters.h
+  GameNodes/KX_GameDataAsset.h
+  GameNodes/KX_GraphCompiler.h
+  GameNodes/KX_GraphIR.h
+  GameNodes/KX_GraphInstance.h
+  GameNodes/KX_GraphSceneManager.h
+  GameNodes/KX_LogicNodeRuntime.h
+  GameNodes/KX_NodeRegistry.h
+  GameNodes/KX_PropertyAccessor.h
+  GameNodes/KX_RuntimeData.h
+  GameNodes/KX_RuntimeNodes.h
+  GameNodes/KX_RuntimeValue.h
+  GameNodes/KX_SceneManifest.h
+  GameNodes/KX_UIAdapterEngine.h
+  GameNodes/KX_UIElement.h
+  GameNodes/KX_ValuePool.h
+  GameNodes/KX_FileAdapter.h
+  GameNodes/KX_Json.h
+  GameNodes/KX_UIRenderer.h
 )
 
 set(LIB
   PRIVATE bf::blenlib
+  PRIVATE bf::blenfont
+  PRIVATE bf::blenkernel
+  PRIVATE bf::gpu
   PRIVATE bf::dna
+  PRIVATE bf::extern::json
   PRIVATE bf::intern::guardedalloc
   PRIVATE bf::windowmanager
   PRIVATE bf::dependencies::optional::sdl
@@ -225,5 +284,9 @@ if(WITH_SDL)
     add_definitions(-DWITH_GHOST_SDL)
   endif()
 endif()
+
+# ObjectGet/ObjectSet need the EXP_Value property backend registered at node
+# registration time. The standalone runtime build does not define this.
+add_definitions(-DKX_GAME_NODES_ENGINE)
 
 blender_add_lib(ge_logic_bricks "${SRC}" "${INC}" "${INC_SYS}" "${LIB}")

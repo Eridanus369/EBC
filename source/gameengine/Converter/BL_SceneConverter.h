@@ -32,6 +32,7 @@
 #pragma once
 
 #include <map>
+#include <string>
 #include <vector>
 
 #include "CM_Message.h"
@@ -47,6 +48,7 @@ namespace blender { struct Mesh; }
 namespace blender { struct Material; }
 namespace blender { struct bActuator; }
 namespace blender { struct bController; }
+namespace blender { struct bSound; }
 
 class BL_SceneConverter {
   friend BL_Converter;
@@ -60,6 +62,7 @@ class BL_SceneConverter {
   std::map<blender::Material *, KX_BlenderMaterial *> m_map_mesh_to_polyaterial;
   std::map<blender::bActuator *, SCA_IActuator *> m_map_blender_to_gameactuator;
   std::map<blender::bController *, SCA_IController *> m_map_blender_to_gamecontroller;
+  std::map<std::string, blender::bSound *> m_sounds;
 
  public:
   BL_SceneConverter();
@@ -83,4 +86,8 @@ class BL_SceneConverter {
 
   void RegisterGameController(SCA_IController *cont, blender::bController *for_controller);
   SCA_IController *FindGameController(blender::bController *for_controller);
+
+  /** Sound datablocks of the loaded blend, addressable by their bpy name. */
+  void RegisterSound(const std::string &name, blender::bSound *sound);
+  blender::bSound *FindSound(const std::string &name) const;
 };

@@ -49,6 +49,7 @@
 #include "DNA_material_types.h"
 #include "DNA_mesh_types.h"
 #include "DNA_scene_types.h"
+#include "DNA_sound_types.h"
 
 #include "BL_DataConversion.h"
 #include "BL_SceneConverter.h"
@@ -209,6 +210,12 @@ void BL_Converter::ConvertScene(KX_Scene *destinationscene,
   blender::Depsgraph *depsgraph = CTX_data_depsgraph_on_load(C);
 
   destinationscene->SetBlenderSceneConverter(sceneConverter);
+
+  /* Expose the blend's sound datablocks so nodes can play a sound by its
+   * datablock name. The name stored here is the bpy name (ID prefix stripped). */
+  for (blender::bSound &sound : m_maggie->sounds) {
+    sceneConverter->RegisterSound(std::string(sound.id.name + 2), &sound);
+  }
 
   BL_ConvertBlenderObjects(m_maggie,
                            depsgraph,

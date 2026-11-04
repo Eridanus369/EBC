@@ -32,6 +32,7 @@ set(INC
   ../Device
   ../Expressions
   ../GameLogic
+  ../GameLogic/GameNodes
   ../Launcher
   ../Physics/Common
   ../Rasterizer

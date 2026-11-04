@@ -31,6 +31,8 @@
 
 #include "GPG_Canvas.h"
 
+#include <algorithm>
+
 #include "BKE_context.hh"
 #include "BKE_global.hh"
 #include "BKE_image.hh"
@@ -140,6 +142,14 @@ void GPG_Canvas::SetMousePosition(int x, int y)
 {
   GHOST_ISystem *system = GHOST_ISystem::getSystem();
   if (system && m_window) {
+    const int width = m_windowArea.GetWidth();
+    const int height = m_windowArea.GetHeight();
+    if (width <= 0 || height <= 0) {
+      return;
+    }
+    x = std::max(0, std::min(x, width - 1));
+    y = std::max(0, std::min(y, height - 1));
+
     int32_t gx = (int32_t)x;
     int32_t gy = (int32_t)y;
 

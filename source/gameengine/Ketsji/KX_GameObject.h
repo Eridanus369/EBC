@@ -327,6 +327,16 @@ class KX_GameObject : public SCA_IObject {
   void SetPlayMode(short layer, short mode);
 
   /**
+   * Changes the playback speed of the action on the given layer.
+   */
+  void SetActionSpeed(short layer, float speed);
+
+  /**
+   * Changes the blend weight of the action on the given layer.
+   */
+  void SetLayerWeight(short layer, float weight);
+
+  /**
    * Stop playing the action on the given layer
    */
   void StopAction(short layer);

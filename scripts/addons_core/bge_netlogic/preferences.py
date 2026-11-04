@@ -29,8 +29,23 @@ class LogicNodesAddonPreferences(bpy.types.AddonPreferences):
     uplogic_version: bpy.props.EnumProperty(items=_uplogic_versions, default='5.1.1', name='Uplogic Version')
     use_node_debug: bpy.props.BoolProperty(default=True)
     use_node_notify: bpy.props.BoolProperty(default=True)
+    use_native_graph_runtime: bpy.props.BoolProperty(
+        name='Use Native Graph Runtime',
+        default=False,
+        description='Execute game node trees with the native C++ runtime instead of the Python executor'
+    )
     prop_filter: bpy.props.PointerProperty(type=LogicNodesPropertyFilter)
     use_fmod_nodes: bpy.props.BoolProperty(name='FMOD Support', description='')
+
+    # Collapse state of the native node palette domains (N panel).
+    palette_trigger_open: bpy.props.BoolProperty(default=True)
+    palette_input_open: bpy.props.BoolProperty(default=True)
+    palette_object_open: bpy.props.BoolProperty(default=True)
+    palette_physics_open: bpy.props.BoolProperty(default=True)
+    palette_logic_open: bpy.props.BoolProperty(default=True)
+    palette_value_open: bpy.props.BoolProperty(default=True)
+    palette_uiscene_open: bpy.props.BoolProperty(default=True)
+    palette_utility_open: bpy.props.BoolProperty(default=True)
 
     custom_logic_nodes: bpy.props.CollectionProperty(
         type=CustomNodeReference
@@ -68,6 +83,11 @@ class LogicNodesAddonPreferences(bpy.types.AddonPreferences):
             self,
             'use_node_debug',
             text="Debug Mode (Print Errors to Console)"
+        )
+        col.prop(
+            self,
+            'use_native_graph_runtime',
+            text="Use Native Graph Runtime"
         )
         col.separator()
         col.label(text='Additional Nodes')

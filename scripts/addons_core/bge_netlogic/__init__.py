@@ -23,6 +23,7 @@ from .props.customnode import _registered_custom_classes
 from .preferences import LogicNodesAddonPreferences
 from .utilities import preferences as prefs
 from .generator.tree_code_generator import generate_logic_node_code
+from .generator.ir_export import native_runtime_enabled, write_scene_manifest
 from .editor.nodetree import LogicNodeTree
 # from . import basicnodes
 from . import utilities as utils
@@ -87,7 +88,22 @@ def _generate_on_game_start(self, context):
     for tree in bpy.data.node_groups:
         if isinstance(tree, LogicNodeTree):
             tree.changes_staged = True
+    # The native graph runtime consumes the GraphIR directly, so generating the
+    # uplogic Python modules would run every node twice. Background export has
+    # no UI context and only needs the manifest as well.
+    if native_runtime_enabled() or bpy.app.background:
+        write_scene_manifest()
+        return
     generate_logic_node_code()
+    write_scene_manifest()
+
+
+@persistent
+def _generate_on_save(self, context):
+    """Keep the per scene manifest in sync with the node trees on every save."""
+    if not native_runtime_enabled():
+        return
+    write_scene_manifest()
 
 
 @persistent
@@ -391,6 +407,7 @@ def register():
     bpy.utils.register_manual_map(node_manual)
     bpy.types.NODE_MT_add.append(node_menu.draw_add_menu)
     bpy.app.handlers.game_pre.append(_generate_on_game_start)
+    bpy.app.handlers.save_pre.append(_generate_on_save)
     bpy.app.handlers.game_post.append(utils.check_uplogic_module)
     bpy.app.handlers.game_pre.append(_jump_in_game_cam)
     bpy.app.handlers.game_pre.append(_set_vr_mode)
@@ -484,6 +501,9 @@ def unregister():
             remove_f.append(f)
     for f in remove_f:
         bpy.app.handlers.game_pre.remove(f)
+    remove_f = [f for f in bpy.app.handlers.save_pre if f.__name__ == '_generate_on_save']
+    for f in remove_f:
+        bpy.app.handlers.save_pre.remove(f)
 
     for cls in reversed(_registered_classes):
         bpy.utils.unregister_class(cls)

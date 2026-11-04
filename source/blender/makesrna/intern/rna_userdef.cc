@@ -65,6 +65,8 @@ const EnumPropertyItem rna_enum_preference_section_items[] = {
     RNA_ENUM_ITEM_SEPR,
     {USER_SECTION_ASSETS, "ASSETS", 0, "Asset Libraries", ""},
     RNA_ENUM_ITEM_SEPR,
+    {USER_SECTION_GAME, "GAME", 0, "Game", ""},
+    RNA_ENUM_ITEM_SEPR,
     {USER_SECTION_INPUT, "INPUT", 0, "Input", ""},
     {USER_SECTION_NAVIGATION, "NAVIGATION", 0, "Navigation", ""},
     {USER_SECTION_KEYMAP, "KEYMAP", 0, "Keymap", ""},

@@ -37,6 +37,7 @@
 #include "KX_Scene.h"
 
 #include "BKE_global.hh"
+#include "BKE_idprop.hh"
 #include "BKE_layer.hh"
 #include "BKE_lib_id.hh"
 #include "BLI_math_base.hh"
@@ -77,6 +78,7 @@
 #include "KX_CollisionEventManager.h"
 #include "KX_FontObject.h"
 #include "KX_Globals.h"
+#include "KX_GraphSceneManager.h"
 #include "KX_Light.h"
 #include "KX_LodManager.h"
 #include "KX_MotionState.h"
@@ -84,6 +86,7 @@
 #include "KX_NodeRelationships.h"
 #include "KX_ObstacleSimulation.h"
 #include "KX_PyMath.h"
+#include "KX_SceneManifest.h"
 #include "PHY_IPhysicsController.h"
 #include "PHY_IPhysicsEnvironment.h"
 #include "RAS_BucketManager.h"
@@ -181,6 +184,7 @@ KX_Scene::KX_Scene(SCA_IInputDevice *inputDevice,
       m_collectionRemap(false),               // eevee (to uncheck viewport restrictflag)
       m_keyboardmgr(nullptr),
       m_mousemgr(nullptr),
+      m_canvas(canvas),
       m_physicsEnvironment(0),
       m_sceneName(sceneName),
       m_active_camera(nullptr),
@@ -194,6 +198,7 @@ KX_Scene::KX_Scene(SCA_IInputDevice *inputDevice,
   m_dbvt_culling = false;
   m_dbvt_occlusion_res = 0;
   m_activityCulling = false;
+  m_suspended = false;
   m_objectlist = new EXP_ListValue<KX_GameObject>();
   m_parentlist = new EXP_ListValue<KX_GameObject>();
   m_lightlist = new EXP_ListValue<KX_LightObject>();
@@ -332,6 +337,16 @@ KX_Scene::KX_Scene(SCA_IInputDevice *inputDevice,
 
 KX_Scene::~KX_Scene()
 {
+  /* Native graph instances hold pointers to this scene's objects and to assets
+   * registered in the global registry. Tear them down before the object list
+   * and the python callbacks are released. A Python proxy replica shares the
+   * manager with the scene it was copied from, so only the owner unloads it. */
+  if (m_graphmgr) {
+    if (m_graphmgr->Scene() == this) {
+      m_graphmgr->OnSceneUnload();
+    }
+    m_graphmgr.reset();
+  }
 
 #ifdef WITH_PYTHON
   RunOnRemoveCallbacks();
@@ -1561,6 +1576,21 @@ SCA_TimeEventManager *KX_Scene::GetTimeEventManager() const
   return m_timemgr;
 }
 
+RAS_ICanvas *KX_Scene::GetCanvas() const
+{
+  return m_canvas;
+}
+
+SCA_KeyboardManager *KX_Scene::GetKeyboardManager() const
+{
+  return m_keyboardmgr;
+}
+
+SCA_MouseManager *KX_Scene::GetMouseManager() const
+{
+  return m_mousemgr;
+}
+
 KX_PythonProxyManager &KX_Scene::GetPythonProxyManager()
 {
   return m_proxyManager;
@@ -2095,6 +2125,12 @@ KX_GameObject *KX_Scene::AddReplicaObject(KX_GameObject *originalobject,
 
 void KX_Scene::RemoveObject(KX_GameObject *gameobj)
 {
+  /* Drop the native graph instance mounted on this object before its scene
+   * graph node is destructed. */
+  if (m_graphmgr) {
+    m_graphmgr->OnObjectRemoved(gameobj);
+  }
+
   // disconnect child from parent
   SG_Node *node = gameobj->GetSGNode();
 
@@ -2130,6 +2166,10 @@ void KX_Scene::DelayedRemoveObject(KX_GameObject *gameobj)
 
 bool KX_Scene::NewRemoveObject(KX_GameObject *gameobj)
 {
+  if (m_graphmgr) {
+    m_graphmgr->OnObjectRemoved(gameobj);
+  }
+
   gameobj->Dispose();
 
   /* remove property from debug list */
@@ -2410,6 +2450,64 @@ void KX_Scene::LogicUpdateFrame(double curtime)
   m_proxyManager.Update();
 
   m_logicmgr->UpdateFrame(curtime);
+}
+
+void KX_Scene::GraphTick(double framestep)
+{
+  if (m_graphmgr && m_graphmgr->Scene() != this) {
+    /* A proxy replica shares the manager of the scene it was copied from;
+     * replicas are never driven by the engine tick. */
+    return;
+  }
+
+  if (!m_graphmgr) {
+    blender::Scene *blender_scene = GetBlenderScene();
+    if (!blender_scene || !blender_scene->id.properties) {
+      return;
+    }
+
+    blender::IDProperty *item = IDP_GetPropertyTypeFromGroup(
+        blender_scene->id.properties, "game_graph_manifest", IDP_STRING);
+    if (!item) {
+      return;
+    }
+
+    const std::string json_text = IDP_string_get(item);
+    if (json_text.empty()) {
+      return;
+    }
+
+    KX_SceneManifest manifest;
+    if (!KX_ParseSceneManifestJson(json_text, &manifest)) {
+      return;
+    }
+
+    /* The manifest only becomes visible once every object has been converted,
+     * which is why the manager is created here instead of during scene load.
+     * A failed graph compile is reported as a warning and does not stop the
+     * scene: the Python executor keeps acting as the fallback. */
+    m_graphmgr = std::make_shared<KX_GraphSceneManager>();
+    m_graphmgr->OnSceneLoad(this, manifest);
+  }
+
+  m_graphmgr->Tick(static_cast<float>(framestep));
+}
+
+void KX_Scene::GraphDrawUI()
+{
+  if (m_graphmgr && m_graphmgr->Scene() == this) {
+    m_graphmgr->DrawUI();
+  }
+}
+
+void KX_Scene::SetSuspended(bool suspended)
+{
+  m_suspended = suspended;
+}
+
+bool KX_Scene::IsSuspended() const
+{
+  return m_suspended;
 }
 
 void KX_Scene::LogicEndFrame()

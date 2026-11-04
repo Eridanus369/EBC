@@ -43,6 +43,8 @@
 
 #  include <Python.h>
 
+#  include <algorithm>
+
 #  include "../blender/python/BPY_extern.hh"
 #  include "../blender/python/BPY_extern_python.hh"
 #  include "BKE_appdir.hh"
@@ -977,8 +979,17 @@ static PyObject *gPySetMousePosition(PyObject *, PyObject *args)
 
   RAS_ICanvas *canvas = KX_GetActiveEngine()->GetCanvas();
 
-  if (canvas)
-    canvas->SetMousePosition(x, y);
+  if (canvas) {
+    /* Keep the request inside the render area; SetMousePosition implementations
+     * already clamp, but doing it here also protects against a zero sized area. */
+    const int width = canvas->GetWidth();
+    const int height = canvas->GetHeight();
+    if (width > 0 && height > 0) {
+      x = std::max(0, std::min(x, width - 1));
+      y = std::max(0, std::min(y, height - 1));
+      canvas->SetMousePosition(x, y);
+    }
+  }
 
   Py_RETURN_NONE;
 }

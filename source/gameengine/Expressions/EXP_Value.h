@@ -22,6 +22,7 @@
 #  pragma warning(disable : 4786)
 #endif
 
+#include <cstdint>
 #include <map>     // Array functionality for the property list.
 #include <string>  // std::string class.
 #include <vector>
@@ -144,6 +145,16 @@ class EXP_Value : public EXP_PyObjectPlus, public CM_RefCount<EXP_Value> {
   /// Get the amount of properties assiocated with this value.
   virtual int GetPropertyCount();
 
+  /**
+   * Monotonic counter bumped whenever the property table changes shape.
+   *
+   * Pointer identity of a property value is stable while it is written through
+   * SetValue(); it changes only when an entry is created, replaced, removed or
+   * replicated. Caches keyed on EXP_Value* can therefore stay valid between
+   * those events by comparing this generation.
+   */
+  uint32_t GetPropertyGeneration() const;
+
   virtual EXP_Value *FindIdentifier(const std::string &identifiername);
 
   virtual std::string GetText();
@@ -172,6 +183,8 @@ class EXP_Value : public EXP_PyObjectPlus, public CM_RefCount<EXP_Value> {
  private:
   /// Properties for user/game etc.
   std::map<std::string, EXP_Value *> m_properties;
+  /// Bumped on any structural change of #m_properties.
+  uint32_t m_property_generation = 0;
 };
 
 /** EXP_PropValue is a EXP_Value derived class, that implements the identification (String name)

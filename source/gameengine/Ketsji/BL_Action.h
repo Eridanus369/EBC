@@ -170,6 +170,10 @@ class BL_Action {
   // Mutators
   void SetFrame(float frame);
   void SetPlayMode(short play_mode);
+  /** Change the playback speed of the running action. */
+  void SetSpeed(float speed);
+  /** Change the blend weight of the running action. */
+  void SetLayerWeight(float weight);
 
   enum {
     ACT_MODE_PLAY = 0,

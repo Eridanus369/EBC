@@ -963,6 +963,16 @@ void KX_GameObject::SetActionFrame(short layer, float frame)
   GetActionManager()->SetActionFrame(layer, frame);
 }
 
+void KX_GameObject::SetActionSpeed(short layer, float speed)
+{
+  GetActionManager()->SetActionSpeed(layer, speed);
+}
+
+void KX_GameObject::SetLayerWeight(short layer, float weight)
+{
+  GetActionManager()->SetLayerWeight(layer, weight);
+}
+
 blender::bAction *KX_GameObject::GetCurrentAction(short layer)
 {
   return GetActionManager()->GetCurrentAction(layer);

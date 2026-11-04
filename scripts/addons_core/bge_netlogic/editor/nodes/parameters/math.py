@@ -119,6 +119,37 @@ class LogicNodeMath(LogicNodeParameterType):
     bl_description = 'Perform a mathematical operation'
     nl_module = 'uplogic.nodes.parameters'
     nl_class = "MathNode"
+    runtime_type_id = 'FloatMath'
+    native_inputs = (
+        ('A', 'value_a'),
+        ('B', 'value_b'),
+    )
+    native_outputs = (('Result', 'RESULT'),)
+    native_port_types = {'Result': 'Float'}
+
+    # Subset of the editor operations implemented by KX_Node_FloatMath.
+    _NATIVE_OPS = {
+        '0': 'Add',
+        '1': 'Sub',
+        '2': 'Mul',
+        '3': 'Div',
+        '7': 'Pow',
+        '13': 'Min',
+        '14': 'Max',
+    }
+
+    def export_ir(self, ctx):
+        if self.operator not in self._NATIVE_OPS:
+            ctx.warn(
+                f"Math node '{self.name}' uses operation '{self.operator}', "
+                "which the native runtime does not implement"
+            )
+            return -1
+        return super().export_ir(ctx)
+
+    def export_config(self):
+        return {'op': self._NATIVE_OPS.get(self.operator, 'Add')}
+
 
     def update_draw(self, context=None):
         mode = int(self.operator)

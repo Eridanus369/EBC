@@ -44,6 +44,7 @@ BL_SceneConverter::BL_SceneConverter()
   m_map_mesh_to_polyaterial = {};
   m_map_blender_to_gameactuator = {};
   m_map_blender_to_gamecontroller = {};
+  m_sounds = {};
 }
 
 BL_SceneConverter::~BL_SceneConverter()
@@ -141,4 +142,17 @@ void BL_SceneConverter::RegisterGameController(SCA_IController *cont,
 SCA_IController *BL_SceneConverter::FindGameController(blender::bController *for_controller)
 {
   return m_map_blender_to_gamecontroller[for_controller];
+}
+
+void BL_SceneConverter::RegisterSound(const std::string &name, blender::bSound *sound)
+{
+  if (!name.empty() && sound != nullptr) {
+    m_sounds[name] = sound;
+  }
+}
+
+blender::bSound *BL_SceneConverter::FindSound(const std::string &name) const
+{
+  std::map<std::string, blender::bSound *>::const_iterator it = m_sounds.find(name);
+  return it != m_sounds.end() ? it->second : nullptr;
 }

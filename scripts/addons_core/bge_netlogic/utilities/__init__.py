@@ -218,7 +218,11 @@ def allow_online_access(self, context):
 
 
 def check_uplogic_module():
-    import pkg_resources
+    try:
+        import pkg_resources
+    except ModuleNotFoundError:
+        # Blender 5.3 ships without setuptools, so the uplogic probe is unavailable.
+        return False
     installed_packages = [p.key for p in pkg_resources.working_set]
     uplogic_installed = 'uplogic' in installed_packages
     version_ok = True

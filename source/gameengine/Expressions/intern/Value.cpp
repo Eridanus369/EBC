@@ -160,6 +160,10 @@ void EXP_Value::SetProperty(const std::string &name, EXP_Value *ioProperty)
   if (oldval) {
     oldval->Release();
   }
+  if (oldval != ioProperty) {
+    // New entry or pointer replacement: caches keyed on the old pointer die here.
+    ++m_property_generation;
+  }
 
   // Add property at end of array.
   m_properties[name] = ioProperty->AddRef();
@@ -208,6 +212,7 @@ bool EXP_Value::RemoveProperty(const std::string &inName)
   if (it != m_properties.end()) {
     (*it).second->Release();
     m_properties.erase(it);
+    ++m_property_generation;
     return true;
   }
 
@@ -230,6 +235,10 @@ std::vector<std::string> EXP_Value::GetPropertyNames()
 /// Clear all properties.
 void EXP_Value::ClearProperties()
 {
+  if (!m_properties.empty()) {
+    ++m_property_generation;
+  }
+
   // Remove all properties.
   for (const auto &pair : m_properties) {
     pair.second->Release();
@@ -258,6 +267,11 @@ int EXP_Value::GetPropertyCount()
   return m_properties.size();
 }
 
+uint32_t EXP_Value::GetPropertyGeneration() const
+{
+  return m_property_generation;
+}
+
 void EXP_Value::DestructFromPython()
 {
 #ifdef WITH_PYTHON
@@ -271,7 +285,10 @@ void EXP_Value::ProcessReplica()
 {
   EXP_PyObjectPlus::ProcessReplica();
 
-  // Copy all props.
+  // Copy all props: every replica owns fresh pointers, so caches must drop.
+  if (!m_properties.empty()) {
+    ++m_property_generation;
+  }
   for (auto &pair : m_properties) {
     pair.second = pair.second->GetReplica();
   }

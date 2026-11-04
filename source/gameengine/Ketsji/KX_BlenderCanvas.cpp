@@ -31,6 +31,8 @@
 
 #include "KX_BlenderCanvas.h"
 
+#include <algorithm>
+
 #include "BKE_context.hh"
 #include "BKE_global.hh"
 #include "BKE_image.hh"
@@ -195,6 +197,16 @@ void KX_BlenderCanvas::SetMouseState(RAS_MouseState mousestate)
 //	(0,0) is top left, (width,height) is bottom right
 void KX_BlenderCanvas::SetMousePosition(int x, int y)
 {
+  /* Clamp to the viewport so a script driving the cursor with stale or
+   * oversized coordinates never warps it outside the game area. */
+  const int width = m_viewportArea.GetWidth();
+  const int height = m_viewportArea.GetHeight();
+  if (width <= 0 || height <= 0) {
+    return;
+  }
+  x = std::max(0, std::min(x, width - 1));
+  y = std::max(0, std::min(y, height - 1));
+
   int winX = m_viewportArea.GetLeft();
   int winY = m_viewportArea.GetBottom();
   int winH = m_viewportArea.GetHeight();

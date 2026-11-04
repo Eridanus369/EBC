@@ -13,3 +13,5 @@ from .componenthelperpanel import LOGIC_NODES_PT_component_helper
 from .logictreepropertypanel import LOGIC_NODES_PT_logic_tree_properties
 from .customnodespanel import LOGIC_NODES_PT_custom_nodes
 from .projectpanel import LOGIC_NODES_PT_project_management
+from .native_inspector import LOGIC_NODES_PT_native_inspector
+from .node_palette import LOGIC_NODES_PT_native_palette

@@ -2314,6 +2314,59 @@ def get_socket_loc(node, is_output, index):
     return nlocx * dpi_fac(), nlocy * dpi_fac()
 
 
+# 拖线预览终点缓存：(region 指针, drag_start, 视图范围, cursor_location, 光标像素)
+_DRAG_CURSOR_CACHE = None
+
+
+def _view_bounds(v2d, region):
+    try:
+        x0, y0 = v2d.region_to_view(0.0, 0.0)
+        x1, y1 = v2d.region_to_view(float(region.width), float(region.height))
+        return (x0, y0, x1, y1)
+    except Exception:
+        return None
+
+
+def _drag_cursor_view_loc(context, v2d, drag_start):
+    """拖线预览终点的视图空间坐标，按当前视图实时换算。
+
+    cursor_location 只在鼠标移动时刷新，拖线过程中滚轮缩放/平移后它会过期，
+    预览线因此漂移。这里记住光标的区域像素坐标，视图变化时用当前视图反算。
+    取不到区域或视图时直接回退到 cursor_location，不抛异常。
+    """
+    global _DRAG_CURSOR_CACHE
+    cursor_loc = context.space_data.cursor_location
+    fac = dpi_fac()
+    cur_x = (cursor_loc.x if hasattr(cursor_loc, "x") else cursor_loc[0]) * fac
+    cur_y = (cursor_loc.y if hasattr(cursor_loc, "y") else cursor_loc[1]) * fac
+    region = getattr(context, 'region', None)
+    if region is None or v2d is None:
+        return (cur_x, cur_y)
+    try:
+        drag_key = (float(drag_start[0]), float(drag_start[1]))
+    except Exception:
+        drag_key = None
+    bounds = _view_bounds(v2d, region)
+    ptr = region.as_pointer()
+    cached = _DRAG_CURSOR_CACHE
+    if cached is not None and cached[0] == ptr and cached[1] == drag_key:
+        _, _, old_bounds, old_view, old_pixel = cached
+        if bounds == old_bounds or (cur_x, cur_y) != old_view:
+            # 视图没变，或者鼠标也动了：cursor_location 是新鲜值。
+            pixel = v2d.view_to_region(cur_x, cur_y, clip=False) or old_pixel
+            _DRAG_CURSOR_CACHE = (ptr, drag_key, bounds, (cur_x, cur_y), pixel)
+            return (cur_x, cur_y)
+        # 只有视图变了（拖线中缩放/平移）：按缓存的光标像素重新换算。
+        if old_pixel is not None:
+            loc = v2d.region_to_view(old_pixel[0], old_pixel[1])
+            if loc:
+                _DRAG_CURSOR_CACHE = (ptr, drag_key, bounds, (cur_x, cur_y), old_pixel)
+                return (loc[0], loc[1])
+    pixel = v2d.view_to_region(cur_x, cur_y, clip=False)
+    _DRAG_CURSOR_CACHE = (ptr, drag_key, bounds, (cur_x, cur_y), pixel)
+    return (cur_x, cur_y)
+
+
 def _draw_links(context, draw_selected_node_outlines=True, draw_connected_links=True):
     global _SHADER_CACHE, _OUTLINE_UBO, _OUTLINE_UBO_BUF, _LINK_UBO, _LINK_GEOM_UBO, _RAINBOW_UBO, _INSTANCED_BATCH
     _frame_cache.clear()
@@ -2740,10 +2793,8 @@ def _draw_links(context, draw_selected_node_outlines=True, draw_connected_links=
                         except Exception:
                             pass
 
-            cursor_loc = context.space_data.cursor_location
             fac = dpi_fac()
-            cursor_x = (cursor_loc.x if hasattr(cursor_loc, "x") else cursor_loc[0]) * fac
-            cursor_y = (cursor_loc.y if hasattr(cursor_loc, "y") else cursor_loc[1]) * fac
+            cursor_x, cursor_y = _drag_cursor_view_loc(context, v2d, drag_start)
             p0 = best[0]
             p3 = (cursor_x, cursor_y)
 

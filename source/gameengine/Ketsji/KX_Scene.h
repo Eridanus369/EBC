@@ -32,6 +32,7 @@
 #pragma once
 
 #include <list>
+#include <memory>
 #include <set>
 #include <vector>
 
@@ -75,8 +76,10 @@ class SG_Node;
 class KX_Camera;
 class KX_FontObject;
 class KX_GameObject;
+class KX_GraphSceneManager;
 class KX_LightObject;
 class RAS_MeshObject;
+class RAS_ICanvas;
 class RAS_BucketManager;
 class RAS_MaterialBucket;
 class RAS_IPolyMaterial;
@@ -174,6 +177,8 @@ class KX_Scene : public KX_PythonProxy, public SCA_IScene {
   SCA_KeyboardManager *m_keyboardmgr;
   SCA_MouseManager *m_mousemgr;
   SCA_TimeEventManager *m_timemgr;
+  /** Canvas passed in by the engine constructor, never owned here. */
+  RAS_ICanvas *m_canvas;
 
   KX_PythonProxyManager m_proxyManager;
 
@@ -187,6 +192,18 @@ class KX_Scene : public KX_PythonProxy, public SCA_IScene {
    * The name of the scene
    */
   std::string m_sceneName;
+
+  /**
+   * Native game node instances mounted on this scene's objects.
+   *
+   * Created lazily on the first GraphTick after the scene converter finished,
+   * so every object is already in m_objectlist when the manifest mounts are
+   * resolved. Destroyed at the top of the scene destructor.
+   *
+   * Shared (not unique) ownership because KX_Scene is copied by NewInstance for
+   * Python proxy replicas; those copies are never ticked by the engine.
+   */
+  std::shared_ptr<KX_GraphSceneManager> m_graphmgr;
 
   /**
    * \section Different scenes, linked to ketsji scene
@@ -253,6 +270,11 @@ class KX_Scene : public KX_PythonProxy, public SCA_IScene {
    * Toggle to enable or disable activity culling.
    */
   bool m_activityCulling;
+
+  /**
+   * Scene wide suspend flag, driven by the native Suspend/Resume nodes.
+   */
+  bool m_suspended = false;
 
   /**
    * Toggle to enable or disable culling via DBVT broadphase of Bullet.
@@ -420,6 +442,31 @@ class KX_Scene : public KX_PythonProxy, public SCA_IScene {
 
   void LogicEndFrame();
 
+  /**
+   * Drive the native game node graphs for one frame.
+   *
+   * Called by #KX_KetsjiEngine::NextFrame after physics and before rendering:
+   * Raycasts read the current physics state and graph outputs can still affect
+   * this frame's transforms. On the first call it reads the scene's
+   * `game_graph_manifest` custom property and mounts the graph instances.
+   */
+  void GraphTick(double framestep);
+
+  /**
+   * Draw the native UI HUD for this scene.
+   *
+   * Called by #KX_KetsjiEngine::EndFrame after the scene render and before the
+   * buffer swap, which is the only place the HUD can land on screen (D2).
+   */
+  void GraphDrawUI();
+
+  /**
+   * Stop this scene's logic tick and physics step without touching rendering.
+   * #KX_KetsjiEngine skips the per-scene update block while suspended.
+   */
+  void SetSuspended(bool suspended);
+  bool IsSuspended() const;
+
   EXP_ListValue<KX_GameObject> *GetObjectList() const;
   EXP_ListValue<KX_GameObject> *GetInactiveList() const;
   EXP_ListValue<KX_GameObject> *GetRootParentList() const;
@@ -428,6 +475,11 @@ class KX_Scene : public KX_PythonProxy, public SCA_IScene {
   SCA_LogicManager *GetLogicManager() const;
 
   SCA_TimeEventManager *GetTimeEventManager() const;
+
+  /** Canvas passed in by the engine, used by mouse and screen query nodes. */
+  RAS_ICanvas *GetCanvas() const;
+  SCA_KeyboardManager *GetKeyboardManager() const;
+  SCA_MouseManager *GetMouseManager() const;
 
   KX_PythonProxyManager &GetPythonProxyManager();
 

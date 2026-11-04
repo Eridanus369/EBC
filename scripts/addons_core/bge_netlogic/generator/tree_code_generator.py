@@ -21,7 +21,12 @@ def generate_logic_node_code():
     for tree in logic_trees:
         tree.mark_invalid_links()
         # if tree.changes_staged:
-        TreeCodeGenerator().write_code_for_tree(tree)
+        try:
+            TreeCodeGenerator().write_code_for_tree(tree)
+        except Exception as error:
+            # Do not let one broken tree kill the whole export. The old path
+            # silently produced a None text block and then crashed elsewhere.
+            ERROR_MESSAGES.append('Tree "{}": {}'.format(tree.name, error))
     # try:
     #     context.region.tag_redraw()
     # except Exception:
@@ -43,14 +48,15 @@ def generate_logic_node_code():
             for e in ERROR_MESSAGES:
                 self.layout.label(text=f'{e}')
 
-        bpy.context.window_manager.popup_menu(error_log, title="Something happened during compilation.", icon='INFO')
-        # bpy.app.handlers.game_post.append(
-            
-        # )
+        # popup_menu needs a real window; background export has none.
+        if not bpy.app.background and bpy.context.window_manager is not None:
+            bpy.context.window_manager.popup_menu(
+                error_log, title="Something happened during compilation.", icon='INFO')
     else:
         for tree in logic_trees:
             tree.changes_staged = False
-    bpy.context.window_manager.update_tag()
+    if not bpy.app.background and bpy.context.window_manager is not None:
+        bpy.context.window_manager.update_tag()
 
 
 class BLTextWrapper(AbstractTextBuffer):
@@ -59,19 +65,16 @@ class BLTextWrapper(AbstractTextBuffer):
     def __init__(self, name):
         text = self.get_text(name)
         if text is None:
-            utils.error('Could not find or generate text file')
+            raise RuntimeError('Could not find or create text block "{}"'.format(name))
         self.text = text
 
     def get_text(self, name):
         text = bpy.data.texts.get(name)
         if text is None:
-            bpy.ops.text.new()
-            for t in bpy.data.texts:
-                if t.library is not None:
-                    break
-                else:
-                    text = t
-            text.name = name
+            # bpy.ops.text.new() requires a UI context and crashes in background
+            # mode (headless export, blenderplayer). bpy.data.texts.new() works
+            # in every context.
+            text = bpy.data.texts.new(name)
         return text
 
     def clear(self):
@@ -244,7 +247,7 @@ class TreeCodeGenerator(object):
         cell_uid = 0
         # node_cellvar_list = []
         for node in tree.nodes:
-            if not hasattr(node, 'nl_module') or node.mute:
+            if not hasattr(node, 'nl_module') or node.mute or getattr(node, 'native_only', False):
                 # utils.debug("Skipping TreeNode of type {} because it is not an instance of NLNode".format(node.__class__.__name__))
                 continue
             if hasattr(node, 'nl_module'):

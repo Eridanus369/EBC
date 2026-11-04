@@ -291,6 +291,16 @@ void BL_Action::SetPlayMode(short play_mode)
   m_playmode = play_mode;
 }
 
+void BL_Action::SetSpeed(float speed)
+{
+  m_speed = speed;
+}
+
+void BL_Action::SetLayerWeight(float weight)
+{
+  m_layer_weight = weight;
+}
+
 void BL_Action::SetLocalTime(float curtime)
 {
   float dt = (curtime - m_starttime) * (float)KX_GetActiveEngine()->GetAnimFrameRate() * m_speed;
