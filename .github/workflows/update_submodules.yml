@@ -25,12 +25,15 @@ jobs:
       - name: Update specific submodules
         run: |
           cd scripts/addons_core
+          
           cd bge_easyonline
-          git checkout master
-          git pull --rebase origin master
+          git fetch origin
+          git reset --hard origin/HEAD
+          
           cd ../bge_thelightmapper
-          git checkout master
-          git pull --rebase origin master
+          git fetch origin
+          git reset --hard origin/HEAD
+          
           cd ../../..
 
       - name: Commit changes if any
