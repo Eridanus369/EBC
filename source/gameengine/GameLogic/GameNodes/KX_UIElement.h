@@ -38,8 +38,11 @@
 
 #pragma once
 
+#include <cmath>
 #include <cstdint>
+#include <map>
 #include <string>
+#include <vector>
 
 #include "KX_RuntimeValue.h"
 
@@ -51,6 +54,14 @@ enum class KX_UIElementType : uint8_t {
   Button,
   Layout,
   Slider,
+};
+
+/** `layout_type` values shared by the editor table and the renderer. */
+enum KX_UILayoutType : int {
+  KX_UI_LAYOUT_SEQUENTIAL = 0,
+  KX_UI_LAYOUT_BOX = 1,
+  /** B6.6: children evenly spread on a circle (radius / starting_angle). */
+  KX_UI_LAYOUT_POLAR = 2,
 };
 
 /** Frame events derived from the mouse state in BeginFrame. */
@@ -115,6 +126,26 @@ struct KX_UIElement {
   bool inverted = false;
   bool preserve_aspect = false;
   bool visible = true;
+  /**
+   * B6.4: clip this element and its descendants to its own rectangle.
+   *
+   * The renderer walks the `canvas` chain to the nearest clipping ancestor and
+   * applies a GPU scissor to the element's resolved rectangle.
+   */
+  bool clip = false;
+  /**
+   * B6.4: skip layout and drawing while entirely outside the clipping ancestor
+   * (list view virtualization). Hit testing is done by the node's arithmetic,
+   * so the visible item indices do not depend on this flag.
+   */
+  bool virtualized = false;
+  /**
+   * B6.7: basic vertical text. One UTF-8 character per row with the row height
+   * equal to the font size. Punctuation rotation, line spacing tuning and
+   * mixed CJK/Latin rules are not implemented (this is a layout primitive,
+   * not typesetting).
+   */
+  bool vertical = false;
 
   /* Slider state. */
   float value = 0.0f;
@@ -138,6 +169,26 @@ struct KX_UIElement {
 
   /** Bumped by every attribute write so the renderer can rebuild one batch. */
   uint32_t revision = 0;
+};
+
+/**
+ * Private state of one B4.1 UI creator node.
+ *
+ * The runtime data buffer zeroes node state, so a "created" flag tracks the
+ * first successful creation instead of relying on a negative handle sentinel.
+ * P4.1 restores both fields when a graph is hot replaced, so the new creator
+ * adopts the already mounted element instead of creating a duplicate.
+ */
+struct KX_UIHandleState {
+  int handle = -1;
+  bool created = false;
+};
+
+/** Slider creator state; the value is restored across a hot reload as well. */
+struct KX_UISliderState {
+  int handle = -1;
+  float value = 0.0f;
+  bool created = false;
 };
 
 /** The seven text attributes D1 commits to. Everything else is B5. */
@@ -305,6 +356,15 @@ inline bool KX_UISetElementAttribute(KX_UIElement &element,
   }
   else if (key == "preserve_aspect") {
     element.preserve_aspect = value.AsBool();
+  }
+  else if (key == "clip") {
+    element.clip = value.AsBool();
+  }
+  else if (key == "virtualized") {
+    element.virtualized = value.AsBool();
+  }
+  else if (key == "vertical") {
+    element.vertical = value.AsBool();
   }
   else if (key == "tint") {
     value.ColorTo(element.text_color);
@@ -516,10 +576,67 @@ inline bool KX_UIGetElementAttribute(const KX_UIElement &element,
     out = KX_RuntimeValue::Bool(element.shadow);
   }
   else if (key == "use_clipping") {
-    out = KX_RuntimeValue::Bool(false);
+    out = KX_RuntimeValue::Bool(element.clip);
+  }
+  else if (key == "virtualized") {
+    out = KX_RuntimeValue::Bool(element.virtualized);
+  }
+  else if (key == "vertical") {
+    out = KX_RuntimeValue::Bool(element.vertical);
   }
   else {
     return false;
   }
   return true;
+}
+
+/**
+ * B6.7: write Polar child positions back before hit testing.
+ *
+ * The renderer used to place Polar children only while drawing, so a click
+ * still tested the authored position and landed on the wrong child. Both
+ * adapters run this at the start of a frame. The values are parent relative
+ * and identical to what the renderer resolves for its Polar branch, so the
+ * draw pass recomputes the same pixels and hit testing now agrees with it.
+ *
+ * Parents are created before their children, so a single forward pass also
+ * handles a Polar layout nested inside another Polar layout.
+ */
+inline void KX_UILayoutPolarElements(std::vector<KX_UIElement> &elements)
+{
+  if (elements.empty()) {
+    return;
+  }
+  std::map<int, KX_UIElement *> by_handle;
+  std::map<int, int> child_total;
+  for (KX_UIElement &element : elements) {
+    by_handle[element.handle] = &element;
+    if (element.canvas >= 0) {
+      ++child_total[element.canvas];
+    }
+  }
+  std::map<int, int> child_index;
+  for (KX_UIElement &element : elements) {
+    if (element.canvas < 0) {
+      continue;
+    }
+    const auto parent_it = by_handle.find(element.canvas);
+    if (parent_it == by_handle.end()) {
+      continue;
+    }
+    const KX_UIElement &parent = *parent_it->second;
+    if (parent.type != KX_UIElementType::Layout ||
+        parent.layout_type != KX_UI_LAYOUT_POLAR) {
+      continue;
+    }
+    const int slot = child_index[parent.handle]++;
+    const int total = child_total[parent.handle] > 0 ? child_total[parent.handle] : 1;
+    const float step = 360.0f / float(total);
+    const float angle = (parent.starting_angle + step * float(slot)) * 3.14159265358979323846f /
+                        180.0f;
+    element.position[0] = parent.position[0] + parent.size[0] * 0.5f +
+                          parent.radius * std::cos(angle);
+    element.position[1] = parent.position[1] + parent.size[1] * 0.5f +
+                          parent.radius * std::sin(angle);
+  }
 }

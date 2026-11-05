@@ -15,6 +15,7 @@ from bpy.types import Operator
 
 from .interface import ui_panel
 from ..editor.nodetree import LogicNodeTree
+from ..editor.nodes.native_metadata_gen import NATIVE_METADATA_GEN
 from ..generator.ir_export import _load_assets, export_graph_ir
 from ..ops.operator import operator
 
@@ -24,6 +25,261 @@ _MAX_TREE_WARNINGS = 30
 
 
 _cache = {}
+
+
+# Port contract of the B4.1 / B4.2 native families, copied from the C++
+# `KX_FunctionSpec` tables (KX_FunctionNodesB4.cpp / KX_FunctionNodesB4File.cpp).
+# Entry format: `kind` is 'trigger' or 'value', `value_tag` is empty for
+# triggers. `ports_from_ir` marks JSON nodes whose schema fields add ports at
+# runtime; `dynamic_inputs` marks inputs whose tag follows the IR.
+NATIVE_METADATA = {
+    'CreateUICanvas': {
+        'inputs': [('Condition', 'trigger', '')],
+        'outputs': [('Done', 'trigger', ''), ('Canvas', 'value', 'Int')],
+        'config_keys': ['scale_mode', 'design_w', 'design_h'],
+    },
+    'CreateUILayout': {
+        'inputs': [
+            ('Condition', 'trigger', ''),
+            ('Parent', 'value', 'Int'),
+            ('Relative Position', 'value', 'Bool'),
+            ('', 'value', 'Vector'),
+            ('Relative Size', 'value', 'Bool'),
+            ('', 'value', 'Vector'),
+            ('Angle', 'value', 'Float'),
+            ('Color', 'value', 'Color'),
+            ('Border Width', 'value', 'Int'),
+            ('Border Color', 'value', 'Color'),
+            ('Inverted', 'value', 'Bool'),
+            ('Spacing', 'value', 'Int'),
+            ('Rows', 'value', 'Int'),
+            ('Columns', 'value', 'Int'),
+            ('Starting Angle', 'value', 'Float'),
+            ('Radius', 'value', 'Float'),
+        ],
+        'outputs': [('Done', 'trigger', ''), ('Layout', 'value', 'Int')],
+        'config_keys': ['layout_type', 'halign', 'valign'],
+    },
+    'CreateUILabel': {
+        'inputs': [
+            ('Condition', 'trigger', ''),
+            ('Parent', 'value', 'Int'),
+            ('Relative Position', 'value', 'Bool'),
+            ('', 'value', 'Vector'),
+            ('Angle', 'value', 'Float'),
+            ('Text', 'value', 'String'),
+            ('', 'value', 'String'),
+            ('Font Size', 'value', 'Int'),
+            ('Line Height', 'value', 'Float'),
+            ('Font Color', 'value', 'Color'),
+            ('Use Shadow', 'value', 'Bool'),
+            ('Shadow Offset', 'value', 'Vector'),
+            ('Shadow Color', 'value', 'Color'),
+        ],
+        'outputs': [('Done', 'trigger', ''), ('Label', 'value', 'Int')],
+        'config_keys': ['halign', 'valign', 'text_halign', 'text_valign', 'wrap', 'font'],
+    },
+    'CreateUIImage': {
+        'inputs': [
+            ('Condition', 'trigger', ''),
+            ('Parent', 'value', 'Int'),
+            ('Relative Position', 'value', 'Bool'),
+            ('', 'value', 'Vector'),
+            ('Relative Size', 'value', 'Bool'),
+            ('', 'value', 'Vector'),
+            ('Angle', 'value', 'Float'),
+            ('', 'value', 'String'),
+        ],
+        'outputs': [('Done', 'trigger', ''), ('Image', 'value', 'Int')],
+        'config_keys': ['tint_r', 'tint_g', 'tint_b', 'tint_a', 'preserve_aspect', 'texture'],
+    },
+    'CreateUIButton': {
+        'inputs': [
+            ('Condition', 'trigger', ''),
+            ('Parent', 'value', 'Int'),
+            ('Relative Position', 'value', 'Bool'),
+            ('', 'value', 'Vector'),
+            ('Relative Size', 'value', 'Bool'),
+            ('', 'value', 'Vector'),
+            ('Angle', 'value', 'Float'),
+            ('Color', 'value', 'Color'),
+            ('Hover Color', 'value', 'Color'),
+            ('Border Width', 'value', 'Int'),
+            ('Border Color', 'value', 'Color'),
+            ('Text', 'value', 'String'),
+            ('Text Position', 'value', 'Vector'),
+            ('', 'value', 'String'),
+            ('Font Size', 'value', 'Int'),
+            ('Line Height', 'value', 'Float'),
+            ('Font Color', 'value', 'Color'),
+        ],
+        'outputs': [
+            ('Done', 'trigger', ''),
+            ('Button', 'value', 'Int'),
+            ('On Click', 'trigger', ''),
+            ('On Hover', 'trigger', ''),
+            ('On Release', 'trigger', ''),
+        ],
+        'config_keys': ['halign', 'valign', 'text_halign', 'text_valign', 'font'],
+    },
+    'CreateUISliderWidget': {
+        'inputs': [
+            ('Condition', 'trigger', ''),
+            ('Parent', 'value', 'Int'),
+            ('Relative Position', 'value', 'Bool'),
+            ('', 'value', 'Vector'),
+            ('Relative Size', 'value', 'Bool'),
+            ('', 'value', 'Vector'),
+            ('Angle', 'value', 'Float'),
+            ('Bar Width', 'value', 'Float'),
+            ('Bar Color', 'value', 'Color'),
+            ('Bar Hover Color', 'value', 'Color'),
+            ('Bar Texture', 'value', 'String'),
+            ('Border Width', 'value', 'Int'),
+            ('Border Color', 'value', 'Color'),
+            ('Knob Size', 'value', 'Float'),
+            ('Knob Color', 'value', 'Color'),
+            ('Knob Hover Color', 'value', 'Color'),
+            ('Knob Texture', 'value', 'String'),
+            ('Initial Value', 'value', 'Float'),
+            ('Steps', 'value', 'Int'),
+            ('Bar Control', 'value', 'Bool'),
+        ],
+        'outputs': [
+            ('Done', 'trigger', ''),
+            ('Slider', 'value', 'Int'),
+            ('Slider Value', 'value', 'Float'),
+            ('Knob Position', 'value', 'Vector'),
+        ],
+        'config_keys': ['orientation'],
+    },
+    'MoveWidget': {
+        'inputs': [('Condition', 'trigger', ''), ('Widget', 'value', 'Int')],
+        'outputs': [('Done', 'trigger', '')],
+        'config_keys': ['mode'],
+    },
+    'SetUIWidgetAttr': {
+        'inputs': [
+            ('Condition', 'trigger', ''),
+            ('Widget', 'value', 'Int'),
+            ('Value', 'value', 'Float'),
+        ],
+        'outputs': [('Done', 'trigger', '')],
+        'config_keys': ['widget_attr'],
+        'dynamic_inputs': [2],
+    },
+    'GetUIWidgetAttr': {
+        'inputs': [('Widget', 'value', 'Int')],
+        'outputs': [
+            ('Visibility', 'value', 'Bool'),
+            ('Color', 'value', 'Color'),
+            ('Alpha', 'value', 'Float'),
+            ('Vec2', 'value', 'Vector'),
+            ('String', 'value', 'String'),
+            ('Int', 'value', 'Int'),
+            ('Float', 'value', 'Float'),
+            ('Font', 'value', 'String'),
+            ('Image', 'value', 'String'),
+        ],
+        'config_keys': ['widget_attr'],
+    },
+    'SaveGame': {
+        'inputs': [('OnEnter', 'trigger', ''), ('Slot', 'value', 'String')],
+        'outputs': [('OnSuccess', 'trigger', ''), ('OnFail', 'trigger', '')],
+        'config_keys': ['format'],
+    },
+    'LoadGame': {
+        'inputs': [('OnEnter', 'trigger', ''), ('Slot', 'value', 'String')],
+        'outputs': [('OnSuccess', 'trigger', ''), ('OnFail', 'trigger', '')],
+        'config_keys': ['format'],
+    },
+    'ReadFile': {
+        'inputs': [('OnEnter', 'trigger', ''), ('Path', 'value', 'String')],
+        'outputs': [
+            ('Content', 'value', 'String'),
+            ('OnSuccess', 'trigger', ''),
+            ('OnFail', 'trigger', ''),
+        ],
+        'config_keys': ['binary'],
+    },
+    'WriteFile': {
+        'inputs': [
+            ('OnEnter', 'trigger', ''),
+            ('Path', 'value', 'String'),
+            ('Content', 'value', 'String'),
+        ],
+        'outputs': [('OnSuccess', 'trigger', ''), ('OnFail', 'trigger', '')],
+        'config_keys': ['binary'],
+    },
+    'FileExists': {
+        'inputs': [('OnEnter', 'trigger', ''), ('Path', 'value', 'String')],
+        'outputs': [('Exists', 'value', 'Bool')],
+        'config_keys': [],
+    },
+    'DeleteFile': {
+        'inputs': [('OnEnter', 'trigger', ''), ('Path', 'value', 'String')],
+        'outputs': [('OnSuccess', 'trigger', ''), ('OnFail', 'trigger', '')],
+        'config_keys': [],
+    },
+    'JSONStringify': {
+        'inputs': [('OnEnter', 'trigger', '')],
+        'outputs': [
+            ('Result', 'value', 'String'),
+            ('OnSuccess', 'trigger', ''),
+            ('OnFail', 'trigger', ''),
+        ],
+        'config_keys': ['schema'],
+        'ports_from_ir': True,
+    },
+    'JSONParse': {
+        'inputs': [('OnEnter', 'trigger', ''), ('Source', 'value', 'String')],
+        'outputs': [('OnSuccess', 'trigger', ''), ('OnFail', 'trigger', '')],
+        'config_keys': ['schema'],
+        'ports_from_ir': True,
+    },
+}
+
+# The generated table covers every native runtime node; the hand written B4
+# entries above stay authoritative for their little extras (``ports_from_ir``
+# notes). Merge without overwriting them.
+for _runtime_id, _meta in NATIVE_METADATA_GEN.items():
+    NATIVE_METADATA.setdefault(_runtime_id, _meta)
+del _runtime_id, _meta
+
+
+def registered_native_ids():
+    """runtime_type_id of every registered, non deprecated node class."""
+    from ..editor.nodes.node import _nodes
+
+    ids = set()
+    for cls in _nodes:
+        runtime_id = getattr(cls, 'runtime_type_id', '')
+        if runtime_id and not getattr(cls, 'deprecated', False):
+            ids.add(runtime_id)
+    return ids
+
+
+def audit_metadata():
+    """Self-check: every metadata entry has a node and matches its port table.
+
+    Returns a report whose `missing`, `unknown`, `port_mismatch` and
+    `config_mismatch` lists must all be empty. The generated table covers the
+    runtime side; the port/config comparison runs against every editor table
+    that declares the node (native table modules, not the legacy catalog, which
+    ``port_contract.py`` checks separately).
+    """
+    from ..generator import native_metadata_audit
+    from ..generator import port_contract
+
+    runtime_ids = set(port_contract.load_cpp_specs())
+    runtime_ids.update(port_contract.load_signature_specs())
+    return native_metadata_audit.audit(
+        NATIVE_METADATA,
+        registered_native_ids(),
+        native_metadata_audit.load_editor_tables(),
+        port_contract.load_dynamic_runtime_ids(),
+        runtime_ids,
+    )
 
 
 def _tree_signature(tree):
@@ -192,11 +448,25 @@ class LOGIC_NODES_PT_native_inspector(bpy.types.Panel):
             else:
                 runtime_id = getattr(node, 'runtime_type_id', '')
                 if not runtime_id:
+                    row = column.row()
+                    row.alert = True
+                    row.label(text='Runtime: (unknown)', icon='ERROR')
                     column.label(text='No native runtime type', icon='INFO')
+                elif runtime_id not in registered_native_ids():
+                    row = column.row()
+                    row.alert = True
+                    row.label(text='Runtime: (unknown)', icon='ERROR')
+                    column.label(text=f'Unregistered runtime type {runtime_id}', icon='INFO')
                 else:
                     column.label(text='Export failed, see diagnostics', icon='ERROR')
             return
-        column.label(text=f"Runtime: {ir_node['type_id']}")
+        if ir_node['type_id'] not in registered_native_ids():
+            row = column.row()
+            row.alert = True
+            row.label(text='Runtime: (unknown)', icon='ERROR')
+            column.label(text=f'Type id: {ir_node["type_id"]}')
+        else:
+            column.label(text=f"Runtime: {ir_node['type_id']}")
         column.label(text=f"Node type: {node.bl_idname}")
 
     def draw_ports(self, layout, ir, ir_node, node_index, input_source, output_targets):

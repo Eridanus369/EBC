@@ -1146,7 +1146,7 @@ void KX_KetsjiEngine::PostProcessScene(KX_Scene *scene)
                                                           activecam->GetBlenderObject());
     bContext *C = KX_GetActiveEngine()->GetContext();
     RegionView3D *rv3d = CTX_wm_region_view3d(C);
-    if (!KX_GetActiveEngine()->UseViewportRender()) {
+    if (rv3d && !KX_GetActiveEngine()->UseViewportRender()) {
       rv3d->persp = RV3D_CAMOB;
     }
 
@@ -1160,7 +1160,7 @@ void KX_KetsjiEngine::PostProcessScene(KX_Scene *scene)
       activecam->NodeSetLocalOrientation(camtrans.getBasis());
       activecam->NodeUpdateGS(0.0f);
     }
-    else {
+    else if (rv3d) {
       MT_Vector3 pos = MT_Vector3(rv3d->viewinv[3]);
       activecam->NodeSetLocalPosition(pos);
       activecam->NodeSetLocalOrientation(MT_Matrix3x3(&rv3d->viewinv[0][0]));

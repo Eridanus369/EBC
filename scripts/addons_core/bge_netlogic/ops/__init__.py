@@ -44,5 +44,7 @@ from .startuipreview import LOGIC_NODES_OT_start_ui_preview
 from .addportal import LOGIC_NODES_OT_add_portal_in
 from .addportal import LOGIC_NODES_OT_add_portal_out
 from .generateproject import LOGIC_NODES_OT_generate_project
+from .hot_reload import LOGIC_NODES_OT_hot_reload
+from .debug_trace import LOGIC_NODES_OT_toggle_debug_trace
 
 # from .addallnodes import LOGIC_NODES_OT_add_all_nodes

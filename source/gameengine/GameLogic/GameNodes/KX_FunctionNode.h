@@ -99,6 +99,14 @@ struct KX_FunctionSpec {
    * Float, Int, Bool, String or handle values without narrowing to Float.
    */
   bool ports_from_ir = false;
+  /** Permit IR graphs that declare a prefix of the trailing output ports. */
+  bool allow_fewer_outputs = false;
+  /**
+   * Opt into the scheduler trigger snapshot (see
+   * #KX_LogicNodeRuntime::NeedsTriggerSnapshot). Used by nodes that combine
+   * several trigger inputs inside one Execute, such as the logic gates.
+   */
+  bool needs_trigger_snapshot = false;
 };
 
 class KX_FunctionNode final : public KX_LogicNodeRuntime {
@@ -112,6 +120,8 @@ class KX_FunctionNode final : public KX_LogicNodeRuntime {
   void FinishPendingTriggers(KX_ExecutionContext &ctx) override;
   bool Configure(const std::string &config, std::string *error) override;
   bool IsValueNode() const override;
+  bool NeedsTriggerSnapshot() const override;
+  bool ExecuteValueOnly(KX_ExecutionContext &ctx) override;
   KX_ValueType ResolvedPortType(bool input, uint32_t port) const override;
 
   const KX_FunctionSpec &Spec() const
@@ -231,3 +241,55 @@ void RegisterB4FileFunctionGameNodes();
 
 /** Register the B4.1 UI node family. Idempotent. */
 void RegisterB4UIFunctionGameNodes();
+
+/** Register the B5.2 smooth transform, mouse look, property and material family. Idempotent. */
+void RegisterB5FunctionGameNodes();
+
+/** Register the B6.2 gamepad/touch/key-combo/input-map family. Idempotent. */
+void RegisterB6InputFunctionGameNodes();
+
+/** Register the B6.2 advanced string and list family. Idempotent. */
+void RegisterB6StringFunctionGameNodes();
+
+/** Register the B6.2 advanced audio family. Idempotent. */
+void RegisterB6AudioFunctionGameNodes();
+
+/** Register the B6.3 LAN network node family. Idempotent. */
+void RegisterB6NetworkFunctionGameNodes();
+
+/** Register the B6.3 extended sensor family. Idempotent. */
+void RegisterB6SensorFunctionGameNodes();
+
+/** Register the B6.3 advanced scene control family. Idempotent. */
+void RegisterB6SceneFunctionGameNodes();
+/** B6.4 advanced UI nodes (scroll/list/tab views, animation, anchors, stack). */
+void RegisterB6UIFunctionGameNodes();
+/** B6.4 advanced file nodes (binary save, slots, obfuscation, line reader). */
+void RegisterB6FileFunctionGameNodes();
+
+/** Register the B6.5 legacy layout compatible node family. Idempotent. */
+void RegisterB6LegacyFunctionGameNodes();
+
+/** Register the B6.6 screen query legacy nodes (WorldPosition/Touch). Idempotent. */
+void RegisterB6LegacyQueryFunctionGameNodes();
+
+/** Register the B6.1 advanced physics and animation family. Idempotent. */
+void RegisterB6AdvancedFunctionGameNodes();
+
+/**
+ * ForEach cursor, read and written by the P4.1 state migration.
+ *
+ * The implementation lives in KX_FunctionNodesB2.cpp next to the private
+ * #KX_ForEachState, so the hot reload layer never sees the list pointer.
+ */
+struct KX_ForEachCursor {
+  uint32_t index = 0;
+  uint32_t count = 0;
+};
+
+bool KX_ReadForEachCursor(uint32_t state_offset,
+                          const KX_RuntimeData &data,
+                          KX_ForEachCursor *cursor);
+void KX_WriteForEachCursor(uint32_t state_offset,
+                           KX_RuntimeData &data,
+                           const KX_ForEachCursor &cursor);

@@ -236,6 +236,18 @@ void RegisterBuiltinGameNodes()
   RegisterB3FunctionGameNodes();
   RegisterB4FileFunctionGameNodes();
   RegisterB4UIFunctionGameNodes();
+  RegisterB5FunctionGameNodes();
+  RegisterB6InputFunctionGameNodes();
+  RegisterB6StringFunctionGameNodes();
+  RegisterB6AudioFunctionGameNodes();
+  RegisterB6NetworkFunctionGameNodes();
+  RegisterB6SensorFunctionGameNodes();
+  RegisterB6SceneFunctionGameNodes();
+  RegisterB6UIFunctionGameNodes();
+  RegisterB6FileFunctionGameNodes();
+  RegisterB6LegacyFunctionGameNodes();
+  RegisterB6LegacyQueryFunctionGameNodes();
+  RegisterB6AdvancedFunctionGameNodes();
 }
 
 /* ------------------------------------------------------------------------- */

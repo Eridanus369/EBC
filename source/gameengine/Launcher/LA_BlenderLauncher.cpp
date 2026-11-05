@@ -89,6 +89,11 @@ bool LA_BlenderLauncher::GetUseAlwaysExpandFraming()
 void LA_BlenderLauncher::InitCamera()
 {
   blender::RegionView3D *rv3d = CTX_wm_region_view3d(m_context);
+  if (!rv3d) {
+    /* The loaded file has no 3D view and no fallback could be created: keep
+     * the engine's default camera data instead of dereferencing nullptr. */
+    return;
+  }
 
   // Some blender stuff.
   float camzoom = 1.0f;
@@ -107,9 +112,11 @@ void LA_BlenderLauncher::InitCamera()
 
   if (rv3d->persp != RV3D_CAMOB) {
     RAS_CameraData camdata = RAS_CameraData();
-    camdata.m_lens = m_view3d->lens;
-    camdata.m_clipstart = m_view3d->clip_start;
-    camdata.m_clipend = m_view3d->clip_end;
+    if (m_view3d) {
+      camdata.m_lens = m_view3d->lens;
+      camdata.m_clipstart = m_view3d->clip_start;
+      camdata.m_clipend = m_view3d->clip_end;
+    }
     camdata.m_perspective = (rv3d->persp != RV3D_ORTHO);
 
     m_ketsjiEngine->EnableCameraOverride(m_startSceneName,
@@ -140,7 +147,7 @@ void LA_BlenderLauncher::InitEngine()
   m_savedBlenderData.sceneLayer = m_startScene->lay;
   m_savedBlenderData.camera = m_startScene->camera;
 
-  if (m_view3d->scenelock == 0) {
+  if (m_view3d && m_view3d->scenelock == 0) {
     // m_startScene->lay = m_view3d->local_view_uuid;
     m_startScene->camera = m_view3d->camera;
   }
@@ -153,7 +160,7 @@ void LA_BlenderLauncher::ExitEngine()
   LA_Launcher::ExitEngine();
 
   // Lock frame and camera enabled - restoring global values.
-  if (m_view3d->scenelock == 0) {
+  if (m_view3d && m_view3d->scenelock == 0) {
     m_startScene->lay = m_savedBlenderData.sceneLayer;
     m_startScene->camera = m_savedBlenderData.camera;
   }

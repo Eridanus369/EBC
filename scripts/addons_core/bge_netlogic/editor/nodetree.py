@@ -113,5 +113,9 @@ class LogicNodeTree(NodeTree):
         self.changes_staged = True
     
         for n in self.nodes:
-            n.update()
+            # Nodes of unknown types are loaded as plain bpy.types.Node and
+            # have no update() method; skip them instead of failing on open.
+            update = getattr(n, 'update', None)
+            if update is not None:
+                update()
         self.color_sockets()

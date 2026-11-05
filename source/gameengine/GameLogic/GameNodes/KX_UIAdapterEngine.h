@@ -52,6 +52,7 @@ class KX_UIAdapterEngine : public KX_UIAdapter {
   void BeginFrame(float delta_time, float mouse_x, float mouse_y, bool mouse_down) override;
   void EndFrame() override;
   int CreateCanvas(const std::string &name) override;
+  bool LoadFont(const std::string &name, const std::string &path) override;
   int CreateLabel(int canvas, const std::string &text) override;
   int CreateImage(int canvas, const std::string &image) override;
   int CreateButton(int canvas, const std::string &text) override;
@@ -68,6 +69,23 @@ class KX_UIAdapterEngine : public KX_UIAdapter {
   bool HitTest(int handle, float x, float y) const override;
   int HitTestPoint(float x, float y) const override;
   void DrawScreen(int width, int height) override;
+
+  float MouseX() const override
+  {
+    return mouse_x_;
+  }
+  float MouseY() const override
+  {
+    return mouse_y_;
+  }
+  int ScreenWidth() const override
+  {
+    return screen_w_;
+  }
+  int ScreenHeight() const override
+  {
+    return screen_h_;
+  }
 
   /** How many times BLF_load_font_stack() actually ran; test hook for idempotency. */
   int FontStackLoads() const;
@@ -104,6 +122,8 @@ class KX_UIAdapterEngine : public KX_UIAdapter {
   bool previous_mouse_down_ = false;
   int pressed_handle_ = -1;
   int hovered_handle_ = -1;
+  int screen_w_ = 0;
+  int screen_h_ = 0;
   std::map<int, uint8_t> event_flags_;
   KX_UIRenderer renderer_;
 };

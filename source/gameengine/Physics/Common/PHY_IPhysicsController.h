@@ -180,4 +180,21 @@ class PHY_IPhysicsController : public PHY_IController {
   // CCD methods
   virtual void SetCcdMotionThreshold(float val) = 0;
   virtual void SetCcdSweptSphereRadius(float val) = 0;
+
+  /**
+   * Change the restitution of the rigid body at runtime.
+   * Returns false when the controller cannot change it in place (no rigid
+   * body, physics suspended, or an implementation that does not expose it).
+   * Implementations must not rebuild the body: contacts, constraints and
+   * velocities have to survive the call.
+   *
+   * Declared last on purpose: appending a slot keeps the vtable indices of
+   * every existing virtual unchanged, so an incremental build cannot dispatch
+   * an old call site to the wrong function.
+   */
+  virtual bool SetRestitution(float restitution)
+  {
+    (void)restitution;
+    return false;
+  }
 };

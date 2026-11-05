@@ -18,6 +18,8 @@ Running it inside Blender:
 """
 
 import json
+import os
+import re
 
 from ..editor.nodes.node import _nodes
 from ..editor.nodes import native_catalog
@@ -57,6 +59,53 @@ _B2_DIRECT_RUNTIME_IDS = frozenset({'ClampValue'})
 
 def _catalog_entry(bl_idname):
     return native_catalog.CATALOG.get(bl_idname)
+
+
+# ---------------------------------------------------------------------------
+# Layer 4: user perceived compatibility.
+#
+# The contract, fixed here and in docs/B6_LEGACY_COMPAT.md:
+#   denominator = every legacy row in the 290 row report whose bl_idname is
+#                 NOT listed in docs/DEFERRED_FOREVER.md (the rows that will
+#                 never be ported on purpose),
+#   numerator   = migrated_direct + migrated_translated + migrated_rewritten
+#                 inside that same range,
+#   plus the raw 290 row number, printed unchanged next to it.
+#
+# Rows that are already migrated are never subtracted from the denominator, so
+# the numerator can never exceed it by construction.
+# ---------------------------------------------------------------------------
+_FOREVER_MARKERS = ('<!-- excluded:start -->', '<!-- excluded:end -->')
+
+
+def _forever_doc_path():
+    """Find docs/DEFERRED_FOREVER.md next to the addon checkout."""
+    here = os.path.abspath(os.path.realpath(__file__))
+    here = os.path.dirname(here)
+    for _ in range(6):
+        candidate = os.path.join(here, 'docs', 'DEFERRED_FOREVER.md')
+        if os.path.isfile(candidate):
+            return candidate
+        parent = os.path.dirname(here)
+        if parent == here:
+            break
+        here = parent
+    return None
+
+
+def _forever_ids():
+    """Read the machine list between the exclusion markers."""
+    path = _forever_doc_path()
+    if path is None:
+        return set()
+    with open(path, encoding='utf-8') as handle:
+        text = handle.read()
+    try:
+        block = text.split(_FOREVER_MARKERS[0], 1)[1].split(_FOREVER_MARKERS[1], 1)[0]
+    except IndexError:
+        return set()
+    return {match.group(0) for match in re.finditer(r'\b(NL[A-Za-z0-9_]+|LogicNode[A-Za-z0-9_]+)\b',
+                                                    block)}
 
 
 def _classify(bl_idname, runtime_id):
@@ -248,8 +297,35 @@ def collect():
     return _semantic_coverage(report)
 
 
+def _perceived_coverage(report):
+    """Layer 4: exclude only rows that DEFERRED_FOREVER.md rules out for good."""
+    buckets = ('migrated_direct', 'migrated_translated', 'migrated_rewritten')
+    legacy_ids = {entry['bl_idname'] for entry in report['deferred']}
+    for bucket in buckets:
+        legacy_ids |= {entry['bl_idname'] for entry in report[bucket]}
+
+    requested = _forever_ids()
+    excluded = requested & legacy_ids
+    migrated = 0
+    for bucket in buckets:
+        migrated += sum(1 for entry in report[bucket] if entry['bl_idname'] not in excluded)
+    total = report['total'] - len(excluded)
+    pct = (100.0 * migrated / total) if total else 0.0
+    report['perceived'] = {
+        'migrated': migrated,
+        'total': total,
+        'pct': pct,
+        'excluded': sorted(excluded),
+        'requested_excluded': sorted(requested),
+        'raw_total': report['total'],
+        'raw_migrated': report['migrated'],
+    }
+    return report
+
+
 def main():
     report = collect()
+    report = _perceived_coverage(report)
     print('NATIVE AUDIT total={} migrated={} '
           'migrated_direct={} migrated_translated={} migrated_rewritten={} deferred={}'.format(
               report['total'],
@@ -265,6 +341,20 @@ def main():
     semantic_pct = (100.0 * semantic_covered / semantic_total) if semantic_total else 0.0
     print('LEGACY COVERAGE migrated={} total={} pct={:.1f}%'.format(
         report['migrated'], report['total'], legacy_pct))
+    perceived = report['perceived']
+    print('PERCEIVED COVERAGE migrated={} total={} pct={:.1f}% '
+          'raw_290={}/{}={:.1f}% excluded={}'.format(
+              perceived['migrated'],
+              perceived['total'],
+              perceived['pct'],
+              perceived['raw_migrated'],
+              perceived['raw_total'],
+              100.0 * perceived['raw_migrated'] / perceived['raw_total']
+              if perceived['raw_total'] else 0.0,
+              len(perceived['excluded'])))
+    if perceived['pct'] < 70.0:
+        missing = perceived['total'] - perceived['migrated']
+        print('PERCEIVED TARGET missed=70.0% gap_rows={}'.format(missing))
     print('SEMANTIC COVERAGE covered={} total={} pct={:.1f}% '
           'legacy_semantics={} native_only_new={} deduped={}'.format(
               semantic_covered,

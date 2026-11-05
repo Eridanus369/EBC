@@ -633,9 +633,23 @@ HUD 在 `EndFrame` 统一绘制一次；分屏 / 每视口 HUD 标记 B5。
 
 ### 12.2 实测证据
 
-- `KX_RuntimeValue` 尺寸（2026-11-04）：
-  `c++ -std=c++17 -I source/gameengine/GameLogic/GameNodes -I source/gameengine/GameLogic -I source/gameengine/Expressions -I source/blender/blenlib /tmp/sizo.cpp`
-  → `sizeof=24 alignof=8`。探针中已加 `static_assert(sizeof==24)` 与 `static_assert(alignof==8)`。
+- `KX_RuntimeValue` 尺寸（2026-11-04，2026-11-05 复测）：
+  探针源码从未入库且已丢失；等价探针就是下面这段（可直接编译，不再依赖临时源码路径）：
+
+  ```cpp
+  #include <cstdio>
+  #include "KX_RuntimeValue.h"
+  static_assert(sizeof(KX_RuntimeValue) == 24, "size");
+  static_assert(alignof(KX_RuntimeValue) == 8, "align");
+  int main()
+  {
+    std::printf("sizeof=%zu alignof=%zu\n", sizeof(KX_RuntimeValue), alignof(KX_RuntimeValue));
+    return 0;
+  }
+  ```
+
+  编译命令：`c++ -std=c++17 -I source/gameengine/GameLogic/GameNodes -I source/gameengine/GameLogic -I source/gameengine/Expressions -I source/blender/blenlib <片段>.cpp`
+  → `sizeof=24 alignof=8`，2026-11-05 实跑输出 `/tmp/sizo_probe.log`。探针中保留两条 `static_assert`。
 
 ### 12.3 第 0 天实测结果（2026-11-04）
 
@@ -654,19 +668,19 @@ HUD 在 `EndFrame` 统一绘制一次；分屏 / 每视口 HUD 标记 B5。
 **BLF 字体栈**
 
 - `KX_UIAdapterEngine` 在首个 Label（及 Button）创建时调用一次 `BLF_load_font_stack()`，全局 guard 保证进程内只加载一次。
-- 探针以 stub 计数验证：第一个 Label 后计数 1；第二个 Label、Button、第二个适配器实例均保持 1。日志 `/tmp/b41_ui_mock.log`（62 项断言全 PASS）。
+- 探针以 stub 计数观测：第一个 Label 后计数 1；第二个 Label、Button、第二个适配器实例均保持 1。**当日日志 `/tmp/b41_ui_mock.log` 与探针源文件均已丢失，未留存**（2026-11-05 复核确认），因此该结论现在只有代码依据：`g_ui_font_stack_loaded` 守卫在 `KX_UIAdapterEngine.cpp:56-62`，测试钩子见 `KX_UIAdapterEngine.h:90`。
 - 底层 `BLF_load` 对同一路径返回已缓存字体（`BLF_api.hh:67-68`），与 guard 双击双保险。
 
 **Font / Image 打包 happy path**
 
-- 字体：`DejaVu Sans Book` 打包后 `packed_file` 759720 B，保存重载后按名查找命中，`packed_file` 大小不变。
-- 图片：PNG 打包 10147 B，保存重载后仍在 `bpy.data.images` 且 `packed=True`。
+- 字体：`DejaVu Sans Book` 打包后 `packed_file` 约为 0.7 MB 量级（原记录的精确值已失去当日日志支撑，2026-11-05 复核时日志缺失，故降级为量级描述）；保存重载后按名查找命中，`packed_file` 大小不变。
+- 图片：PNG 打包后约为 10 KB 量级（同样，原精确值无日志支撑，降级为量级描述）；保存重载后仍在 `bpy.data.images` 且 `packed=True`。
 - 按名查找缺失（`NoSuchFont`）返回空：运行时的处理是 stderr 诊断 + 跳过该元素，不崩溃。
 - 约束：仓库内置 CJK 字体为 `.woff2`，VFont 不能直接加载；D1 的默认字体路径依赖 BLF 字体栈，用户自带字体仅承诺 ttf/otf。
 
 **编辑器视口可见性（环境限制，未完成目视）**
 
-本机为虚拟 X 显示，嵌入视口与 blenderplayer 均只推进 1 帧（`/tmp/ui_probe_ticks.txt` 停在 `1`，`game_start` 后无持续 redraw），无法完成"画上去看一眼"的验证。因此 B4.1 当前口径为：
+历史观测（2026-11-04）称本机虚拟 X 显示下嵌入视口与 blenderplayer 只推进 1 帧；**该探针文件 `/tmp/ui_probe_ticks.txt` 已于 2026-11-05 复核确认丢失，这个精确帧数不再有日志支撑**。2026-11-05 的 C.8 复验（`/tmp/c8_gui_fix.log`）用 `.debug_trace.json` 帧计数测得 blenderplayer 在 12 秒内帧号推进到 510–534（日志记录 510 / 531 / 534），原「player 只推进 1 帧」的结论不成立；编辑器内嵌 Game Engine 视口未重测。因此 B4.1 当前口径为：
 
 > **B4.1 只保证独立 player 窗口中的 HUD 可见性；编辑器 Game Engine 视口的可见性留待真机补验，不作为 B4.1 验收门槛。**
 
@@ -674,9 +688,9 @@ HUD 在 `EndFrame` 统一绘制一次；分屏 / 每视口 HUD 标记 B5。
 
 **B4.2 sizeof 复核（只读审计）**
 
-四条 grep（`sizeof(KX_RuntimeValue)`、`16.*RuntimeValue`/`RuntimeValue.*16`、`20.*RuntimeValue`/`RuntimeValue.*20`、`memcpy.*runtime_data`/`runtime_data.*memcpy`）结果落在 `/tmp/sizeof_audit.log`。结论：
+四条 grep（`sizeof(KX_RuntimeValue)`、`16.*RuntimeValue`/`RuntimeValue.*16`、`20.*RuntimeValue`/`RuntimeValue.*20`、`memcpy.*runtime_data`/`runtime_data.*memcpy`）结果落在 `/tmp/sizeof_audit.log`（2026-11-05 重新生成；原日志曾丢失）。结论：
 
-- 所有值槽布局都通过 `sizeof(KX_RuntimeValue)` / `alignof(KX_RuntimeValue)` 取尺寸，未发现硬编码 16 或 20；唯一疑似命中是 `KX_FunctionNodesB4.cpp:328` 的 `1920` 字面量，属正则误报。
+- 所有值槽布局都通过 `sizeof(KX_RuntimeValue)` / `alignof(KX_RuntimeValue)` 取尺寸，未发现硬编码 16 或 20；唯一疑似命中是 `KX_FunctionNodesB4.cpp:349` 的 `1920` 字面量（`ConfigInt("design_w", 1920)`），属正则误报。
 - 本机重新实测 `sizeof(KX_RuntimeValue)=24`、`alignof=8`，与 12.2 节一致。
 - 无需改代码，无 TODO 遗留。
 

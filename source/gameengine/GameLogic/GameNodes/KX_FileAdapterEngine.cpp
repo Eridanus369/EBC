@@ -38,6 +38,7 @@
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <algorithm>
 #include <string>
 #include <system_error>
 #include <utility>
@@ -198,6 +199,89 @@ bool KX_FileAdapterEngine::LoadGame(const std::string &slot, std::string *json_o
                  target.string().c_str());
     return false;
   }
+  return true;
+}
+
+bool KX_FileAdapterEngine::SaveGameBinary(const std::string &slot, const std::string &data)
+{
+  std::string safe_slot;
+  std::string error;
+  if (!SanitizeSlot(slot, &safe_slot, &error)) {
+    std::fprintf(stderr, "GameNode: SaveGameBinary: %s\n", error.c_str());
+    return false;
+  }
+  if (blend_dir_.empty()) {
+    std::fprintf(stderr, "GameNode: SaveGameBinary: blend directory is unknown\n");
+    return false;
+  }
+  const fs::path save_dir = fs::path(blend_dir_) / "save";
+  std::error_code ec;
+  fs::create_directories(save_dir, ec);
+  if (ec) {
+    std::fprintf(stderr,
+                 "GameNode: SaveGameBinary: cannot create '%s': %s\n",
+                 save_dir.string().c_str(),
+                 ec.message().c_str());
+    return false;
+  }
+  const fs::path target = save_dir / (safe_slot + ".bin");
+  if (!WriteWholeFile(target.string(), data.data(), data.size())) {
+    std::fprintf(stderr,
+                 "GameNode: SaveGameBinary: cannot write '%s'\n",
+                 target.string().c_str());
+    return false;
+  }
+  return true;
+}
+
+bool KX_FileAdapterEngine::LoadGameBinary(const std::string &slot, std::string *out)
+{
+  std::string safe_slot;
+  std::string error;
+  if (!SanitizeSlot(slot, &safe_slot, &error)) {
+    std::fprintf(stderr, "GameNode: LoadGameBinary: %s\n", error.c_str());
+    return false;
+  }
+  if (out == nullptr) {
+    return false;
+  }
+  const fs::path target = fs::path(blend_dir_) / "save" / (safe_slot + ".bin");
+  if (!ReadWholeFile(target.string(), out)) {
+    std::fprintf(stderr,
+                 "GameNode: LoadGameBinary: cannot read '%s'\n",
+                 target.string().c_str());
+    return false;
+  }
+  return true;
+}
+
+bool KX_FileAdapterEngine::ListSaveSlots(std::vector<std::string> *slots)
+{
+  if (slots == nullptr || blend_dir_.empty()) {
+    return false;
+  }
+  const fs::path save_dir = fs::path(blend_dir_) / "save";
+  std::error_code ec;
+  if (!fs::is_directory(save_dir, ec) || ec) {
+    *slots = {};
+    return true;
+  }
+  std::vector<std::string> names;
+  for (const auto &entry : fs::directory_iterator(save_dir, ec)) {
+    if (ec) {
+      break;
+    }
+    if (!entry.is_regular_file(ec)) {
+      continue;
+    }
+    const std::string ext = entry.path().extension().string();
+    if (ext == ".json" || ext == ".bin") {
+      names.push_back(entry.path().stem().string());
+    }
+  }
+  std::sort(names.begin(), names.end());
+  names.erase(std::unique(names.begin(), names.end()), names.end());
+  *slots = std::move(names);
   return true;
 }
 

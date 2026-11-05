@@ -1422,8 +1422,9 @@ void BL_ConvertBlenderObjects(blender::Main *maggie,
   }
 
   // non-camera objects not supported as camera currently
-  if (blenderscene->camera && blenderscene->camera->type == OB_CAMERA &&
-      CTX_wm_region_view3d(KX_GetActiveEngine()->GetContext())->persp == RV3D_CAMOB) {
+  blender::RegionView3D *rv3d = CTX_wm_region_view3d(KX_GetActiveEngine()->GetContext());
+  if (blenderscene->camera && blenderscene->camera->type == OB_CAMERA && rv3d &&
+      rv3d->persp == RV3D_CAMOB) {
     KX_Camera *gamecamera = (KX_Camera *)converter->FindGameObject(blenderscene->camera);
 
     if (gamecamera && !runtime_converted_object)

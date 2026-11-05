@@ -33,6 +33,7 @@
 #include "KX_FunctionNode.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -865,6 +866,9 @@ const KX_FuncPort kCollisionOutputs[] = {
     TP("OnEnter"),
     TP("OnStay"),
     TP("OnLeave"),
+    FP("ContactPoint", KX_VALUE_VECTOR),
+    FP("ContactNormal", KX_VALUE_VECTOR),
+    FP("ImpactForce", KX_VALUE_FLOAT),
 };
 
 bool BoundsOverlap(const float min_a[3],
@@ -884,6 +888,9 @@ void FuncCollisionTick(KX_FunctionNode &node, KX_ExecutionContext &ctx, float de
   KX_GameObject *b = node.InObject(ctx, 0);
 
   bool overlapping = false;
+  float contact_point[3] = {0.0f, 0.0f, 0.0f};
+  float contact_normal[3] = {0.0f, 0.0f, 1.0f};
+  float impact_force = 0.0f;
   if (a != nullptr && b != nullptr) {
     float min_a[3];
     float max_a[3];
@@ -893,7 +900,51 @@ void FuncCollisionTick(KX_FunctionNode &node, KX_ExecutionContext &ctx, float de
         ctx.Physics().WorldBounds(b, min_b, max_b))
     {
       overlapping = BoundsOverlap(min_a, max_a, min_b, max_b);
+      if (overlapping) {
+        /* The node is bounds based, so the contact is derived from the AABB
+         * overlap: the centre of the overlap volume plus the axis of least
+         * penetration. This is a contact proxy, not a Bullet manifold. */
+        float overlap_min[3];
+        float overlap_max[3];
+        float penetration[3];
+        for (int axis = 0; axis < 3; ++axis) {
+          overlap_min[axis] = std::max(min_a[axis], min_b[axis]);
+          overlap_max[axis] = std::min(max_a[axis], max_b[axis]);
+          penetration[axis] = overlap_max[axis] - overlap_min[axis];
+          contact_point[axis] = (overlap_min[axis] + overlap_max[axis]) * 0.5f;
+        }
+        int least = 0;
+        for (int axis = 1; axis < 3; ++axis) {
+          if (penetration[axis] < penetration[least]) {
+            least = axis;
+          }
+        }
+        contact_normal[0] = contact_normal[1] = contact_normal[2] = 0.0f;
+        const float centre_a = (min_a[least] + max_a[least]) * 0.5f;
+        const float centre_b = (min_b[least] + max_b[least]) * 0.5f;
+        contact_normal[least] = centre_a >= centre_b ? 1.0f : -1.0f;
+
+        float velocity_a[3];
+        float velocity_b[3];
+        ctx.Objects().GetLinearVelocity(a, velocity_a);
+        ctx.Objects().GetLinearVelocity(b, velocity_b);
+        const float relative[3] = {velocity_a[0] - velocity_b[0],
+                                  velocity_a[1] - velocity_b[1],
+                                  velocity_a[2] - velocity_b[2]};
+        impact_force = std::fabs(relative[0] * contact_normal[0] +
+                                 relative[1] * contact_normal[1] +
+                                 relative[2] * contact_normal[2]);
+      }
     }
+  }
+
+  if (overlapping && node.OutputCount() >= 6) {
+    /* Extension ports added in B6.3. A graph exported before the extension
+     * declares only the three trigger outputs, so the guard keeps that IR
+     * re-buildable instead of writing past the shorter offset table. */
+    node.OutVector(ctx, 3, contact_point[0], contact_point[1], contact_point[2]);
+    node.OutVector(ctx, 4, contact_normal[0], contact_normal[1], contact_normal[2]);
+    node.OutFloat(ctx, 5, impact_force);
   }
 
   if (overlapping && !state->overlapping) {
@@ -947,23 +998,36 @@ void FuncCompare(KX_FunctionNode &node, KX_ExecutionContext &ctx)
   node.OutBool(ctx, 0, CompareInts(op, node.InFloat(ctx, 0), node.InFloat(ctx, 1)) != 0);
 }
 
+/* Logic gates combine trigger edges. They opt into the scheduler trigger
+ * snapshot so A and B can be observed in the same frame. */
 const KX_FuncPort kLogicGateInputs[] = {
-    FP("A", KX_VALUE_BOOL),
-    FP("B", KX_VALUE_BOOL),
+    TP("A"),
+    TP("B"),
 };
-const KX_FuncPort kLogicGateOutputs[] = {FP("Value", KX_VALUE_BOOL)};
+const KX_FuncPort kLogicGateOutputs[] = {
+    FP("Result", KX_VALUE_BOOL),
+    TP("OnTrue"),
+    TP("OnFalse"),
+};
 
 void FuncLogicGate(KX_FunctionNode &node, KX_ExecutionContext &ctx)
 {
-  const bool a = node.InBool(ctx, 0);
-  const bool b = node.InBool(ctx, 1);
-  const std::string op = node.ConfigString("op");
+  const bool a = ctx.TriggerSnapshot(0);
+  const bool b = ctx.TriggerSnapshot(1);
+  std::string op = node.ConfigString("op");
+  for (char &character : op) {
+    character = static_cast<char>(std::tolower(static_cast<unsigned char>(character)));
+  }
   bool result = false;
   if (op == "or") {
     result = a || b;
   }
   else if (op == "xor") {
     result = a != b;
+  }
+  else if (op == "not") {
+    /* NOT is single input: A is inverted, B only triggers the evaluation. */
+    result = !a;
   }
   else if (op == "nand") {
     result = !(a && b);
@@ -975,9 +1039,12 @@ void FuncLogicGate(KX_FunctionNode &node, KX_ExecutionContext &ctx)
     result = a && b;
   }
   node.OutBool(ctx, 0, result);
+  node.OutTrigger(ctx, 1, result);
+  node.OutTrigger(ctx, 2, !result);
 }
 
 const KX_FuncPort kLogicNotInputs[] = {FP("Value", KX_VALUE_BOOL)};
+const KX_FuncPort kLogicNotOutputs[] = {FP("Value", KX_VALUE_BOOL)};
 
 void FuncLogicNot(KX_FunctionNode &node, KX_ExecutionContext &ctx)
 {
@@ -1173,6 +1240,13 @@ void FuncListLength(KX_FunctionNode &node, KX_ExecutionContext &ctx)
   KX_FunctionSpec {id, ins, PORT_COUNT(ins), outs, PORT_COUNT(outs), exec, nullptr, nullptr, 0, \
                    KX_RUNTIME_DATA_ALIGNMENT, true, false, false}
 
+/* Trigger node that observes several same frame trigger inputs (logic gates).
+ * The trailing true enables KX_FunctionSpec::needs_trigger_snapshot. */
+#define TRIGGER_SNAPSHOT_NODE(id, ins, outs, exec) \
+  KX_FunctionSpec {id, ins, PORT_COUNT(ins), outs, PORT_COUNT(outs), exec, nullptr, nullptr, 0, \
+                   KX_RUNTIME_DATA_ALIGNMENT, false, false, false, \
+                   nullptr, nullptr, nullptr, false, false, true}
+
 /* Polymorphic node: port value types come from the IR. */
 #define POLY_NODE(id, ins, outs, exec) \
   KX_FunctionSpec {id, ins, PORT_COUNT(ins), outs, PORT_COUNT(outs), exec, nullptr, nullptr, 0, \
@@ -1186,6 +1260,13 @@ void FuncListLength(KX_FunctionNode &node, KX_ExecutionContext &ctx)
 #define STATE_NODE(id, ins, outs, exec, tick_fn, state_type) \
   KX_FunctionSpec {id, ins, PORT_COUNT(ins), outs, PORT_COUNT(outs), exec, nullptr, tick_fn, \
                    static_cast<uint32_t>(sizeof(state_type)), alignof(state_type), false, true, true}
+
+/* Stateful node whose IR may declare a prefix of its trailing outputs. Only
+ * used by Collision, whose contact details were appended in B6.3. */
+#define STATE_NODE_LEGACY_OUTPUTS(id, ins, outs, exec, tick_fn, state_type) \
+  KX_FunctionSpec {id, ins, PORT_COUNT(ins), outs, PORT_COUNT(outs), exec, nullptr, tick_fn, \
+                   static_cast<uint32_t>(sizeof(state_type)), alignof(state_type), false, true, true, \
+                   nullptr, nullptr, nullptr, false, true}
 
 #define STATIC_STATE_NODE(id, ins, outs, exec, state_type) \
   KX_FunctionSpec {id, ins, PORT_COUNT(ins), outs, PORT_COUNT(outs), exec, nullptr, nullptr, \
@@ -1263,16 +1344,16 @@ const KX_FunctionSpec kSpecs[] = {
     VALUE_NODE("GetVelocity", kObjectValueInputs, kGetVelocityOutputs, FuncGetVelocity),
     VALUE_NODE("Distance", kObjectPairInputs, kDistanceOutputs, FuncDistance),
     VALUE_NODE("WithinRange", kObjectPairRangeInputs, kWithinRangeOutputs, FuncWithinRange),
-    STATE_NODE("Collision",
-               kCollisionInputs,
-               kCollisionOutputs,
-               nullptr,
-               FuncCollisionTick,
-               KX_CollisionState),
+    STATE_NODE_LEGACY_OUTPUTS("Collision",
+                              kCollisionInputs,
+                              kCollisionOutputs,
+                              nullptr,
+                              FuncCollisionTick,
+                              KX_CollisionState),
 
     VALUE_NODE("Compare", kCompareInputs, kCompareOutputs, FuncCompare),
-    VALUE_NODE("LogicGate", kLogicGateInputs, kLogicGateOutputs, FuncLogicGate),
-    VALUE_NODE("LogicNot", kLogicNotInputs, kLogicGateOutputs, FuncLogicNot),
+    TRIGGER_SNAPSHOT_NODE("LogicGate", kLogicGateInputs, kLogicGateOutputs, FuncLogicGate),
+    VALUE_NODE("LogicNot", kLogicNotInputs, kLogicNotOutputs, FuncLogicNot),
     VALUE_NODE("Clamp", kClampInputs, kFloatOutput, FuncClamp),
     VALUE_NODE("MapRange", kMapRangeInputs, kFloatOutput, FuncMapRange),
     VALUE_NODE("Interpolate", kInterpolateInputs, kFloatOutput, FuncInterpolate),
@@ -1346,6 +1427,20 @@ bool KX_FunctionNode::Configure(const std::string &config, std::string *error)
 bool KX_FunctionNode::IsValueNode() const
 {
   return spec_->is_value_node;
+}
+
+bool KX_FunctionNode::NeedsTriggerSnapshot() const
+{
+  return spec_->needs_trigger_snapshot;
+}
+
+bool KX_FunctionNode::ExecuteValueOnly(KX_ExecutionContext &ctx)
+{
+  if (!spec_->is_value_node) {
+    return false;
+  }
+  Execute(ctx);
+  return true;
 }
 
 KX_ValueType KX_FunctionNode::ResolvedPortType(bool input, uint32_t port) const
@@ -1435,6 +1530,7 @@ KX_NodeSignature MakeSignature(const KX_FunctionSpec &spec)
   signature.needs_tick = spec.needs_tick || spec.tick != nullptr;
   signature.breaks_trigger_cycles = spec.breaks_trigger_cycles;
   signature.ports_from_ir = spec.ports_from_ir;
+  signature.allow_fewer_outputs = spec.allow_fewer_outputs;
   return signature;
 }
 

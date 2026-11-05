@@ -43,6 +43,12 @@ PYTHON_TABLES = (
     ('native_b4.py', 'NATIVE_B4'),
     ('native_b4b.py', 'NATIVE_B4B'),
     ('native_batch.py', 'NATIVE_BATCH'),
+    ('native_b5.py', 'NATIVE_B5'),
+    ('native_b6b.py', 'NATIVE_B6B'),
+    ('native_b6c.py', 'NATIVE_B6C'),
+    ('native_b6ui.py', 'NATIVE_B6UI'),
+    ('native_b6file.py', 'NATIVE_B6FILE'),
+    ('native_b6.py', 'NATIVE_B6'),
 )
 
 CPP_TABLES = (
@@ -51,7 +57,19 @@ CPP_TABLES = (
     ('KX_FunctionNodesB3.cpp', 'kB3Specs'),
     ('KX_FunctionNodesB4File.cpp', 'kB4FileSpecs'),
     ('KX_FunctionNodesB4.cpp', 'kB4Specs'),
+    ('KX_FunctionNodesB5.cpp', 'kB5Specs'),
+    ('KX_FunctionNodesB6Input.cpp', 'kB6InputSpecs'),
+    ('KX_FunctionNodesB6String.cpp', 'kB6StringSpecs'),
+    ('KX_FunctionNodesB6Audio.cpp', 'kB6AudioSpecs'),
+    ('KX_FunctionNodesB6Net.cpp', 'kB6NetSpecs'),
+    ('KX_FunctionNodesB6Sensor.cpp', 'kB6SensorSpecs'),
+    ('KX_FunctionNodesB6Scene.cpp', 'kB6SceneSpecs'),
+    ('KX_FunctionNodesB6Legacy.cpp', 'kB6LegacySpecs'),
+    ('KX_FunctionNodesB6LegacyQuery.cpp', 'kB6LegacyQuerySpecs'),
     ('KX_FunctionNodesExtra.cpp', 'kExtraSpecs'),
+    ('KX_FunctionNodesB6UI.cpp', 'kB6UISpecs'),
+    ('KX_FunctionNodesB6File.cpp', 'kB6FileSpecs'),
+    ('KX_FunctionNodesB6.cpp', 'kB6Specs'),
 )
 
 TAG_TO_CPP = {
@@ -84,7 +102,8 @@ SOCKET_TYPE_TO_TAG = {
 
 # Nodes whose port list is computed at runtime; the C++ side reads the ports
 # back from the IR, so a static comparison does not apply.
-DYNAMIC_RUNTIME_IDS = {'Formula', 'StringFormat', 'SetUIWidgetAttr'}
+DYNAMIC_RUNTIME_IDS = {'Formula', 'StringFormat', 'SetUIWidgetAttr',
+                       'SyncProperty', 'GetRemoteProperty', 'UIAnimation'}
 
 
 class Unresolved(Exception):
@@ -413,6 +432,8 @@ def load_cpp_specs():
             runtime_id = args[0].strip('"')
             if macro in ('NO_INPUT_VALUE_NODE', 'NO_INPUT_VALUE', 'NO_INPUT_STATE_NODE'):
                 input_array, output_array = None, args[1]
+            elif macro in ('B6L_NO_OUTPUT',):
+                input_array, output_array = args[1], None
             elif macro in ('ACTION', 'POLY_ACTION'):
                 input_array, output_array = args[1], 'kDone'
             elif macro == 'CONDITION':
@@ -427,7 +448,7 @@ def load_cpp_specs():
                 'file': filename,
                 'macro': macro,
                 'inputs': parse_array(input_array) if input_array else [],
-                'outputs': parse_array(output_array) or [],
+                'outputs': parse_array(output_array) if output_array else [],
                 'input_array': input_array,
                 'output_array': output_array,
             }

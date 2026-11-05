@@ -1396,6 +1396,24 @@ void CcdPhysicsController::SetFriction(MT_Scalar newfriction)
   }
 }
 
+bool CcdPhysicsController::SetRestitution(float restitution)
+{
+  /* Scalar write on the existing body: no remove/re-add, so contacts,
+   * constraints and velocities survive. Bullet recomputes the combined
+   * restitution (product of both bodies) when manifold points are created. */
+  btRigidBody *body = GetRigidBody();
+  if (body == nullptr || IsPhysicsSuspended()) {
+    return false;
+  }
+  btScalar clamped = btScalar(restitution);
+  btClamp(clamped, btScalar(0.0), btScalar(1.0));
+  body->setRestitution(clamped);
+  /* Keep the construction info in sync so replicas and shape re-instancing
+   * start from the same value. */
+  m_cci.m_restitution = clamped;
+  return true;
+}
+
 float CcdPhysicsController::GetInertiaFactor() const
 {
   return m_cci.m_inertiaFactor;

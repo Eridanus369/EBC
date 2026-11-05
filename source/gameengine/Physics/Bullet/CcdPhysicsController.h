@@ -766,6 +766,7 @@ class CcdPhysicsController : public PHY_IPhysicsController {
 
   virtual MT_Scalar GetFriction();
   virtual void SetFriction(MT_Scalar newfriction);
+  virtual bool SetRestitution(float restitution);
 
   // physics methods
   virtual void ApplyImpulse(const MT_Vector3 &attach, const MT_Vector3 &impulsein, bool local);

@@ -48,6 +48,7 @@
 #include <string>
 #include <vector>
 
+#include "KX_B4AssetIO.h"
 #include "KX_AssetRegistry.h"
 #include "KX_FileAdapter.h"
 #include "KX_GameAdapters.h"
@@ -56,6 +57,7 @@
 #include "KX_Json.h"
 #include "KX_NodeRegistry.h"
 #include "KX_RuntimeValue.h"
+#include "KX_SaveGameBinary.h"
 #include "KX_ValuePool.h"
 
 #define FP(name, type) KX_FuncPort {name, type, false}
@@ -371,7 +373,12 @@ KX_RuntimeValue B4ReadFieldValue(const KXJson::Value &value,
 /* Asset blob                                                                */
 /* ------------------------------------------------------------------------- */
 
-bool B4SerializeAssets(KX_ExecutionContext &ctx, std::string *out, std::string *error)
+}  // namespace
+
+/* Shared with the B6.4 binary save node (see KX_B4AssetIO.h). */
+bool B4SerializeAssetsValue(KX_ExecutionContext &ctx,
+                            KXJson::Value *out,
+                            std::string *error)
 {
   KX_AssetRegistry &registry = ctx.Assets();
   std::vector<KX_AssetHandle> handles;
@@ -399,6 +406,22 @@ bool B4SerializeAssets(KX_ExecutionContext &ctx, std::string *out, std::string *
     assets.array.push_back(std::move(entry));
   }
   root.object.emplace_back("assets", std::move(assets));
+  if (out == nullptr) {
+    if (error != nullptr) {
+      *error = "asset serialization needs an output value";
+    }
+    return false;
+  }
+  *out = std::move(root);
+  return true;
+}
+
+bool B4SerializeAssets(KX_ExecutionContext &ctx, std::string *out, std::string *error)
+{
+  KXJson::Value root;
+  if (!B4SerializeAssetsValue(ctx, &root, error)) {
+    return false;
+  }
   *out = KXJson::Stringify(root);
   if (out->empty()) {
     if (error != nullptr) {
@@ -478,6 +501,8 @@ bool B4ApplyAssets(KX_ExecutionContext &ctx,
 /* Save / load                                                               */
 /* ------------------------------------------------------------------------- */
 
+namespace {
+
 const KX_FuncPort kSaveGameInputs[] = {
     TP("OnEnter"),
     FP("Slot", KX_VALUE_STRING),
@@ -542,12 +567,34 @@ void FuncLoadGame(KX_FunctionNode &node, KX_ExecutionContext &ctx)
   if (format.empty()) {
     format = "json";
   }
-  if (format != "json") {
-    B4Warn("LoadGame", "save format '" + format + "' is not implemented, use json");
+  if (format != "json" && format != "binary") {
+    B4Warn("LoadGame", "save format '" + format + "' is not implemented, use json or binary");
     node.OutTrigger(ctx, 1, true);
     return;
   }
   std::string blob;
+  if (format == "binary") {
+    if (!ctx.File().LoadGameBinary(slot, &blob)) {
+      B4Warn("LoadGame", "adapter failed to read binary slot '" + slot + "'");
+      node.OutTrigger(ctx, 1, true);
+      return;
+    }
+    KXJson::Value root;
+    std::string decode_error;
+    if (!KXSaveGameBinary::Decode(blob, &root, &decode_error)) {
+      B4Warn("LoadGame", "binary save rejected: " + decode_error);
+      node.OutTrigger(ctx, 1, true);
+      return;
+    }
+    std::string apply_error;
+    if (!B4ApplyAssets(ctx, root, &apply_error)) {
+      B4Warn("LoadGame", apply_error);
+      node.OutTrigger(ctx, 1, true);
+      return;
+    }
+    node.OutTrigger(ctx, 0, true);
+    return;
+  }
   if (!ctx.File().LoadGame(slot, &blob)) {
     B4Warn("LoadGame", "adapter failed to read slot '" + slot + "'");
     node.OutTrigger(ctx, 1, true);

@@ -30,6 +30,8 @@
 #include <algorithm>
 
 #include "KX_AssetRegistry.h"
+#include "KX_CompiledGraph.h"
+#include "KX_DebugTrace.h"
 #include "KX_ExecutionPlan.h"
 #include "KX_GameAdapters.h"
 #include "KX_PropertyAccessor.h"
@@ -44,11 +46,13 @@ void KX_ExecutionContext::Bind(const KX_ExecutionPlan *plan,
                                KX_GameObject *owner)
 {
   plan_ = plan;
+  bound_data_ = nullptr;
   scene_ = scene;
   owner_ = owner;
 
   data_.Clear();
   trigger_slots_.clear();
+  trigger_snapshot_stack_.clear();
   pending_triggers_.clear();
   pending_trigger_outputs_.clear();
   current_tick_node_ = 0;
@@ -61,6 +65,29 @@ void KX_ExecutionContext::Bind(const KX_ExecutionPlan *plan,
   }
 }
 
+void KX_ExecutionContext::BindGraph(KX_CompiledGraph *graph,
+                                    KX_Scene *scene,
+                                    KX_GameObject *owner)
+{
+  plan_ = graph != nullptr ? graph->Plan() : nullptr;
+  bound_data_ = graph != nullptr ? &graph->Data() : nullptr;
+  scene_ = scene;
+  owner_ = owner;
+
+  /* The compiled buffer already carries the migrated state, so only the frame
+   * local scheduling tables are reset here. */
+  trigger_slots_.clear();
+  trigger_snapshot_stack_.clear();
+  pending_triggers_.clear();
+  pending_trigger_outputs_.clear();
+  current_tick_node_ = 0;
+  executed_nodes_.clear();
+  duplicate_executions_ = 0;
+  if (plan_ != nullptr) {
+    trigger_slots_ = plan_->trigger_slots;
+  }
+}
+
 const KX_ExecutionPlan *KX_ExecutionContext::Plan() const
 {
   return plan_;
@@ -68,36 +95,59 @@ const KX_ExecutionPlan *KX_ExecutionContext::Plan() const
 
 KX_RuntimeData &KX_ExecutionContext::Data()
 {
-  return data_;
+  return bound_data_ != nullptr ? *bound_data_ : data_;
 }
 
 KX_RuntimeValue &KX_ExecutionContext::Value(uint32_t offset)
 {
-  return data_.Value(offset);
+  return Data().Value(offset);
 }
 
 const KX_RuntimeValue &KX_ExecutionContext::Value(uint32_t offset) const
 {
-  return data_.Value(offset);
+  /* Const reads still address the bound graph; the same fallback applies. */
+  return const_cast<KX_ExecutionContext *>(this)->Data().Value(offset);
 }
 
 bool KX_ExecutionContext::IsTriggered(uint32_t offset) const
 {
-  return data_.Trigger(offset);
+  return const_cast<KX_ExecutionContext *>(this)->Data().Trigger(offset);
 }
 
 void KX_ExecutionContext::SetTriggered(uint32_t offset, bool value)
 {
-  data_.SetTrigger(offset, value);
+  Data().SetTrigger(offset, value);
 }
 
 bool KX_ExecutionContext::ConsumeTrigger(uint32_t offset)
 {
-  const bool triggered = data_.Trigger(offset);
+  KX_RuntimeData &data = Data();
+  const bool triggered = data.Trigger(offset);
   if (triggered) {
-    data_.SetTrigger(offset, false);
+    data.SetTrigger(offset, false);
   }
   return triggered;
+}
+
+void KX_ExecutionContext::PushTriggerSnapshot(const std::vector<bool> &bits)
+{
+  trigger_snapshot_stack_.push_back(bits);
+}
+
+void KX_ExecutionContext::PopTriggerSnapshot()
+{
+  if (!trigger_snapshot_stack_.empty()) {
+    trigger_snapshot_stack_.pop_back();
+  }
+}
+
+bool KX_ExecutionContext::TriggerSnapshot(size_t index) const
+{
+  if (trigger_snapshot_stack_.empty()) {
+    return false;
+  }
+  const std::vector<bool> &bits = trigger_snapshot_stack_.back();
+  return index < bits.size() && bits[index];
 }
 
 void KX_ExecutionContext::ClearTriggers()
@@ -107,12 +157,13 @@ void KX_ExecutionContext::ClearTriggers()
    * compiled slot list instead. Standalone unit tests keep using the runtime
    * data allocation list. */
   if (plan_ != nullptr) {
+    KX_RuntimeData &data = Data();
     for (const uint32_t offset : trigger_slots_) {
-      data_.SetTrigger(offset, false);
+      data.SetTrigger(offset, false);
     }
     return;
   }
-  data_.ClearTriggers();
+  Data().ClearTriggers();
 }
 
 void KX_ExecutionContext::BeginFrame(float delta_time)
@@ -121,6 +172,8 @@ void KX_ExecutionContext::BeginFrame(float delta_time)
   delta_time_ = delta_time;
   ClearTriggers();
 
+  /* Snapshots only live for one Execute call; drop leftovers defensively. */
+  trigger_snapshot_stack_.clear();
   pending_triggers_.clear();
   pending_trigger_outputs_.clear();
   pool_.ResetFrame();
@@ -128,6 +181,9 @@ void KX_ExecutionContext::BeginFrame(float delta_time)
   if (plan_ != nullptr) {
     executed_nodes_.assign(plan_->nodes.size(), 0);
   }
+
+  /* Off by default; when on, the trace records only node indices. */
+  KX_DebugTrace::BeginFrame(frame_, plan_ != nullptr ? plan_->nodes.size() : 0);
 }
 
 void KX_ExecutionContext::TickStatefulNodes()
@@ -189,22 +245,53 @@ void KX_ExecutionContext::PropagateTriggers()
     }
 
     const KX_TriggerTarget entry = queue[head++];
-    if (entry.node_index >= plan_->nodes.size()) {
+    if (entry.node_index >= plan_->nodes.size() || entry.consumed) {
       return;
     }
 
     if (entry.input_offset != KX_INVALID_OFFSET) {
-      data_.SetTrigger(entry.input_offset, true);
+      Data().SetTrigger(entry.input_offset, true);
     }
 
     if (executed_nodes_[entry.node_index] != 0) {
       ++duplicate_executions_;
     }
     executed_nodes_[entry.node_index] = 1;
+    KX_DebugTrace::RecordActivated(entry.node_index);
 
     KX_LogicNodeRuntime *node = plan_->nodes[entry.node_index].get();
     ClearNodeOutputTriggers(entry.node_index);
-    node->Execute(*this);
+
+    if (node->NeedsTriggerSnapshot()) {
+      /* Several trigger edges may reach the same node in one frame. Latch every
+       * entry already queued for this node so the single Execute below sees all
+       * of them; the duplicates are marked consumed instead of running again. */
+      for (size_t index = head; index < queue.size(); ++index) {
+        KX_TriggerTarget &pending = queue[index];
+        if (pending.consumed || pending.node_index != entry.node_index) {
+          continue;
+        }
+        if (pending.input_offset != KX_INVALID_OFFSET) {
+          Data().SetTrigger(pending.input_offset, true);
+        }
+        pending.consumed = true;
+      }
+
+      const std::vector<uint32_t> &trigger_inputs =
+          plan_->trigger_input_offsets[entry.node_index];
+      std::vector<bool> bits;
+      bits.reserve(trigger_inputs.size());
+      for (const uint32_t offset : trigger_inputs) {
+        bits.push_back(Data().Trigger(offset));
+      }
+      PushTriggerSnapshot(bits);
+      node->Execute(*this);
+      PopTriggerSnapshot();
+    }
+    else {
+      node->Execute(*this);
+    }
+
     ClearNodeInputTriggers(entry.node_index);
     EnqueueNodeOutputs(entry.node_index, queue);
 
@@ -238,6 +325,9 @@ void KX_ExecutionContext::PropagateTriggers()
 
 void KX_ExecutionContext::EndFrame()
 {
+  if (plan_ != nullptr) {
+    KX_DebugTrace::EndFrame(*plan_);
+  }
 }
 
 void KX_ExecutionContext::RunFrame(float delta_time)
@@ -333,7 +423,9 @@ void KX_ExecutionContext::SetAdapters(KX_InputAdapter *input,
                                      KX_AudioAdapter *audio,
                                      KX_SceneControlAdapter *scene_control,
                                      KX_UIAdapter *ui,
-                                     KX_FileAdapter *file)
+                                     KX_FileAdapter *file,
+                                     KX_NetworkAdapter *network,
+                                     KX_PhysicsAdvancedAdapter *physics_advanced)
 {
   input_adapter_ = input;
   scene_adapter_ = scene_query;
@@ -345,6 +437,8 @@ void KX_ExecutionContext::SetAdapters(KX_InputAdapter *input,
   scene_control_adapter_ = scene_control;
   ui_adapter_ = ui;
   file_adapter_ = file;
+  network_adapter_ = network;
+  physics_advanced_adapter_ = physics_advanced;
 }
 
 KX_InputAdapter &KX_ExecutionContext::Input()
@@ -398,6 +492,17 @@ KX_FileAdapter &KX_ExecutionContext::File()
   return file_adapter_ != nullptr ? *file_adapter_ : KX_NullFileAdapter();
 }
 
+KX_NetworkAdapter &KX_ExecutionContext::Network()
+{
+  return network_adapter_ != nullptr ? *network_adapter_ : KX_NullNetworkAdapter();
+}
+
+KX_PhysicsAdvancedAdapter &KX_ExecutionContext::PhysicsAdvanced()
+{
+  return physics_advanced_adapter_ != nullptr ? *physics_advanced_adapter_
+                                              : KX_NullPhysicsAdvancedAdapter();
+}
+
 KX_ValuePool &KX_ExecutionContext::Pool()
 {
   return pool_;
@@ -410,29 +515,32 @@ void KX_ExecutionContext::EnqueuePendingOutput(uint32_t output_offset)
   }
   /* The flag is scanned by the regular output walk after Tick returns, so a
    * pending output and a directly raised one share one propagation path. */
-  data_.SetTrigger(output_offset, true);
+  Data().SetTrigger(output_offset, true);
   pending_trigger_outputs_.push_back({current_tick_node_, output_offset});
 }
 
 void KX_ExecutionContext::ClearNodeInputTriggers(uint32_t node_index)
 {
+  KX_RuntimeData &data = Data();
   for (const uint32_t offset : plan_->trigger_input_offsets[node_index]) {
-    data_.SetTrigger(offset, false);
+    data.SetTrigger(offset, false);
   }
 }
 
 void KX_ExecutionContext::ClearNodeOutputTriggers(uint32_t node_index)
 {
+  KX_RuntimeData &data = Data();
   for (const uint32_t offset : plan_->trigger_output_offsets[node_index]) {
-    data_.SetTrigger(offset, false);
+    data.SetTrigger(offset, false);
   }
 }
 
 void KX_ExecutionContext::EnqueueNodeOutputs(uint32_t node_index,
                                              std::vector<KX_TriggerTarget> &queue)
 {
+  KX_RuntimeData &data = Data();
   for (const KX_TriggerEdge &edge : plan_->trigger_outgoing[node_index]) {
-    if (!data_.Trigger(edge.from_offset)) {
+    if (!data.Trigger(edge.from_offset)) {
       continue;
     }
     KX_TriggerTarget target;

@@ -38,6 +38,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <functional>
 #include <string>
 
@@ -348,6 +349,33 @@ void FuncMessageReceivedFinish(KX_FunctionNode &node, KX_ExecutionContext &ctx)
 /* Audio                                                                     */
 /* ------------------------------------------------------------------------- */
 
+/**
+ * Narrow a device handle to the 32-bit integer carried by node ports.
+ *
+ * #KX_RuntimeValue stores integers as `int`, while #KX_AudioAdapter hands out
+ * `uint64_t` ids. A raw `static_cast<int>` turns an id above INT32_MAX into a
+ * different (often negative) id, and a later StopSound would then address
+ * whatever sound owns the truncated value. Reject such ids here so the node
+ * reports "not started" instead of a silently wrapped handle.
+ */
+constexpr uint64_t kMaxNodeSoundHandle = 0x7fffffffu;
+
+bool B3SoundHandleInt(uint64_t handle, int &out)
+{
+  out = 0;
+  if (handle == 0u) {
+    return false;
+  }
+  if (handle > kMaxNodeSoundHandle) {
+    std::fprintf(stderr,
+                 "GameNode: sound handle %llu exceeds the 32-bit node port range\n",
+                 static_cast<unsigned long long>(handle));
+    return false;
+  }
+  out = static_cast<int>(handle);
+  return true;
+}
+
 const KX_FuncPort kStartSoundInputs[] = {
     TP("OnEnter"),
     FP("File", KX_VALUE_STRING),
@@ -372,8 +400,16 @@ void FuncStartSound(KX_FunctionNode &node, KX_ExecutionContext &ctx)
   const float volume = node.InFloat(ctx, 3) > 0.0f ? node.InFloat(ctx, 3) : 1.0f;
   const float pitch = node.InFloat(ctx, 4) > 0.0f ? node.InFloat(ctx, 4) : 1.0f;
   const uint64_t handle = ctx.Audio().PlaySound(file, node.InBool(ctx, 2), volume, pitch);
-  node.OutInt(ctx, 1, static_cast<int>(handle));
-  node.OutTrigger(ctx, 0, handle != 0u);
+  int handle_int = 0;
+  if (!B3SoundHandleInt(handle, handle_int)) {
+    /* Out of the node port range: stop it rather than hand out a wrapped id. */
+    ctx.Audio().StopSound(handle);
+    node.OutInt(ctx, 1, 0);
+    node.OutTrigger(ctx, 0, false);
+    return;
+  }
+  node.OutInt(ctx, 1, handle_int);
+  node.OutTrigger(ctx, 0, true);
 }
 
 const KX_FuncPort kSoundHandleInputs[] = {
@@ -470,9 +506,15 @@ void FuncPlaySoundByName(KX_FunctionNode &node, KX_ExecutionContext &ctx)
   const float volume = node.InFloat(ctx, 3) > 0.0f ? node.InFloat(ctx, 3) : 1.0f;
   const float pitch = node.InFloat(ctx, 4) > 0.0f ? node.InFloat(ctx, 4) : 1.0f;
   const uint64_t handle = ctx.Audio().PlaySoundByName(name, node.InBool(ctx, 2), volume, pitch);
-  node.OutInt(ctx, 1, static_cast<int>(handle));
-  node.OutBool(ctx, 2, handle != 0u);
-  node.OutTrigger(ctx, 0, handle != 0u);
+  int handle_int = 0;
+  const bool started = B3SoundHandleInt(handle, handle_int);
+  if (!started && handle != 0u) {
+    /* Out of the node port range: stop it rather than hand out a wrapped id. */
+    ctx.Audio().StopSound(handle);
+  }
+  node.OutInt(ctx, 1, handle_int);
+  node.OutBool(ctx, 2, started);
+  node.OutTrigger(ctx, 0, started);
 }
 
 const KX_FuncPort kSet3DListenerInputs[] = {

@@ -42,9 +42,11 @@
 #include <map>
 #include <memory>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "KX_ExecutionContext.h"
+#include "KX_PhysicsAdvancedAdapter.h"
 #include "KX_FileAdapter.h"
 #include "KX_RuntimeValue.h"
 #include "KX_UIElement.h"
@@ -120,6 +122,123 @@ class KX_InputAdapter {
     (void)axis;
     return 0.0f;
   }
+
+  /* ---------------------------------------------------------------------- */
+  /* B6.2 input extensions. The virtuals above are kept in their original     */
+  /* order; these are appended so existing adapters and tests stay valid.     */
+  /* ---------------------------------------------------------------------- */
+
+  /** Level state of gamepad #button on #pad; false when the pad is absent. */
+  virtual bool IsGamepadButtonDown(int pad, int button)
+  {
+    (void)pad;
+    (void)button;
+    return false;
+  }
+  /** Analog stick pair: #axis 0 is the left stick, 1 the right stick. */
+  virtual void GetGamepadAxis(int pad, int axis, float &x, float &y)
+  {
+    (void)pad;
+    (void)axis;
+    x = 0.0f;
+    y = 0.0f;
+  }
+  /** Analog trigger: #trigger 0 is left, 1 is right. Value in 0..1. */
+  virtual void GetGamepadTrigger(int pad, int trigger, float &value)
+  {
+    (void)pad;
+    (void)trigger;
+    value = 0.0f;
+  }
+  /** Touch point #index in normalized 0..1 screen space. */
+  virtual void GetTouch(int index, float &x, float &y, bool &down)
+  {
+    (void)index;
+    x = 0.0f;
+    y = 0.0f;
+    down = false;
+  }
+  virtual int GetTouchCount() { return 0; }
+  /** True while every key named in a "ctrl+shift+a" style combo is held. */
+  virtual bool IsKeyComboDown(const std::string &keys)
+  {
+    (void)keys;
+    return false;
+  }
+  /** Register a named action binding, see ReadInputMap for the grammar. */
+  virtual void SetInputMap(const std::string &name, const std::string &binding)
+  {
+    input_map_[name] = binding;
+  }
+
+  /**
+   * Resolve a named action registered with #SetInputMap.
+   *
+   * Binding grammar:
+   *   key:<code>                 keyboard level, value 1/0
+   *   keycombo:<keys>            combo level, value 1/0
+   *   mouse:<button>             mouse button level, value 1/0
+   *   gamepad_button:<pad>:<n>   button level, value 1/0
+   *   gamepad_axis:<pad>:<n>     stick, value is the X component
+   *   gamepad_trigger:<pad>:<n>  trigger, value 0..1
+   *
+   * Unknown names or malformed bindings return false without diagnostics; the
+   * node layer decides whether to warn.
+   */
+  virtual bool ReadInputMap(const std::string &name, float &value, bool &down);
+
+  /** Start a vibration; returns false when the pad is absent/unsupported. */
+  virtual bool VibrateGamepad(int pad, float intensity, float duration)
+  {
+    (void)pad;
+    (void)intensity;
+    (void)duration;
+    return false;
+  }
+
+ protected:
+  std::map<std::string, std::string> input_map_;
+};
+
+/**
+ * Headless input backend with injectable state.
+ *
+ * Used by the B6 E2E harness and by headless builds. Keys are injected by
+ * lower-case name (for combos), gamepads by (pad, index) pairs; touch points
+ * are a sparse vector, and missing indices read as "not down".
+ */
+class KX_MockInputAdapter : public KX_InputAdapter {
+ public:
+  struct TouchPoint {
+    float x = 0.0f;
+    float y = 0.0f;
+    bool down = false;
+  };
+
+  std::map<std::pair<int, int>, bool> gamepad_buttons;
+  std::map<std::pair<int, int>, std::pair<float, float> > gamepad_axes;
+  std::map<std::pair<int, int>, float> gamepad_triggers;
+  std::vector<TouchPoint> touches;
+  std::map<std::string, bool> pressed_keys;
+  std::vector<std::string> vibration_requests;
+  uint32_t vibrate_calls = 0;
+  bool vibrate_result = true;
+
+  void SetGamepadButton(int pad, int button, bool down);
+  void SetGamepadAxis(int pad, int axis, float x, float y);
+  void SetGamepadTrigger(int pad, int trigger, float value);
+  void SetTouch(int index, float x, float y, bool down);
+  void SetKeyDown(const std::string &key, bool down);
+
+  bool IsGamepadButtonDown(int pad, int button) override;
+  void GetGamepadAxis(int pad, int axis, float &x, float &y) override;
+  void GetGamepadTrigger(int pad, int trigger, float &value) override;
+  void GetTouch(int index, float &x, float &y, bool &down) override;
+  int GetTouchCount() override;
+  bool IsKeyComboDown(const std::string &keys) override;
+  bool VibrateGamepad(int pad, float intensity, float duration) override;
+
+  void Reset();
 };
 
 /** One object reported by a proximity query, sorted nearest first. */
@@ -137,6 +256,18 @@ struct KX_RayHit {
   float normal[3] = {0.0f, 0.0f, 0.0f};
   float distance = 0.0f;
 };
+
+/** One object reported by an overlap query started from a ray hit. */
+struct KX_OverlapHit {
+  KX_GameObject *object = nullptr;
+  /** Contact point, on or near the object surface. */
+  float point[3] = {0.0f, 0.0f, 0.0f};
+  /** Contact normal, pointing away from the object surface. */
+  float normal[3] = {0.0f, 0.0f, 0.0f};
+};
+
+/** Callback invoked once per overlap hit. #user is the caller's context. */
+using KX_OverlapCallback = void (*)(const KX_OverlapHit &hit, void *user);
 
 class KX_SceneAdapter {
  public:
@@ -194,6 +325,48 @@ class KX_SceneAdapter {
     (void)camera;
     (void)out;
     return false;
+  }
+
+  /**
+   * World position on the camera view ray through a screen pixel, at an
+   * arbitrary depth. #sx/#sy are pixels with the origin bottom left (the same
+   * convention as `KX_SceneAdapter::ScreenWidth/Height`); #depth is in world
+   * units measured from the camera plane along the view direction, so 0 gives
+   * the camera position and negative values land behind the camera.
+   *
+   * This is a pure inverse projection: unlike `RayCastFromScreen` it neither
+   * uses the physics world nor reports an object. It exists for the legacy
+   * WorldPosition node, which asks "what world point does this pixel represent
+   * at depth N" rather than "what did the cursor hit".
+   */
+  virtual bool RayCastFromScreenAnyDepth(float sx, float sy, float depth, float out[3])
+  {
+    (void)sx;
+    (void)sy;
+    (void)depth;
+    (void)out;
+    return false;
+  }
+
+  /**
+   * Objects overlapping the ray hit #hit. Implementations call #fn once per
+   * object, nearest first, with a contact point and normal. #hit.object is
+   * always reported first with the ray hit point/normal. Other objects are
+   * reported when they lie within #threshold of the hit point.
+   *
+   * This is the legacy Touch/TARGET sibling of the Collision sensor: it is a
+   * point query started from a screen ray, not the physics contact stream, and
+   * the two must not be conflated.
+   */
+  virtual void OverlapQuery(const KX_RayHit &hit,
+                            float threshold,
+                            KX_OverlapCallback fn,
+                            void *user)
+  {
+    (void)hit;
+    (void)threshold;
+    (void)fn;
+    (void)user;
   }
   virtual void RemoveObject(KX_GameObject *object) { (void)object; }
   virtual bool LoadScene(const std::string &name)
@@ -394,6 +567,24 @@ class KX_ObjectAdapter {
     return false;
   }
 
+  /* ---------------------------------------------------------------------- */
+  /* B6.3 sensor extensions (appended; existing virtuals unchanged).          */
+  /* ---------------------------------------------------------------------- */
+
+  /** Bullet collision group bits; 0 when the object has no physics body. */
+  virtual unsigned short GetCollisionGroup(KX_GameObject *object) const
+  {
+    (void)object;
+    return 0;
+  }
+  /** World space linear velocity; false when the object has no physics body. */
+  virtual bool GetLinearVelocity(KX_GameObject *object, float out[3]) const
+  {
+    (void)object;
+    out[0] = out[1] = out[2] = 0.0f;
+    return false;
+  }
+
   virtual bool GetWorldPosition(KX_GameObject *object, float out[3])
   {
     (void)object;
@@ -428,6 +619,31 @@ class KX_ObjectAdapter {
   {
     (void)object;
     (void)value;
+    return false;
+  }
+  /** World-space position; #value is xyz. */
+  virtual bool SetWorldPosition(KX_GameObject *object, const float value[3])
+  {
+    (void)object;
+    (void)value;
+    return false;
+  }
+  /** World-space orientation; #value is Euler x, y, z in radians. */
+  virtual bool SetWorldOrientation(KX_GameObject *object, const float value[3])
+  {
+    (void)object;
+    (void)value;
+    return false;
+  }
+  /**
+   * Replace the material in #slot (0-based) by the datablock named #name.
+   * Implementations report a missing material on stderr and return false.
+   */
+  virtual bool SetMaterial(KX_GameObject *object, const std::string &name, int slot)
+  {
+    (void)object;
+    (void)name;
+    (void)slot;
     return false;
   }
 
@@ -613,6 +829,77 @@ class KX_AnimationAdapter {
     (void)layer;
     return std::string();
   }
+
+  /* --- B6.1 animation advanced (appended, existing order preserved) --- */
+
+  virtual bool PlayActionByLayer(KX_GameObject *object,
+                                 const std::string &name,
+                                 int layer,
+                                 float blend_in)
+  {
+    (void)object;
+    (void)name;
+    (void)layer;
+    (void)blend_in;
+    return false;
+  }
+
+  virtual bool BlendActions(KX_GameObject *object,
+                            const std::string &action_a,
+                            const std::string &action_b,
+                            float factor)
+  {
+    (void)object;
+    (void)action_a;
+    (void)action_b;
+    (void)factor;
+    return false;
+  }
+
+  virtual bool SetBoneTransform(KX_GameObject *object,
+                                const std::string &bone,
+                                const float position[3],
+                                const float rotation[3])
+  {
+    (void)object;
+    (void)bone;
+    (void)position;
+    (void)rotation;
+    return false;
+  }
+
+  virtual bool SetBoneWeight(KX_GameObject *object, const std::string &bone, float weight, std::string *error)
+  {
+    (void)object;
+    (void)bone;
+    (void)weight;
+    if (error != nullptr) {
+      *error = "bone weight is not exposed by the engine";
+    }
+    return false;
+  }
+
+  virtual bool PlayBoneAction(KX_GameObject *object,
+                              const std::string &bone,
+                              const std::string &action,
+                              std::string *error)
+  {
+    (void)object;
+    (void)bone;
+    (void)action;
+    if (error != nullptr) {
+      *error = "per bone action playback is not exposed by the engine";
+    }
+    return false;
+  }
+
+  /** 0..1 position inside the action range of @a layer, 0 when unknown. */
+  virtual float GetActionNormalized(KX_GameObject *object, int layer)
+  {
+    (void)object;
+    (void)layer;
+    return 0.0f;
+  }
 };
 
 /**
@@ -638,6 +925,22 @@ class KX_MockAnimationAdapter : public KX_AnimationAdapter {
   uint32_t frame_calls = 0;
   uint32_t speed_calls = 0;
   uint32_t weight_calls = 0;
+  /* B6.1 */
+  float blend_in = 0.0f;
+  std::string blend_action_a;
+  std::string blend_action_b;
+  float factor = 0.0f;
+  std::string bone;
+  float bone_position[3] = {0.0f, 0.0f, 0.0f};
+  float bone_rotation[3] = {0.0f, 0.0f, 0.0f};
+  float bone_weight = 1.0f;
+  float normalized = 0.0f;
+  bool bone_supported = true;
+  uint32_t play_layer_calls = 0;
+  uint32_t blend_calls = 0;
+  uint32_t bone_transform_calls = 0;
+  uint32_t bone_weight_calls = 0;
+  uint32_t bone_action_calls = 0;
 
   bool PlayAction(KX_GameObject *new_object,
                   const std::string &name,
@@ -720,6 +1023,86 @@ class KX_MockAnimationAdapter : public KX_AnimationAdapter {
     return action;
   }
 
+  bool PlayActionByLayer(KX_GameObject *new_object,
+                         const std::string &name,
+                         int new_layer,
+                         float blend_in) override
+  {
+    object = new_object;
+    action = name;
+    layer = new_layer;
+    this->blend_in = blend_in;
+    playing = true;
+    done = false;
+    ++play_layer_calls;
+    return true;
+  }
+
+  bool BlendActions(KX_GameObject *new_object,
+                    const std::string &action_a,
+                    const std::string &action_b,
+                    float new_factor) override
+  {
+    object = new_object;
+    blend_action_a = action_a;
+    blend_action_b = action_b;
+    factor = new_factor;
+    ++blend_calls;
+    return true;
+  }
+
+  bool SetBoneTransform(KX_GameObject *new_object,
+                        const std::string &new_bone,
+                        const float new_position[3],
+                        const float new_rotation[3]) override
+  {
+    object = new_object;
+    bone = new_bone;
+    for (int i = 0; i < 3; ++i) {
+      bone_position[i] = new_position[i];
+      bone_rotation[i] = new_rotation[i];
+    }
+    ++bone_transform_calls;
+    return bone_supported;
+  }
+
+  bool SetBoneWeight(KX_GameObject *new_object,
+                     const std::string &new_bone,
+                     float new_weight,
+                     std::string *error) override
+  {
+    object = new_object;
+    bone = new_bone;
+    bone_weight = new_weight;
+    ++bone_weight_calls;
+    if (!bone_supported && error != nullptr) {
+      *error = "bone weight is not exposed by the engine";
+    }
+    return bone_supported;
+  }
+
+  bool PlayBoneAction(KX_GameObject *new_object,
+                      const std::string &new_bone,
+                      const std::string &new_action,
+                      std::string *error) override
+  {
+    object = new_object;
+    bone = new_bone;
+    action = new_action;
+    ++bone_action_calls;
+    if (!bone_supported && error != nullptr) {
+      *error = "per bone action playback is not exposed by the engine";
+    }
+    return bone_supported;
+  }
+
+  float GetActionNormalized(KX_GameObject *new_object, int new_layer) override
+  {
+    object = new_object;
+    layer = new_layer;
+    return normalized;
+  }
+
   void Reset()
   {
     object = nullptr;
@@ -732,6 +1115,17 @@ class KX_MockAnimationAdapter : public KX_AnimationAdapter {
     playing = false;
     done = true;
     play_calls = stop_calls = frame_calls = speed_calls = weight_calls = 0;
+    blend_in = 0.0f;
+    blend_action_a.clear();
+    blend_action_b.clear();
+    factor = 0.0f;
+    bone.clear();
+    bone_position[0] = bone_position[1] = bone_position[2] = 0.0f;
+    bone_rotation[0] = bone_rotation[1] = bone_rotation[2] = 0.0f;
+    bone_weight = 1.0f;
+    normalized = 0.0f;
+    bone_supported = true;
+    play_layer_calls = blend_calls = bone_transform_calls = bone_weight_calls = bone_action_calls = 0;
   }
 };
 
@@ -805,6 +1199,103 @@ class KX_AudioAdapter {
  public:
   virtual ~KX_AudioAdapter() = default;
 
+  /* ---------------------------------------------------------------------- */
+  /* B6.2 object ownership (appended; no existing signature changed).        */
+  /* ---------------------------------------------------------------------- */
+
+  /**
+   * Register that #handle is produced for #object.
+   *
+   * A handle can only belong to one object; registering it again moves it. A
+   * null object means "unowned" and removes the handle from any previous owner.
+   * The map stores borrowed pointers: the owner must call #ForgetObject before
+   * the object is destroyed.
+   */
+  void RegisterSoundOwner(KX_GameObject *object, uint64_t handle)
+  {
+    ReleaseSoundOwner(handle);
+    if (object == nullptr || handle == 0) {
+      return;
+    }
+    handle_owner_[handle] = object;
+    object_handles_[object].push_back(handle);
+  }
+
+  /** Drop the ownership record of a handle (stop, finish or destroy). */
+  void ReleaseSoundOwner(uint64_t handle)
+  {
+    std::unordered_map<uint64_t, KX_GameObject *>::iterator found = handle_owner_.find(handle);
+    if (found == handle_owner_.end()) {
+      return;
+    }
+    KX_GameObject *object = found->second;
+    handle_owner_.erase(found);
+    std::unordered_map<KX_GameObject *, std::vector<uint64_t>>::iterator list =
+        object_handles_.find(object);
+    if (list == object_handles_.end()) {
+      return;
+    }
+    std::vector<uint64_t> &handles = list->second;
+    for (std::vector<uint64_t>::iterator it = handles.begin(); it != handles.end(); ++it) {
+      if (*it == handle) {
+        handles.erase(it);
+        break;
+      }
+    }
+    if (handles.empty()) {
+      object_handles_.erase(list);
+    }
+  }
+
+  /**
+   * Drop every handle owned by #object.
+   *
+   * Called before the object is destroyed. Erasing by pointer value is safe for
+   * an already dangling key (the map never dereferences it); after this call no
+   * lookup can hit that object again.
+   */
+  virtual void ForgetObject(KX_GameObject *object)
+  {
+    if (object == nullptr) {
+      return;
+    }
+    std::unordered_map<KX_GameObject *, std::vector<uint64_t>>::iterator found =
+        object_handles_.find(object);
+    if (found == object_handles_.end()) {
+      return;
+    }
+    for (uint64_t handle : found->second) {
+      handle_owner_.erase(handle);
+    }
+    object_handles_.erase(found);
+  }
+
+  /** Handles currently owned by #object; empty for null or unknown objects. */
+  std::vector<uint64_t> HandlesFor(KX_GameObject *object) const
+  {
+    if (object == nullptr) {
+      return std::vector<uint64_t>();
+    }
+    std::unordered_map<KX_GameObject *, std::vector<uint64_t>>::const_iterator found =
+        object_handles_.find(object);
+    return found == object_handles_.end() ? std::vector<uint64_t>() : found->second;
+  }
+
+  /** Owner of a handle, or null when it is unknown or unowned. */
+  KX_GameObject *OwnerOf(uint64_t handle) const
+  {
+    std::unordered_map<uint64_t, KX_GameObject *>::const_iterator found =
+        handle_owner_.find(handle);
+    return found == handle_owner_.end() ? nullptr : found->second;
+  }
+
+  /** Forget every ownership record; used when the device is torn down. */
+  void ClearSoundOwners()
+  {
+    object_handles_.clear();
+    handle_owner_.clear();
+  }
+
   virtual uint64_t PlaySound(const std::string &filepath,
                              bool loop,
                              float volume,
@@ -873,6 +1364,103 @@ class KX_AudioAdapter {
     (void)handle;
     return true;
   }
+
+  /* ---------------------------------------------------------------------- */
+  /* B6.2 audio extensions (appended, existing virtuals unchanged).           */
+  /* ---------------------------------------------------------------------- */
+
+  /**
+   * Distance attenuation for sounds spawned by #PlaySound3D.
+   *
+   * #model uses the node enum: 0 inverse, 1 inverse clamped, 2 linear,
+   * 3 linear clamped, 4 exponent, 5 exponent clamped.
+   */
+  virtual void SetAttenuation(KX_GameObject *object,
+                              int model,
+                              float reference_distance,
+                              float maximum_distance)
+  {
+    (void)object;
+    (void)model;
+    (void)reference_distance;
+    (void)maximum_distance;
+  }
+  virtual void SetDopplerFactor(KX_GameObject *object, float factor)
+  {
+    (void)object;
+    (void)factor;
+  }
+  /**
+   * Ambient zone sound at the listener position.
+   *
+   * audaspace has no zone concept, so this is an equivalent implementation: a
+   * named looping ambient source at the listener. Returns the new handle.
+   */
+  virtual uint64_t SetAudioZone(const std::string &zone_name,
+                                const std::string &sound,
+                                float volume)
+  {
+    (void)zone_name;
+    (void)sound;
+    (void)volume;
+    return 0;
+  }
+  /**
+   * Named gain group. audaspace has no native bus, so the adapter implements
+   * buses as named volume multipliers applied to the handles on that bus.
+   */
+  virtual void SetAudioBus(const std::string &bus, float volume)
+  {
+    (void)bus;
+    (void)volume;
+  }
+  /** Positional one-shot sound; returns 0 when the name is unknown. */
+  virtual uint64_t PlaySound3D(const std::string &sound,
+                               const float position[3],
+                               float volume,
+                               float pitch)
+  {
+    (void)sound;
+    (void)position;
+    (void)volume;
+    (void)pitch;
+    return 0;
+  }
+
+  /**
+   * #PlaySoundByName plus ownership registration.
+   *
+   * A null #object keeps the sound unowned, which is the backward compatible
+   * behaviour for every pre B6.2 node.
+   */
+  virtual uint64_t PlaySoundByNameFor(KX_GameObject *object,
+                                      const std::string &name,
+                                      bool loop,
+                                      float volume,
+                                      float pitch)
+  {
+    const uint64_t handle = PlaySoundByName(name, loop, volume, pitch);
+    RegisterSoundOwner(object, handle);
+    return handle;
+  }
+
+  /** #PlaySound3D plus ownership registration; null #object means unowned. */
+  virtual uint64_t PlaySound3DFor(KX_GameObject *object,
+                                  const std::string &sound,
+                                  const float position[3],
+                                  float volume,
+                                  float pitch)
+  {
+    const uint64_t handle = PlaySound3D(sound, position, volume, pitch);
+    RegisterSoundOwner(object, handle);
+    return handle;
+  }
+
+ protected:
+  /** Object -> handles it spawned. Borrowed keys, see #ForgetObject. */
+  std::unordered_map<KX_GameObject *, std::vector<uint64_t>> object_handles_;
+  /** Reverse map used by stop/finish cleanup. */
+  std::unordered_map<uint64_t, KX_GameObject *> handle_owner_;
 };
 
 /** Headless audio backend that records the handle lifecycle without a device. */
@@ -900,6 +1488,58 @@ class KX_MockAudioAdapter : public KX_AudioAdapter {
   uint32_t volume_calls = 0;
   uint32_t pitch_calls = 0;
 
+  /* B6.2 recordings. */
+  struct AttenuationRecord {
+    KX_GameObject *object = nullptr;
+    int model = 0;
+    float reference_distance = 0.0f;
+    float maximum_distance = 0.0f;
+  };
+  struct DopplerRecord {
+    KX_GameObject *object = nullptr;
+    float factor = 1.0f;
+  };
+  struct ZoneRecord {
+    std::string zone;
+    std::string sound;
+    float volume = 1.0f;
+  };
+  struct BusRecord {
+    std::string bus;
+    float volume = 1.0f;
+  };
+  struct SpatialRecord {
+    std::string sound;
+    float position[3] = {0.0f, 0.0f, 0.0f};
+    float volume = 1.0f;
+    float pitch = 1.0f;
+  };
+  std::vector<AttenuationRecord> attenuation_requests;
+  std::vector<DopplerRecord> doppler_requests;
+  std::vector<ZoneRecord> zone_requests;
+  std::vector<BusRecord> bus_requests;
+  std::vector<SpatialRecord> spatial_requests;
+  uint32_t attenuation_calls = 0;
+  uint32_t doppler_calls = 0;
+  uint32_t zone_calls = 0;
+  uint32_t bus_calls = 0;
+  uint32_t spatial_calls = 0;
+
+  /** Per handle settings, used to prove object scoped isolation in tests. */
+  struct HandleSettings {
+    int model = 0;
+    float reference_distance = 0.0f;
+    float maximum_distance = 0.0f;
+    float doppler = 1.0f;
+    float attenuation = 1.0f;
+    float volume = 1.0f;
+  };
+  std::map<uint64_t, HandleSettings> handle_settings;
+  /** Values inherited by handles spawned after a global (null object) call. */
+  HandleSettings global_settings;
+  /** Settings of #handle, or the default when unknown. */
+  const HandleSettings &SettingsOf(uint64_t handle) const;
+
   uint64_t PlaySound(const std::string &filepath, bool loop, float volume, float pitch) override;
   uint64_t PlaySoundByName(const std::string &name,
                            bool loop,
@@ -911,8 +1551,29 @@ class KX_MockAudioAdapter : public KX_AudioAdapter {
   void SetPitch(uint64_t handle, float pitch) override;
   bool IsPlaying(uint64_t handle) override;
   bool IsFinished(uint64_t handle) override;
+  void SetAttenuation(KX_GameObject *object,
+                      int model,
+                      float reference_distance,
+                      float maximum_distance) override;
+  void SetDopplerFactor(KX_GameObject *object, float factor) override;
+  uint64_t SetAudioZone(const std::string &zone_name,
+                        const std::string &sound,
+                        float volume) override;
+  void SetAudioBus(const std::string &bus, float volume) override;
+  uint64_t PlaySound3D(const std::string &sound,
+                       const float position[3],
+                       float volume,
+                       float pitch) override;
 
   void Reset();
+};
+
+/** Outcome of a scene unload request (B6.3 UnloadScene node). */
+enum class KX_SceneUnloadResult {
+  Success = 0,
+  SceneActive = 1, /* the scene is currently running */
+  Unsupported = 2, /* the engine cannot remove scenes */
+  Missing = 3,     /* no scene with that name */
 };
 
 /**
@@ -935,6 +1596,44 @@ class KX_SceneControlAdapter {
   {
     (void)name;
     return nullptr;
+  }
+
+  /* ---------------------------------------------------------------------- */
+  /* B6.3 advanced scene extensions (appended; existing virtuals unchanged).  */
+  /* ---------------------------------------------------------------------- */
+
+  virtual bool HasScene(const std::string &name)
+  {
+    (void)name;
+    return false;
+  }
+  /** Remove a non-active scene; false when the engine declines or it is active. */
+  virtual bool UnloadScene(const std::string &name)
+  {
+    (void)name;
+    return false;
+  }
+  /**
+   * Why an unload succeeded or failed. The default mapping keeps older
+   * adapters working: a positive bool is Success, anything else Unsupported.
+   */
+  virtual KX_SceneUnloadResult UnloadSceneDetailed(const std::string &name, std::string *reason)
+  {
+    (void)reason;
+    return UnloadScene(name) ? KX_SceneUnloadResult::Success
+                             : KX_SceneUnloadResult::Unsupported;
+  }
+  virtual void ActiveSceneNames(std::vector<std::string> &out) { (void)out; }
+  /**
+   * Apply the requested time scale to #name. The current engine only has a
+   * global time scale, so implementations report false when they cannot honour
+   * a per-scene value.
+   */
+  virtual bool SetSceneTimeScale(const std::string &name, float scale)
+  {
+    (void)name;
+    (void)scale;
+    return false;
   }
 };
 
@@ -994,6 +1693,19 @@ class KX_UIAdapter {
   {
     (void)name;
     return -1;
+  }
+
+  /**
+   * B6.7: load an extra font face and expose it under `name`, which is what
+   * CreateUILabel's Font port now refers to. A label whose name was never
+   * loaded keeps the default face. Returns false when the face cannot be
+   * loaded.
+   */
+  virtual bool LoadFont(const std::string &name, const std::string &path)
+  {
+    (void)name;
+    (void)path;
+    return false;
   }
   virtual int CreateLabel(int canvas, const std::string &text)
   {
@@ -1114,6 +1826,35 @@ class KX_UIAdapter {
     (void)y;
     return -1;
   }
+
+  /**
+   * B6.4 read-only frame state.
+   *
+   * Scroll/drag and list selection need the cursor position, and anchor nodes
+   * need the resolved screen size. Everything is already sampled in
+   * #BeginFrame / #DrawScreen, so exposing it keeps nodes off the input
+   * adapter and avoids a second source of truth.
+   */
+  virtual float MouseX() const
+  {
+    return 0.0f;
+  }
+  virtual float MouseY() const
+  {
+    return 0.0f;
+  }
+  virtual bool MouseDown() const
+  {
+    return false;
+  }
+  virtual int ScreenWidth() const
+  {
+    return 0;
+  }
+  virtual int ScreenHeight() const
+  {
+    return 0;
+  }
 };
 
 /** Headless UI backend that records every call for contract tests. */
@@ -1139,6 +1880,9 @@ class KX_MockUIAdapter : public KX_UIAdapter {
   mutable std::vector<HitCall> hit_calls;
   std::vector<std::string> canvas_names;
   std::vector<std::string> image_names;
+  /** B6.7: name -> path of every font accepted by #LoadFont. */
+  std::map<std::string, std::string> fonts;
+  uint32_t load_font_calls = 0;
 
   uint32_t begin_frame_calls = 0;
   uint32_t end_frame_calls = 0;
@@ -1171,6 +1915,7 @@ class KX_MockUIAdapter : public KX_UIAdapter {
   void BeginFrame(float delta_time, float mouse_x, float mouse_y, bool mouse_down) override;
   void EndFrame() override;
   int CreateCanvas(const std::string &name) override;
+  bool LoadFont(const std::string &name, const std::string &path) override;
   int CreateLabel(int canvas, const std::string &text) override;
   int CreateImage(int canvas, const std::string &image) override;
   int CreateButton(int canvas, const std::string &text) override;
@@ -1186,6 +1931,26 @@ class KX_MockUIAdapter : public KX_UIAdapter {
   bool MoveElement(int handle, int mode) override;
   bool HitTest(int handle, float x, float y) const override;
   int HitTestPoint(float x, float y) const override;
+  float MouseX() const override
+  {
+    return last_mouse_x;
+  }
+  float MouseY() const override
+  {
+    return last_mouse_y;
+  }
+  bool MouseDown() const override
+  {
+    return last_mouse_down;
+  }
+  int ScreenWidth() const override
+  {
+    return screen_w_;
+  }
+  int ScreenHeight() const override
+  {
+    return screen_h_;
+  }
   void DrawScreen(int width, int height) override;
 
   void Reset();
@@ -1195,6 +1960,272 @@ class KX_MockUIAdapter : public KX_UIAdapter {
  private:
   int CreateElement(KX_UIElementType type, int canvas, const std::string &text);
   int next_handle_ = 1;
+  int screen_w_ = 0;
+  int screen_h_ = 0;
+};
+
+/* ------------------------------------------------------------------------- */
+/* B6.3 network adapter                                                      */
+/* ------------------------------------------------------------------------- */
+
+/** One event produced by the LAN network adapter. */
+struct KX_NetworkEvent {
+  enum Type : int {
+    None = 0,
+    PlayerJoin = 1,
+    PlayerLeave = 2,
+    Message = 3,
+    Disconnect = 4,
+  };
+
+  Type type = None;
+  /** Sender or affected player; -1 when unknown. */
+  int player_id = -1;
+  /** Message payload for #Message, empty for the other events. */
+  std::string data;
+  /** True for SendReliable / BroadcastReliable payloads. */
+  bool reliable = true;
+};
+
+/** One room advertised by a host's room table (B6.7 C.3.2). */
+struct KX_RoomInfo {
+  std::string name;
+  /** Host address the room was queried through. */
+  std::string host;
+  int port = 0;
+  int players = 0;
+  int max_players = 0;
+};
+
+/**
+ * LAN network service used by the B6.3 network nodes.
+ *
+ * Scope is deliberately small: a star topology over raw BSD sockets on one
+ * local network. There is no NAT traversal, no rollback and no client
+ * prediction. Reliable messages use TCP; "unreliable" messages use a separate
+ * non-blocking UDP socket (protocol v2), so they can be lost or reordered and
+ * are never retransmitted. The adapter never blocks the logic thread:
+ * connections and receives are non-blocking and the join call only waits for
+ * a bounded, short welcome timeout.
+ */
+class KX_NetworkAdapter {
+ public:
+  enum class Role {
+    None = 0,
+    Host = 1,
+    Client = 2,
+  };
+
+  virtual ~KX_NetworkAdapter() = default;
+
+  /** Start listening; @a max_players includes the host itself. */
+  virtual bool HostRoom(int port, int max_players, std::string *error = nullptr)
+  {
+    (void)port;
+    (void)max_players;
+    (void)error;
+    return false;
+  }
+  /** Connect to a host on the same LAN. */
+  virtual bool JoinRoom(const std::string &host, int port, std::string *error = nullptr)
+  {
+    (void)host;
+    (void)port;
+    (void)error;
+    return false;
+  }
+  virtual void LeaveRoom() {}
+  /** Number of players in the room, including the local player. */
+  virtual int PlayerCount() const { return 0; }
+  /** Host is 0; clients receive their id from the host. -1 while unknown. */
+  virtual int LocalPlayerId() const { return -1; }
+  virtual bool SendReliable(int target_id, const void *data, size_t len)
+  {
+    (void)target_id;
+    (void)data;
+    (void)len;
+    return false;
+  }
+  virtual bool SendUnreliable(int target_id, const void *data, size_t len)
+  {
+    (void)target_id;
+    (void)data;
+    (void)len;
+    return false;
+  }
+  virtual bool BroadcastReliable(const void *data, size_t len)
+  {
+    (void)data;
+    (void)len;
+    return false;
+  }
+  /** Store and broadcast one synchronised key/value pair. */
+  virtual void SetSyncProperty(const std::string &key, const KX_RuntimeValue &value)
+  {
+    (void)key;
+    (void)value;
+  }
+  virtual bool GetRemoteProperty(int player_id,
+                                 const std::string &key,
+                                 KX_RuntimeValue *out) const
+  {
+    (void)player_id;
+    (void)key;
+    (void)out;
+    return false;
+  }
+  /** Pop one queued event; false when the queue is empty. */
+  virtual bool PollEvent(KX_NetworkEvent &out) { (void)out; return false; }
+
+  /** Drive the non-blocking sockets; called once per logic frame. */
+  virtual void Tick() {}
+  virtual Role GetRole() const { return Role::None; }
+  virtual bool IsConnected() const { return false; }
+  virtual std::string LastError() const { return std::string(); }
+
+  /* ---------------------------------------------------------------------- */
+  /* B6.7 C.3.2 room table and reconnect (appended; earlier methods stay).    */
+  /* ---------------------------------------------------------------------- */
+
+  /** Name advertised to room-list clients; server side only. */
+  virtual void SetRoomName(const std::string &name) { (void)name; }
+  virtual std::string RoomName() const { return std::string(); }
+
+  /**
+   * Query the room table of a host over UDP.
+   *
+   * There is deliberately no discovery protocol: the caller supplies the host
+   * address typed by the user. The implementation replaces #out and returns
+   * false with a diagnostic in #error when the host does not answer within the
+   * bounded window.
+   */
+  virtual bool ListRooms(const std::string &host,
+                         int port,
+                         std::vector<KX_RoomInfo> &out,
+                         std::string *error = nullptr)
+  {
+    (void)host;
+    (void)port;
+    (void)out;
+    (void)error;
+    return false;
+  }
+
+  /** Re-query the same host; default is just ListRooms again. */
+  virtual bool RefreshRooms(const std::string &host,
+                            int port,
+                            std::vector<KX_RoomInfo> &out,
+                            std::string *error = nullptr)
+  {
+    return ListRooms(host, port, out, error);
+  }
+
+  /**
+   * Retry the last JoinRoom with exponential backoff.
+   *
+   * #max_attempts counts join attempts, not sleeps; #backoff_ms is the first
+   * delay and doubles per failure, capped at 4000 ms. #attempts receives the
+   * number of attempts actually made (0 when already connected). A failure
+   * always fills #error with a status line, never returns silently.
+   */
+  virtual bool Reconnect(int max_attempts,
+                         int backoff_ms,
+                         int *attempts = nullptr,
+                         std::string *error = nullptr)
+  {
+    (void)max_attempts;
+    (void)backoff_ms;
+    if (attempts != nullptr) {
+      *attempts = 0;
+    }
+    if (error != nullptr) {
+      *error = "Reconnect: not supported";
+    }
+    return false;
+  }
+};
+
+/** Headless network backend that records requests for contract tests. */
+class KX_MockNetworkAdapter : public KX_NetworkAdapter {
+ public:
+  bool host_result = true;
+  bool join_result = true;
+  int local_player = 0;
+  int player_count = 1;
+  Role role = Role::None;
+  bool connected = false;
+  std::string last_error;
+
+  bool host_called = false;
+  bool join_called = false;
+  bool leave_called = false;
+  int host_port = 0;
+  int host_max_players = 0;
+  std::string join_host;
+  int join_port = 0;
+
+  /* B6.7 C.3.2 programming surface. */
+  bool list_result = true;
+  bool refresh_result = true;
+  bool reconnect_result = true;
+  std::string room_name;
+  std::vector<KX_RoomInfo> room_list;
+  bool list_called = false;
+  bool refresh_called = false;
+  std::string list_host;
+  int list_port = 0;
+  int reconnect_calls = 0;
+  int reconnect_attempts = 0;
+  int reconnect_max_attempts = 0;
+  int reconnect_backoff_ms = 0;
+  std::string reconnect_status;
+
+  struct SentPacket {
+    int target = -1;
+    std::string data;
+    bool reliable = true;
+    bool broadcast = false;
+  };
+
+  std::vector<SentPacket> sent;
+  std::vector<KX_NetworkEvent> events;
+  std::map<std::string, KX_RuntimeValue> local_props;
+  std::map<int, std::map<std::string, KX_RuntimeValue>> remote_props;
+
+  bool HostRoom(int port, int max_players, std::string *error = nullptr) override;
+  bool JoinRoom(const std::string &host, int port, std::string *error = nullptr) override;
+  void LeaveRoom() override;
+  int PlayerCount() const override { return player_count; }
+  int LocalPlayerId() const override { return local_player; }
+  bool SendReliable(int target_id, const void *data, size_t len) override;
+  bool SendUnreliable(int target_id, const void *data, size_t len) override;
+  bool BroadcastReliable(const void *data, size_t len) override;
+  void SetSyncProperty(const std::string &key, const KX_RuntimeValue &value) override;
+  bool GetRemoteProperty(int player_id,
+                         const std::string &key,
+                         KX_RuntimeValue *out) const override;
+  bool PollEvent(KX_NetworkEvent &out) override;
+  Role GetRole() const override { return role; }
+  bool IsConnected() const override { return connected; }
+  std::string LastError() const override { return last_error; }
+
+  /* B6.7 C.3.2 mocks. */
+  void SetRoomName(const std::string &name) override { room_name = name; }
+  std::string RoomName() const override { return room_name; }
+  bool ListRooms(const std::string &host,
+                 int port,
+                 std::vector<KX_RoomInfo> &out,
+                 std::string *error = nullptr) override;
+  bool RefreshRooms(const std::string &host,
+                    int port,
+                    std::vector<KX_RoomInfo> &out,
+                    std::string *error = nullptr) override;
+  bool Reconnect(int max_attempts,
+                 int backoff_ms,
+                 int *attempts = nullptr,
+                 std::string *error = nullptr) override;
+
+  void Reset();
 };
 
 /** The adapters owned by #KX_GraphSceneManager for one scene. */
@@ -1209,6 +2240,8 @@ struct KX_AdapterSet {
   std::unique_ptr<KX_SceneControlAdapter> scene_control;
   std::unique_ptr<KX_UIAdapter> ui;
   std::unique_ptr<KX_FileAdapter> file;
+  std::unique_ptr<KX_NetworkAdapter> network;
+  std::unique_ptr<KX_PhysicsAdvancedAdapter> physics_advanced;
 
   /** Input edges, then the UI frame start with the mouse state. */
   void BeginFrame(float delta_time);
@@ -1232,3 +2265,6 @@ KX_MessageAdapter &KX_NullMessageAdapter();
 KX_AudioAdapter &KX_NullAudioAdapter();
 KX_SceneControlAdapter &KX_NullSceneControlAdapter();
 KX_UIAdapter &KX_NullUIAdapter();
+KX_NetworkAdapter &KX_NullNetworkAdapter();
+/** Engine backed LAN network backend (raw non-blocking sockets). */
+std::unique_ptr<KX_NetworkAdapter> KX_CreateEngineNetworkAdapter();

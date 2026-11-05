@@ -60,6 +60,9 @@ class NullSceneControlAdapter final : public KX_SceneControlAdapter {
 class NullUIAdapter final : public KX_UIAdapter {
 };
 
+class NullNetworkAdapter final : public KX_NetworkAdapter {
+};
+
 }  // namespace
 
 KX_InputAdapter &KX_NullInputAdapter()
@@ -116,6 +119,12 @@ KX_UIAdapter &KX_NullUIAdapter()
   return adapter;
 }
 
+KX_NetworkAdapter &KX_NullNetworkAdapter()
+{
+  static NullNetworkAdapter adapter;
+  return adapter;
+}
+
 void KX_MockUIAdapter::BeginFrame(float delta_time, float mouse_x, float mouse_y, bool mouse_down)
 {
   ++begin_frame_calls;
@@ -125,6 +134,9 @@ void KX_MockUIAdapter::BeginFrame(float delta_time, float mouse_x, float mouse_y
   previous_mouse_down = last_mouse_down;
   last_mouse_down = mouse_down;
   event_flags.clear();
+
+  /* B6.7: keep the hit test on the same Polar coordinates the draw pass uses. */
+  KX_UILayoutPolarElements(elements);
 
   hovered_handle = HitTestPoint(mouse_x, mouse_y);
   if (hovered_handle >= 0) {
@@ -206,6 +218,16 @@ int KX_MockUIAdapter::CreateCanvas(const std::string &name)
   ++create_canvas_calls;
   canvas_names.push_back(name);
   return CreateElement(KX_UIElementType::Canvas, -1, std::string());
+}
+
+bool KX_MockUIAdapter::LoadFont(const std::string &name, const std::string &path)
+{
+  ++load_font_calls;
+  if (name.empty() || path.empty()) {
+    return false;
+  }
+  fonts[name] = path;
+  return true;
 }
 
 int KX_MockUIAdapter::CreateLabel(int canvas, const std::string &text)
@@ -384,8 +406,10 @@ bool KX_MockUIAdapter::MoveElement(int handle, int mode)
 
 void KX_MockUIAdapter::DrawScreen(int width, int height)
 {
-  (void)width;
-  (void)height;
+  if (width > 0 && height > 0) {
+    screen_w_ = width;
+    screen_h_ = height;
+  }
   EndFrame();
 }
 
@@ -527,6 +551,9 @@ uint64_t KX_MockAudioAdapter::PlaySound(const std::string &filepath,
   entry.finished = false;
   const uint64_t handle = next_handle++;
   entries[handle] = entry;
+  HandleSettings settings = global_settings;
+  settings.volume = volume;
+  handle_settings[handle] = settings;
   return handle;
 }
 
@@ -556,6 +583,7 @@ void KX_MockAudioAdapter::Set3DListener(const float position[3], const float ori
 void KX_MockAudioAdapter::StopSound(uint64_t handle)
 {
   ++stop_calls;
+  ReleaseSoundOwner(handle);
   std::map<uint64_t, Entry>::iterator it = entries.find(handle);
   if (it == entries.end()) {
     return;
@@ -608,6 +636,19 @@ void KX_MockAudioAdapter::Reset()
   stop_calls = 0;
   volume_calls = 0;
   pitch_calls = 0;
+  attenuation_requests.clear();
+  doppler_requests.clear();
+  zone_requests.clear();
+  bus_requests.clear();
+  spatial_requests.clear();
+  attenuation_calls = 0;
+  doppler_calls = 0;
+  zone_calls = 0;
+  bus_calls = 0;
+  spatial_calls = 0;
+  handle_settings.clear();
+  global_settings = HandleSettings();
+  ClearSoundOwners();
 }
 
 bool KX_MockSceneControlAdapter::SuspendScene()
@@ -667,6 +708,8 @@ std::unique_ptr<KX_AdapterSet> KX_CreateNullAdapters()
   set->scene_control = std::make_unique<NullSceneControlAdapter>();
   set->ui = std::make_unique<NullUIAdapter>();
   set->file = KX_CreateNullFileAdapter();
+  set->network = std::make_unique<NullNetworkAdapter>();
+  set->physics_advanced = KX_CreateNullPhysicsAdvancedAdapter();
   return set;
 }
 
@@ -688,6 +731,11 @@ void KX_AdapterSet::BeginFrame(float delta_time)
     }
     ui->BeginFrame(delta_time, mouse_x, mouse_y, mouse_down);
   }
+
+  /* B6.3: pump the non-blocking sockets once per logic frame. */
+  if (network) {
+    network->Tick();
+  }
 }
 
 void KX_AdapterSet::EndFrame()
@@ -702,4 +750,657 @@ void KX_AdapterSet::DrawUI()
   if (ui) {
     ui->EndFrame();
   }
+}
+
+/* ------------------------------------------------------------------------- */
+/* B6.2 input extensions                                                      */
+/* ------------------------------------------------------------------------- */
+
+namespace {
+
+std::string TrimSpaces(const std::string &text)
+{
+  size_t begin = 0;
+  size_t end = text.size();
+  while (begin < end && (text[begin] == ' ' || text[begin] == '\t')) {
+    ++begin;
+  }
+  while (end > begin && (text[end - 1] == ' ' || text[end - 1] == '\t')) {
+    --end;
+  }
+  return text.substr(begin, end - begin);
+}
+
+bool ParseIntStrict(const std::string &text, int &out)
+{
+  if (text.empty()) {
+    return false;
+  }
+  int sign = 1;
+  size_t i = 0;
+  if (text[0] == '-') {
+    sign = -1;
+    i = 1;
+  }
+  else if (text[0] == '+') {
+    i = 1;
+  }
+  if (i >= text.size()) {
+    return false;
+  }
+  int value = 0;
+  for (; i < text.size(); ++i) {
+    if (text[i] < '0' || text[i] > '9') {
+      return false;
+    }
+    value = value * 10 + (text[i] - '0');
+  }
+  out = value * sign;
+  return true;
+}
+
+bool SplitColon(const std::string &text, std::string *parts, size_t count)
+{
+  size_t start = 0;
+  for (size_t i = 0; i < count; ++i) {
+    const size_t colon = text.find(':', start);
+    if (i + 1 == count) {
+      parts[i] = text.substr(start);
+      return !parts[i].empty();
+    }
+    if (colon == std::string::npos) {
+      return false;
+    }
+    parts[i] = text.substr(start, colon - start);
+    start = colon + 1;
+  }
+  return false;
+}
+
+}  // namespace
+
+bool KX_InputAdapter::ReadInputMap(const std::string &name, float &value, bool &down)
+{
+  value = 0.0f;
+  down = false;
+  std::map<std::string, std::string>::const_iterator it = input_map_.find(name);
+  if (it == input_map_.end()) {
+    return false;
+  }
+  const std::string &binding = it->second;
+  const size_t colon = binding.find(':');
+  if (colon == std::string::npos) {
+    return false;
+  }
+  const std::string kind = binding.substr(0, colon);
+  const std::string rest = binding.substr(colon + 1);
+
+  if (kind == "key") {
+    int code = 0;
+    if (!ParseIntStrict(rest, code)) {
+      return false;
+    }
+    down = KeyActive(code, KX_InputMode::Hold);
+    value = down ? 1.0f : 0.0f;
+    return true;
+  }
+  if (kind == "keycombo") {
+    down = IsKeyComboDown(rest);
+    value = down ? 1.0f : 0.0f;
+    return true;
+  }
+  if (kind == "mouse") {
+    int button = 0;
+    if (!ParseIntStrict(rest, button)) {
+      return false;
+    }
+    down = MouseButtonActive(button, KX_InputMode::Hold);
+    value = down ? 1.0f : 0.0f;
+    return true;
+  }
+  if (kind == "gamepad_button") {
+    std::string parts[2];
+    int pad = 0;
+    int button = 0;
+    if (!SplitColon(rest, parts, 2) || !ParseIntStrict(parts[0], pad) ||
+        !ParseIntStrict(parts[1], button))
+    {
+      return false;
+    }
+    down = IsGamepadButtonDown(pad, button);
+    value = down ? 1.0f : 0.0f;
+    return true;
+  }
+  if (kind == "gamepad_axis") {
+    std::string parts[2];
+    int pad = 0;
+    int axis = 0;
+    if (!SplitColon(rest, parts, 2) || !ParseIntStrict(parts[0], pad) ||
+        !ParseIntStrict(parts[1], axis))
+    {
+      return false;
+    }
+    float x = 0.0f;
+    float y = 0.0f;
+    GetGamepadAxis(pad, axis, x, y);
+    value = x;
+    down = x > 0.15f || x < -0.15f || y > 0.15f || y < -0.15f;
+    return true;
+  }
+  if (kind == "gamepad_trigger") {
+    std::string parts[2];
+    int pad = 0;
+    int trigger = 0;
+    if (!SplitColon(rest, parts, 2) || !ParseIntStrict(parts[0], pad) ||
+        !ParseIntStrict(parts[1], trigger))
+    {
+      return false;
+    }
+    float amount = 0.0f;
+    GetGamepadTrigger(pad, trigger, amount);
+    value = amount;
+    down = amount > 0.05f;
+    return true;
+  }
+  return false;
+}
+
+void KX_MockInputAdapter::SetGamepadButton(int pad, int button, bool down)
+{
+  gamepad_buttons[std::make_pair(pad, button)] = down;
+}
+
+void KX_MockInputAdapter::SetGamepadAxis(int pad, int axis, float x, float y)
+{
+  gamepad_axes[std::make_pair(pad, axis)] = std::make_pair(x, y);
+}
+
+void KX_MockInputAdapter::SetGamepadTrigger(int pad, int trigger, float value)
+{
+  gamepad_triggers[std::make_pair(pad, trigger)] = value;
+}
+
+void KX_MockInputAdapter::SetTouch(int index, float x, float y, bool down)
+{
+  if (index < 0) {
+    return;
+  }
+  if (static_cast<size_t>(index) >= touches.size()) {
+    touches.resize(static_cast<size_t>(index) + 1);
+  }
+  touches[static_cast<size_t>(index)].x = x;
+  touches[static_cast<size_t>(index)].y = y;
+  touches[static_cast<size_t>(index)].down = down;
+}
+
+void KX_MockInputAdapter::SetKeyDown(const std::string &key, bool down)
+{
+  pressed_keys[key] = down;
+}
+
+bool KX_MockInputAdapter::IsGamepadButtonDown(int pad, int button)
+{
+  std::map<std::pair<int, int>, bool>::const_iterator it =
+      gamepad_buttons.find(std::make_pair(pad, button));
+  return it != gamepad_buttons.end() && it->second;
+}
+
+void KX_MockInputAdapter::GetGamepadAxis(int pad, int axis, float &x, float &y)
+{
+  std::map<std::pair<int, int>, std::pair<float, float> >::const_iterator it =
+      gamepad_axes.find(std::make_pair(pad, axis));
+  if (it == gamepad_axes.end()) {
+    x = 0.0f;
+    y = 0.0f;
+    return;
+  }
+  x = it->second.first;
+  y = it->second.second;
+}
+
+void KX_MockInputAdapter::GetGamepadTrigger(int pad, int trigger, float &value)
+{
+  std::map<std::pair<int, int>, float>::const_iterator it =
+      gamepad_triggers.find(std::make_pair(pad, trigger));
+  value = it != gamepad_triggers.end() ? it->second : 0.0f;
+}
+
+void KX_MockInputAdapter::GetTouch(int index, float &x, float &y, bool &down)
+{
+  if (index < 0 || static_cast<size_t>(index) >= touches.size()) {
+    x = 0.0f;
+    y = 0.0f;
+    down = false;
+    return;
+  }
+  const TouchPoint &point = touches[static_cast<size_t>(index)];
+  x = point.x;
+  y = point.y;
+  down = point.down;
+}
+
+int KX_MockInputAdapter::GetTouchCount()
+{
+  return static_cast<int>(touches.size());
+}
+
+bool KX_MockInputAdapter::IsKeyComboDown(const std::string &keys)
+{
+  const std::string trimmed = TrimSpaces(keys);
+  if (trimmed.empty()) {
+    return false;
+  }
+  size_t start = 0;
+  while (start <= trimmed.size()) {
+    const size_t plus = trimmed.find('+', start);
+    const std::string token = TrimSpaces(
+        trimmed.substr(start, plus == std::string::npos ? std::string::npos : plus - start));
+    if (token.empty()) {
+      return false;
+    }
+    std::map<std::string, bool>::const_iterator it = pressed_keys.find(token);
+    if (it == pressed_keys.end() || !it->second) {
+      return false;
+    }
+    if (plus == std::string::npos) {
+      break;
+    }
+    start = plus + 1;
+  }
+  return true;
+}
+
+bool KX_MockInputAdapter::VibrateGamepad(int pad, float intensity, float duration)
+{
+  ++vibrate_calls;
+  vibration_requests.push_back(std::to_string(pad) + ":" + std::to_string(intensity) + ":" +
+                               std::to_string(duration));
+  return vibrate_result;
+}
+
+void KX_MockInputAdapter::Reset()
+{
+  gamepad_buttons.clear();
+  gamepad_axes.clear();
+  gamepad_triggers.clear();
+  touches.clear();
+  pressed_keys.clear();
+  vibration_requests.clear();
+  vibrate_calls = 0;
+  vibrate_result = true;
+  input_map_.clear();
+}
+
+/* ------------------------------------------------------------------------- */
+/* B6.2 audio recordings                                                      */
+/* ------------------------------------------------------------------------- */
+
+const KX_MockAudioAdapter::HandleSettings &KX_MockAudioAdapter::SettingsOf(
+    uint64_t handle) const
+{
+  std::map<uint64_t, HandleSettings>::const_iterator found = handle_settings.find(handle);
+  return found != handle_settings.end() ? found->second : global_settings;
+}
+
+void KX_MockAudioAdapter::SetAttenuation(KX_GameObject *object,
+                                         int model,
+                                         float reference_distance,
+                                         float maximum_distance)
+{
+  ++attenuation_calls;
+  AttenuationRecord record;
+  record.object = object;
+  record.model = model;
+  record.reference_distance = reference_distance;
+  record.maximum_distance = maximum_distance;
+  attenuation_requests.push_back(record);
+
+  if (object == nullptr) {
+    global_settings.model = model;
+    global_settings.reference_distance = reference_distance;
+    global_settings.maximum_distance = maximum_distance;
+    for (std::map<uint64_t, HandleSettings>::iterator it = handle_settings.begin();
+         it != handle_settings.end(); ++it)
+    {
+      it->second.model = model;
+      it->second.reference_distance = reference_distance;
+      it->second.maximum_distance = maximum_distance;
+    }
+    return;
+  }
+
+  /* Object scoped: only the handles owned by this object change. */
+  const std::vector<uint64_t> handles = HandlesFor(object);
+  for (uint64_t handle : handles) {
+    std::map<uint64_t, HandleSettings>::iterator it = handle_settings.find(handle);
+    if (it == handle_settings.end()) {
+      continue;
+    }
+    it->second.model = model;
+    it->second.reference_distance = reference_distance;
+    it->second.maximum_distance = maximum_distance;
+  }
+}
+
+void KX_MockAudioAdapter::SetDopplerFactor(KX_GameObject *object, float factor)
+{
+  ++doppler_calls;
+  DopplerRecord record;
+  record.object = object;
+  record.factor = factor;
+  doppler_requests.push_back(record);
+
+  if (object == nullptr) {
+    global_settings.doppler = factor;
+    for (std::map<uint64_t, HandleSettings>::iterator it = handle_settings.begin();
+         it != handle_settings.end(); ++it)
+    {
+      it->second.doppler = factor;
+    }
+    return;
+  }
+
+  const std::vector<uint64_t> handles = HandlesFor(object);
+  for (uint64_t handle : handles) {
+    std::map<uint64_t, HandleSettings>::iterator it = handle_settings.find(handle);
+    if (it != handle_settings.end()) {
+      it->second.doppler = factor;
+    }
+  }
+}
+
+uint64_t KX_MockAudioAdapter::SetAudioZone(const std::string &zone_name,
+                                           const std::string &sound,
+                                           float volume)
+{
+  ++zone_calls;
+  ZoneRecord record;
+  record.zone = zone_name;
+  record.sound = sound;
+  record.volume = volume;
+  zone_requests.push_back(record);
+  return PlaySoundByName(sound, true, volume, 1.0f);
+}
+
+void KX_MockAudioAdapter::SetAudioBus(const std::string &bus, float volume)
+{
+  ++bus_calls;
+  BusRecord record;
+  record.bus = bus;
+  record.volume = volume;
+  bus_requests.push_back(record);
+}
+
+uint64_t KX_MockAudioAdapter::PlaySound3D(const std::string &sound,
+                                          const float position[3],
+                                          float volume,
+                                          float pitch)
+{
+  ++spatial_calls;
+  SpatialRecord record;
+  record.sound = sound;
+  for (int i = 0; i < 3; ++i) {
+    record.position[i] = position != nullptr ? position[i] : 0.0f;
+  }
+  record.volume = volume;
+  record.pitch = pitch;
+  spatial_requests.push_back(record);
+  return PlaySoundByName(sound, false, volume, pitch);
+}
+
+/* ------------------------------------------------------------------------- */
+/* B6.3 mock network adapter                                                  */
+/* ------------------------------------------------------------------------- */
+
+void KX_MockNetworkAdapter::Reset()
+{
+  host_result = true;
+  join_result = true;
+  local_player = 0;
+  player_count = 1;
+  role = Role::None;
+  connected = false;
+  last_error.clear();
+  host_called = false;
+  join_called = false;
+  leave_called = false;
+  host_port = 0;
+  host_max_players = 0;
+  join_host.clear();
+  join_port = 0;
+  list_result = true;
+  refresh_result = true;
+  reconnect_result = true;
+  room_name.clear();
+  room_list.clear();
+  list_called = false;
+  refresh_called = false;
+  list_host.clear();
+  list_port = 0;
+  reconnect_calls = 0;
+  reconnect_attempts = 0;
+  reconnect_max_attempts = 0;
+  reconnect_backoff_ms = 0;
+  reconnect_status.clear();
+  sent.clear();
+  events.clear();
+  local_props.clear();
+  remote_props.clear();
+}
+
+bool KX_MockNetworkAdapter::HostRoom(int port, int max_players, std::string *error)
+{
+  host_called = true;
+  host_port = port;
+  host_max_players = max_players;
+  if (!host_result) {
+    last_error = "mock host failure";
+    if (error != nullptr) {
+      *error = last_error;
+    }
+    return false;
+  }
+  role = Role::Host;
+  connected = true;
+  local_player = 0;
+  player_count = 1;
+  return true;
+}
+
+bool KX_MockNetworkAdapter::JoinRoom(const std::string &host, int port, std::string *error)
+{
+  join_called = true;
+  join_host = host;
+  join_port = port;
+  if (!join_result) {
+    last_error = "mock join failure";
+    if (error != nullptr) {
+      *error = last_error;
+    }
+    return false;
+  }
+  role = Role::Client;
+  connected = true;
+  player_count = 2;
+  if (!events.empty() || local_player != 0) {
+    return true;
+  }
+  KX_NetworkEvent event;
+  event.type = KX_NetworkEvent::PlayerJoin;
+  event.player_id = 0;
+  events.push_back(event);
+  event.type = KX_NetworkEvent::PlayerJoin;
+  event.player_id = local_player;
+  events.push_back(event);
+  return true;
+}
+
+void KX_MockNetworkAdapter::LeaveRoom()
+{
+  leave_called = true;
+  if (connected) {
+    KX_NetworkEvent event;
+    event.type = KX_NetworkEvent::PlayerLeave;
+    event.player_id = local_player;
+    events.push_back(event);
+  }
+  connected = false;
+  role = Role::None;
+  sent.clear();
+  player_count = 0;
+}
+
+bool KX_MockNetworkAdapter::SendReliable(int target_id, const void *data, size_t len)
+{
+  if (!connected || data == nullptr) {
+    return false;
+  }
+  SentPacket packet;
+  packet.target = target_id;
+  packet.reliable = true;
+  packet.data.assign(static_cast<const char *>(data), len);
+  sent.push_back(packet);
+  return true;
+}
+
+bool KX_MockNetworkAdapter::SendUnreliable(int target_id, const void *data, size_t len)
+{
+  if (!connected || data == nullptr) {
+    return false;
+  }
+  SentPacket packet;
+  packet.target = target_id;
+  packet.reliable = false;
+  packet.data.assign(static_cast<const char *>(data), len);
+  sent.push_back(packet);
+  return true;
+}
+
+bool KX_MockNetworkAdapter::BroadcastReliable(const void *data, size_t len)
+{
+  if (!connected || data == nullptr) {
+    return false;
+  }
+  SentPacket packet;
+  packet.target = -1;
+  packet.reliable = true;
+  packet.broadcast = true;
+  packet.data.assign(static_cast<const char *>(data), len);
+  sent.push_back(packet);
+  return true;
+}
+
+void KX_MockNetworkAdapter::SetSyncProperty(const std::string &key, const KX_RuntimeValue &value)
+{
+  local_props[key] = value;
+  if (connected) {
+    remote_props[local_player][key] = value;
+  }
+}
+
+bool KX_MockNetworkAdapter::GetRemoteProperty(int player_id,
+                                             const std::string &key,
+                                             KX_RuntimeValue *out) const
+{
+  std::map<int, std::map<std::string, KX_RuntimeValue>>::const_iterator player =
+      remote_props.find(player_id);
+  if (player == remote_props.end()) {
+    return false;
+  }
+  std::map<std::string, KX_RuntimeValue>::const_iterator property = player->second.find(key);
+  if (property == player->second.end()) {
+    return false;
+  }
+  if (out != nullptr) {
+    *out = property->second;
+  }
+  return true;
+}
+
+bool KX_MockNetworkAdapter::PollEvent(KX_NetworkEvent &out)
+{
+  if (events.empty()) {
+    return false;
+  }
+  out = events.front();
+  events.erase(events.begin());
+  return true;
+}
+
+bool KX_MockNetworkAdapter::ListRooms(const std::string &host,
+                                      int port,
+                                      std::vector<KX_RoomInfo> &out,
+                                      std::string *error)
+{
+  list_called = true;
+  list_host = host;
+  list_port = port;
+  out = room_list;
+  if (!list_result) {
+    last_error = "mock list failure";
+    if (error != nullptr) {
+      *error = last_error;
+    }
+    return false;
+  }
+  return true;
+}
+
+bool KX_MockNetworkAdapter::RefreshRooms(const std::string &host,
+                                         int port,
+                                         std::vector<KX_RoomInfo> &out,
+                                         std::string *error)
+{
+  refresh_called = true;
+  list_host = host;
+  list_port = port;
+  if (!refresh_result) {
+    out.clear();
+    last_error = "mock refresh failure";
+    if (error != nullptr) {
+      *error = last_error;
+    }
+    return false;
+  }
+  return ListRooms(host, port, out, error);
+}
+
+bool KX_MockNetworkAdapter::Reconnect(int max_attempts,
+                                      int backoff_ms,
+                                      int *attempts,
+                                      std::string *error)
+{
+  ++reconnect_calls;
+  reconnect_max_attempts = max_attempts;
+  reconnect_backoff_ms = backoff_ms;
+  if (connected) {
+    reconnect_attempts = 0;
+    reconnect_status = "already connected";
+    if (attempts != nullptr) {
+      *attempts = 0;
+    }
+    return true;
+  }
+  if (!reconnect_result) {
+    reconnect_attempts = max_attempts;
+    reconnect_status = "mock reconnect failure";
+    last_error = reconnect_status;
+    if (attempts != nullptr) {
+      *attempts = reconnect_attempts;
+    }
+    if (error != nullptr) {
+      *error = last_error;
+    }
+    return false;
+  }
+  reconnect_attempts = 1;
+  reconnect_status = "connected";
+  connected = true;
+  role = Role::Client;
+  local_player = 1;
+  player_count = 2;
+  if (attempts != nullptr) {
+    *attempts = reconnect_attempts;
+  }
+  return true;
 }

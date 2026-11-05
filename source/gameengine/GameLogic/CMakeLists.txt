@@ -194,6 +194,12 @@ set(SRC
   GameNodes/KX_FunctionNodesExtra.cpp
   GameNodes/KX_FunctionNodesB2.cpp
   GameNodes/KX_FunctionNodesB3.cpp
+  GameNodes/KX_FunctionNodesB5.cpp
+  GameNodes/KX_FunctionNodesB6Audio.cpp
+  GameNodes/KX_FunctionNodesB6Input.cpp
+  GameNodes/KX_FunctionNodesB6String.cpp
+  GameNodes/KX_FunctionNodesB6Legacy.cpp
+  GameNodes/KX_FunctionNodesB6LegacyQuery.cpp
   GameNodes/KX_GameAdapters.cpp
   GameNodes/KX_GameAdaptersEngine.cpp
   GameNodes/KX_GameDataAsset.cpp
@@ -215,12 +221,27 @@ set(SRC
   GameNodes/KX_FunctionNodesB4File.cpp
   GameNodes/KX_FunctionNodesB4.cpp
   GameNodes/KX_UIRenderer.cpp
+  GameNodes/KX_CompiledGraph.cpp
+  GameNodes/KX_InlinePass.cpp
+  GameNodes/KX_DebugTrace.cpp
+  GameNodes/KX_NetworkAdapterEngine.cpp
+  GameNodes/KX_FunctionNodesB6Net.cpp
+  GameNodes/KX_FunctionNodesB6Sensor.cpp
+  GameNodes/KX_FunctionNodesB6Scene.cpp
+  GameNodes/KX_FunctionNodesB6UI.cpp
+  GameNodes/KX_FunctionNodesB6File.cpp
+  GameNodes/KX_FunctionNodesB6.cpp
+  GameNodes/KX_PhysicsAdvancedAdapter.cpp
+  GameNodes/KX_SaveGameBinary.cpp
 
   GameNodes/KX_AssetRegistry.h
   GameNodes/KX_ExecutionContext.h
   GameNodes/KX_ExecutionPlan.h
   GameNodes/KX_FunctionNode.h
+  GameNodes/KX_B4AssetIO.h
+  GameNodes/KX_SaveGameBinary.h
   GameNodes/KX_GameAdapters.h
+  GameNodes/KX_PhysicsAdvancedAdapter.h
   GameNodes/KX_GameDataAsset.h
   GameNodes/KX_GraphCompiler.h
   GameNodes/KX_GraphIR.h
@@ -239,6 +260,8 @@ set(SRC
   GameNodes/KX_FileAdapter.h
   GameNodes/KX_Json.h
   GameNodes/KX_UIRenderer.h
+  GameNodes/KX_CompiledGraph.h
+  GameNodes/KX_DebugTrace.h
 )
 
 set(LIB

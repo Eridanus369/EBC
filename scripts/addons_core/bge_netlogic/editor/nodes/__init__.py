@@ -375,4 +375,20 @@ from . import native_b4b
 # B4.1 native family: UI canvas, widgets and attribute access.
 from . import native_b4
 
+# B5.2 native family: smooth transforms, mouse look, property and material nodes.
+from . import native_b5
+
+# B6.2 native family: input extensions, advanced string/list and audio nodes.
+from . import native_b6b
+
+# B6.3 native family: LAN network, extended sensors and advanced scene control.
+from . import native_b6c
+
+# B6.4 native family: advanced UI widgets and advanced file nodes.
+from . import native_b6ui
+from . import native_b6file
+
+# B6.1 native family: advanced physics and animation nodes.
+from . import native_b6
+
 # from .groupnode import NodeGroupInputLogic

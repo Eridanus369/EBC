@@ -749,9 +749,67 @@ static void InitBlenderContextVariables(blender::bContext *C)
   }
 }
 
+/* A .blend can be saved with a screen layout that has no 3D view at all (for
+ * example a single node editor). The player still needs a View3D and a
+ * RegionView3D for shading, camera setup and the draw loop, so turn the
+ * largest area of the screen into a 3D view before anything dereferences
+ * CTX_wm_view3d()/CTX_wm_region_view3d(). */
+static void EnsurePlayerView3D(blender::bContext *C)
+{
+  if (CTX_wm_view3d(C) != nullptr && CTX_wm_region_view3d(C) != nullptr) {
+    return;
+  }
+
+  blender::wmWindow *win = CTX_wm_window(C);
+  if (!win) {
+    return;
+  }
+  blender::bScreen *screen = WM_window_get_active_screen(win);
+  if (!screen) {
+    return;
+  }
+
+  /* Areas reported by the freshly loaded screen may still have a zero size, so
+   * BKE_screen_find_big_area() can return nullptr here. Walk the list instead. */
+  blender::ScrArea *area = nullptr;
+  blender::ScrArea *fallback = nullptr;
+  for (blender::ScrArea *iter = screen->areabase.first(); iter != nullptr; iter = iter->next)
+  {
+    if (iter->spacetype == SPACE_VIEW3D) {
+      area = iter;
+      break;
+    }
+    if (!fallback) {
+      fallback = iter;
+    }
+  }
+  if (!area) {
+    area = fallback;
+  }
+  if (!area) {
+    return;
+  }
+
+  CTX_wm_screen_set(C, screen);
+  CTX_wm_area_set(C, area);
+  if (area->spacetype != SPACE_VIEW3D) {
+    ED_area_newspace(C, area, SPACE_VIEW3D, false);
+  }
+  else {
+    ED_area_init(C, win, area);
+  }
+  InitBlenderContextVariables(C);
+}
+
 static int GetShadingTypeRuntime(blender::bContext *C)
 {
   blender::View3D *v3d = CTX_wm_view3d(C);
+  if (!v3d) {
+    /* No 3D view in the loaded file and the fallback area could not be
+     * created: the custom BGE render loop always wants a render shading mode. */
+    return OB_RENDER;
+  }
+
   bool not_eevee = (v3d->shading.type != OB_RENDER) && (v3d->shading.type != OB_MATERIAL);
 
   if (not_eevee) {
@@ -1633,6 +1691,8 @@ int main(int argc,
             wm_window_ghostwindow_blenderplayer_ensure(wm, win, window, first_time_window);
             WM_check(C);
             InitBlenderContextVariables(C);
+            /* Screens are initialized by WM_check(): recover a missing 3D view now. */
+            EnsurePlayerView3D(C);
 
             /* Get rid of windows which are not the 3D view windows */
             for (blender::wmWindow *win_in_list = wm->windows.first(); win_in_list; win_in_list = win_in_list->next) {
@@ -1687,10 +1747,12 @@ int main(int argc,
             }
 
             /* Don't draw gizmos by default */
-            CTX_wm_view3d(C)->gizmo_flag |= V3D_GIZMO_HIDE;
-            if (useViewportRender) {
-              /* Don't draw overlays by default */
-              CTX_wm_view3d(C)->flag2 |= V3D_HIDE_OVERLAYS;
+            if (blender::View3D *v3d = CTX_wm_view3d(C)) {
+              v3d->gizmo_flag |= V3D_GIZMO_HIDE;
+              if (useViewportRender) {
+                /* Don't draw overlays by default */
+                v3d->flag2 |= V3D_HIDE_OVERLAYS;
+              }
             }
 
             // This argc cant be argc_py_clamped, since python uses it.

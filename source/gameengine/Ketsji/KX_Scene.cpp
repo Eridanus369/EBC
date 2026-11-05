@@ -36,10 +36,13 @@
 
 #include "KX_Scene.h"
 
+#include <fstream>
+
 #include "BKE_global.hh"
 #include "BKE_idprop.hh"
 #include "BKE_layer.hh"
 #include "BKE_lib_id.hh"
+#include "BKE_main.hh"
 #include "BLI_math_base.hh"
 #include "BKE_mball.hh"
 #include "BKE_modifier.hh"
@@ -304,7 +307,7 @@ KX_Scene::KX_Scene(SCA_IInputDevice *inputDevice,
   DEG_relations_tag_update(bmain);
 
   RegionView3D *rv3d = CTX_wm_region_view3d(C);
-  m_rv3d_prevpersp = rv3d->persp;
+  m_rv3d_prevpersp = rv3d ? rv3d->persp : RV3D_PERSP;
 
   m_overlay_collections = {};
   m_imageRenderCameraList = {};
@@ -317,7 +320,9 @@ KX_Scene::KX_Scene(SCA_IInputDevice *inputDevice,
   /* Configure Shading types and overlays according to
    * (viewport render or not) and (blenderplayer or not)
    */
-  CTX_wm_view3d(C)->shading.type = eDrawType(KX_GetActiveEngine()->ShadingTypeRuntime());
+  if (blender::View3D *v3d = CTX_wm_view3d(C)) {
+    v3d->shading.type = eDrawType(KX_GetActiveEngine()->ShadingTypeRuntime());
+  }
 
   if (!KX_GetActiveEngine()->UseViewportRender()) {
     /* We want to indicate that we are in bge runtime. The flag can be used in draw code but in
@@ -407,7 +412,9 @@ KX_Scene::~KX_Scene()
     DEG_relations_tag_update(bmain);
   }
   RegionView3D *rv3d = CTX_wm_region_view3d(C);
-  rv3d->persp = m_rv3d_prevpersp;
+  if (rv3d) {
+    rv3d->persp = m_rv3d_prevpersp;
+  }
 
   if (m_parentlist)
     m_parentlist->Release();
@@ -771,14 +778,20 @@ bool KX_Scene::ViewportRender(KX_Camera *cam,
       if (G.is_blenderplayer) {
         blender::ARegion *region = CTX_wm_region(C);
         scene->flag |= SCE_IS_BLENDERPLAYER;
-        region->winrct = window;
-        region->winx = canvas->GetWidth();
-        region->winy = canvas->GetHeight();
-        /* Force camera projection matrix to be the same as viewport one (for mouse events) */
-        cam->SetProjectionMatrix(MT_Matrix4x4(&CTX_wm_region_view3d(C)->winmat[0][0]));
+        if (region) {
+          region->winrct = window;
+          region->winx = canvas->GetWidth();
+          region->winy = canvas->GetHeight();
+          /* Force camera projection matrix to be the same as viewport one (for mouse events) */
+          if (blender::RegionView3D *rv3d = CTX_wm_region_view3d(C)) {
+            cam->SetProjectionMatrix(MT_Matrix4x4(&rv3d->winmat[0][0]));
+          }
+        }
       }
 
-      CTX_wm_view3d(C)->camera = cam->GetBlenderObject();
+      if (blender::View3D *v3d = CTX_wm_view3d(C)) {
+        v3d->camera = cam->GetBlenderObject();
+      }
 
 #ifdef WITH_XR_OPENXR
       blender::wmWindowManager *wm = CTX_wm_manager(C);
@@ -791,8 +804,10 @@ bool KX_Scene::ViewportRender(KX_Camera *cam,
         }
       }
 #endif
-      CTX_wm_region(C)->runtime->visible = true;
-      ED_region_tag_redraw(CTX_wm_region(C));
+      if (blender::ARegion *region = CTX_wm_region(C)) {
+        region->runtime->visible = true;
+        ED_region_tag_redraw(region);
+      }
       wm_draw_update(C);
 
       /* We need to do that before and after wm_draw_update
@@ -866,21 +881,32 @@ void KX_Scene::RenderAfterCameraSetup(KX_Camera *cam,
   if (cam) {
     float winmat[4][4];
     cam->GetProjectionMatrix().getValue(&winmat[0][0]);
-    CTX_wm_view3d(C)->camera = cam->GetBlenderObject();
-    ARegion *region = CTX_wm_region(C);
-    ED_view3d_update_viewmat(CTX_data_expect_evaluated_depsgraph(C),
-                             CTX_data_scene(C),
-                             CTX_wm_view3d(C),
-                             region,
-                             nullptr,
-                             winmat,
-                             &window,
-                             true);  // Offscreen = True
+    blender::View3D *v3d = CTX_wm_view3d(C);
+    blender::ARegion *region = CTX_wm_region(C);
+    if (v3d && region) {
+      v3d->camera = cam->GetBlenderObject();
+      ED_view3d_update_viewmat(CTX_data_expect_evaluated_depsgraph(C),
+                               CTX_data_scene(C),
+                               v3d,
+                               region,
+                               nullptr,
+                               winmat,
+                               &window,
+                               true);  // Offscreen = True
 
-    /* Set for GPU drawing. */
-    RegionView3D *rv3d = (RegionView3D *)region->regiondata;
-    GPU_matrix_projection_set(rv3d->winmat);
-    GPU_matrix_set(rv3d->viewmat);
+      /* Set for GPU drawing. */
+      blender::RegionView3D *rv3d = (blender::RegionView3D *)region->regiondata;
+      GPU_matrix_projection_set(rv3d->winmat);
+      GPU_matrix_set(rv3d->viewmat);
+    }
+    else {
+      /* No usable 3D view (file saved without one): drive the GPU matrices
+       * straight from the camera instead of dereferencing a null View3D. */
+      float viewmat[4][4];
+      MT_Matrix4x4(cam->GetWorldToCamera()).getValue(&viewmat[0][0]);
+      GPU_matrix_projection_set(winmat);
+      GPU_matrix_set(viewmat);
+    }
 
     UpdateObjectLods(cam);
   }
@@ -952,21 +978,30 @@ void KX_Scene::RenderAfterCameraSetupImageRender(KX_Camera *cam, GPUViewport *ta
 
   float winmat[4][4];
   cam->GetProjectionMatrix().getValue(&winmat[0][0]);
-  CTX_wm_view3d(C)->camera = cam->GetBlenderObject();
-  ARegion *region = CTX_wm_region(C);
-  ED_view3d_update_viewmat(CTX_data_expect_evaluated_depsgraph(C),
-                           CTX_data_scene(C),
-                           CTX_wm_view3d(C),
-                           region,
-                           nullptr,
-                           winmat,
-                           window,
-                           true); // Offscreen = True
+  blender::View3D *v3d = CTX_wm_view3d(C);
+  blender::ARegion *region = CTX_wm_region(C);
+  if (v3d && region) {
+    v3d->camera = cam->GetBlenderObject();
+    ED_view3d_update_viewmat(CTX_data_expect_evaluated_depsgraph(C),
+                             CTX_data_scene(C),
+                             v3d,
+                             region,
+                             nullptr,
+                             winmat,
+                             window,
+                             true); // Offscreen = True
 
-  /* Set for GPU drawing. */
-  RegionView3D *rv3d = (RegionView3D *)region->regiondata;
-  GPU_matrix_projection_set(rv3d->winmat);
-  GPU_matrix_set(rv3d->viewmat);
+    /* Set for GPU drawing. */
+    blender::RegionView3D *rv3d = (blender::RegionView3D *)region->regiondata;
+    GPU_matrix_projection_set(rv3d->winmat);
+    GPU_matrix_set(rv3d->viewmat);
+  }
+  else {
+    float viewmat[4][4];
+    MT_Matrix4x4(cam->GetWorldToCamera()).getValue(&viewmat[0][0]);
+    GPU_matrix_projection_set(winmat);
+    GPU_matrix_set(viewmat);
+  }
 
   DRW_game_render_loop(C, targetViewport, depsgraph, window, false);
 }
@@ -2461,18 +2496,7 @@ void KX_Scene::GraphTick(double framestep)
   }
 
   if (!m_graphmgr) {
-    blender::Scene *blender_scene = GetBlenderScene();
-    if (!blender_scene || !blender_scene->id.properties) {
-      return;
-    }
-
-    blender::IDProperty *item = IDP_GetPropertyTypeFromGroup(
-        blender_scene->id.properties, "game_graph_manifest", IDP_STRING);
-    if (!item) {
-      return;
-    }
-
-    const std::string json_text = IDP_string_get(item);
+    const std::string json_text = ReadGraphManifestJson();
     if (json_text.empty()) {
       return;
     }
@@ -2491,6 +2515,61 @@ void KX_Scene::GraphTick(double framestep)
   }
 
   m_graphmgr->Tick(static_cast<float>(framestep));
+}
+
+std::string KX_Scene::ReadGraphManifestJson() const
+{
+  blender::Scene *blender_scene = const_cast<KX_Scene *>(this)->GetBlenderScene();
+  if (!blender_scene || !blender_scene->id.properties) {
+    return std::string();
+  }
+
+  blender::IDProperty *item = IDP_GetPropertyTypeFromGroup(
+      blender_scene->id.properties, "game_graph_manifest", IDP_STRING);
+  if (!item) {
+    return std::string();
+  }
+  return IDP_string_get(item);
+}
+
+std::string KX_Scene::ReadGraphHotReloadManifestJson() const
+{
+  /* A separate player process never sees the editor's scene property, so the
+   * hot reload operator also drops the manifest next to the flag. The side
+   * channel wins when present; embedded sessions keep using the property. */
+  const std::string flag_path = GraphHotReloadFlagPath();
+  if (!flag_path.empty()) {
+    const size_t slash = flag_path.find_last_of("/\\");
+    if (slash != std::string::npos) {
+      const std::string manifest_path =
+          flag_path.substr(0, slash + 1) + ".hot_reload_manifest.json";
+      std::ifstream in(manifest_path, std::ios::binary);
+      if (in) {
+        const std::string json((std::istreambuf_iterator<char>(in)),
+                               std::istreambuf_iterator<char>());
+        if (!json.empty()) {
+          return json;
+        }
+      }
+    }
+  }
+  return ReadGraphManifestJson();
+}
+
+std::string KX_Scene::GraphHotReloadFlagPath() const
+{
+  /* The running file is the source of truth for the flag location; using the
+   * loaded .blend path keeps the editor and the player on the same file. */
+  if (blender::G.main == nullptr || blender::BKE_main_blendfile_path(blender::G.main)[0] == '\0') {
+    return std::string();
+  }
+
+  std::string path = blender::BKE_main_blendfile_path(blender::G.main);
+  const size_t slash = path.find_last_of("/\\");
+  if (slash == std::string::npos) {
+    return std::string();
+  }
+  return path.substr(0, slash + 1) + ".hot_reload.flag";
 }
 
 void KX_Scene::GraphDrawUI()

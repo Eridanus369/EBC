@@ -67,6 +67,11 @@ class KX_Node_FloatMath : public KX_LogicNodeRuntime {
   static KX_NodeSignature Signature();
 
   KX_ExecResult Execute(KX_ExecutionContext &ctx) override;
+  bool ExecuteValueOnly(KX_ExecutionContext &ctx) override
+  {
+    Execute(ctx);
+    return true;
+  }
   bool Configure(const std::string &config, std::string *error) override;
 
   Op Operation() const;
@@ -101,6 +106,11 @@ class KX_Node_VectorMath : public KX_LogicNodeRuntime {
   static KX_NodeSignature Signature();
 
   KX_ExecResult Execute(KX_ExecutionContext &ctx) override;
+  bool ExecuteValueOnly(KX_ExecutionContext &ctx) override
+  {
+    Execute(ctx);
+    return true;
+  }
   bool Configure(const std::string &config, std::string *error) override;
 
   Op Operation() const;
@@ -359,6 +369,11 @@ class KX_Node_ConstFloat : public KX_LogicNodeRuntime {
   static KX_NodeSignature Signature();
 
   KX_ExecResult Execute(KX_ExecutionContext &ctx) override;
+  bool ExecuteValueOnly(KX_ExecutionContext &ctx) override
+  {
+    Execute(ctx);
+    return true;
+  }
   bool Configure(const std::string &config, std::string *error) override;
 
  private:
@@ -375,6 +390,11 @@ class KX_Node_ConstBool : public KX_LogicNodeRuntime {
   static KX_NodeSignature Signature();
 
   KX_ExecResult Execute(KX_ExecutionContext &ctx) override;
+  bool ExecuteValueOnly(KX_ExecutionContext &ctx) override
+  {
+    Execute(ctx);
+    return true;
+  }
   bool Configure(const std::string &config, std::string *error) override;
 
  private:

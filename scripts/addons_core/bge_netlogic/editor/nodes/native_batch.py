@@ -27,6 +27,7 @@ from ..sockets import NodeSocketLogicInteger
 from ..sockets import NodeSocketLogicList
 from ..sockets import NodeSocketLogicObject
 from ..sockets import NodeSocketLogicString
+from ..sockets import NodeSocketLogicValue
 from ..sockets import NodeSocketLogicVectorXYZ
 
 SOCKETS = {
@@ -39,6 +40,8 @@ SOCKETS = {
     'String': NodeSocketLogicString,
     'Color': NodeSocketLogicColorRGBA,
     'List': NodeSocketLogicList,
+    # Polymorphic port used by the B6.3 network nodes (type resolved from the link).
+    'Value': NodeSocketLogicValue,
 }
 
 BASES = {
@@ -74,6 +77,7 @@ _LOGIC_GATE = {
         ('and', 'And', ''),
         ('or', 'Or', ''),
         ('xor', 'Xor', ''),
+        ('not', 'Not', ''),
         ('nand', 'Nand', ''),
         ('nor', 'Nor', ''),
     ],
@@ -140,7 +144,7 @@ def _config_keys(config):
     return keys
 
 
-def _make_node(runtime_id, label, kind, inputs, outputs, config):
+def _make_node(runtime_id, label, kind, inputs, outputs, config, description=None):
     base = BASES[kind]
     annotations = {}
     for key, spec in config.items():
@@ -176,7 +180,7 @@ def _make_node(runtime_id, label, kind, inputs, outputs, config):
         '__annotations__': annotations,
         'bl_idname': 'GameNode' + runtime_id,
         'bl_label': label + ' (Native)',
-        'bl_description': label,
+        'bl_description': description or label,
         'nl_module': '',
         'nl_class': '',
         'runtime_type_id': runtime_id,
@@ -313,12 +317,16 @@ NATIVE_BATCH = (
     ('WithinRange', 'Within Range', 'PAR',
      [('A', 'Object'), ('B', 'Object'), ('Distance', 'Float')], [('Value', 'Bool')], {}),
     ('Collision', 'Collision', 'CON', [('Object', 'Object')],
-     [('OnEnter', 'Condition'), ('OnStay', 'Condition'), ('OnLeave', 'Condition')], {}),
+     [('OnEnter', 'Condition'), ('OnStay', 'Condition'), ('OnLeave', 'Condition'),
+      ('ContactPoint', 'Vector'), ('ContactNormal', 'Vector'),
+      ('ImpactForce', 'Float')], {}),
 
     # Math / logic
     ('Compare', 'Compare', 'PAR', [('A', 'Float'), ('B', 'Float')], [('Value', 'Bool')],
      {'op': _OPS['op_compare']}),
-    ('LogicGate', 'Logic Gate', 'PAR', [('A', 'Bool'), ('B', 'Bool')], [('Value', 'Bool')],
+    ('LogicGate', 'Logic Gate', 'CON',
+     [('A', 'Condition'), ('B', 'Condition')],
+     [('Result', 'Bool'), ('OnTrue', 'Condition'), ('OnFalse', 'Condition')],
      {'op': _OPS['op_gate']}),
     ('LogicNot', 'Logic Not', 'PAR', [('Value', 'Bool')], [('Value', 'Bool')], {}),
     ('Clamp', 'Clamp', 'PAR',

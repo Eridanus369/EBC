@@ -32,6 +32,7 @@
 #include "KX_FileAdapter.h"
 
 #include <utility>
+#include <algorithm>
 
 namespace {
 
@@ -49,6 +50,11 @@ NullFileAdapter &NullFileInstance()
 std::string KX_MockFileKey(const std::string &slot)
 {
   return std::string("save:") + slot;
+}
+
+std::string KX_MockBinaryFileKey(const std::string &slot)
+{
+  return std::string("savebin:") + slot;
 }
 
 bool KX_MockFileAdapter::SaveGame(const std::string &slot, const std::string &json_data)
@@ -72,6 +78,53 @@ bool KX_MockFileAdapter::LoadGame(const std::string &slot, std::string *json_out
     return false;
   }
   *json_out = found->second;
+  return true;
+}
+
+bool KX_MockFileAdapter::SaveGameBinary(const std::string &slot, const std::string &data)
+{
+  ++savebin_calls;
+  if (!result) {
+    return false;
+  }
+  files[KX_MockBinaryFileKey(slot)] = data;
+  return true;
+}
+
+bool KX_MockFileAdapter::LoadGameBinary(const std::string &slot, std::string *out)
+{
+  ++loadbin_calls;
+  if (!result || out == nullptr) {
+    return false;
+  }
+  const auto found = files.find(KX_MockBinaryFileKey(slot));
+  if (found == files.end()) {
+    return false;
+  }
+  *out = found->second;
+  return true;
+}
+
+bool KX_MockFileAdapter::ListSaveSlots(std::vector<std::string> *slots)
+{
+  ++list_slots_calls;
+  if (!result || slots == nullptr) {
+    return false;
+  }
+  static const std::string kJson = "save:";
+  static const std::string kBinary = "savebin:";
+  std::vector<std::string> names;
+  for (const auto &entry : files) {
+    if (entry.first.compare(0, kJson.size(), kJson) == 0) {
+      names.push_back(entry.first.substr(kJson.size()));
+    }
+    else if (entry.first.compare(0, kBinary.size(), kBinary) == 0) {
+      names.push_back(entry.first.substr(kBinary.size()));
+    }
+  }
+  std::sort(names.begin(), names.end());
+  names.erase(std::unique(names.begin(), names.end()), names.end());
+  *slots = std::move(names);
   return true;
 }
 
@@ -133,6 +186,9 @@ void KX_MockFileAdapter::Reset()
   result = true;
   save_calls = 0;
   load_calls = 0;
+  savebin_calls = 0;
+  loadbin_calls = 0;
+  list_slots_calls = 0;
   read_calls = 0;
   write_calls = 0;
   exists_calls = 0;

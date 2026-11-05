@@ -37,19 +37,29 @@
 #include <map>
 #include <memory>
 
+#include "BKE_action.hh"
+#include "BKE_armature.hh"
 #include "BKE_context.hh"
+#include "BKE_global.hh"
+#include "BKE_lib_id.hh"
+#include "BKE_material.hh"
 #include "BKE_sound.hh"
+#include "DNA_action_types.h"
+#include "DNA_armature_types.h"
 
 #ifdef WITH_AUDASPACE
 #  include <Exception.h>
 #  include <devices/DeviceManager.h>
 #  include <devices/I3DDevice.h>
+#  include <devices/I3DHandle.h>
 #  include <devices/IDevice.h>
 #  include <devices/IHandle.h>
 #  include <file/File.h>
 #  include <util/Math3D.h>
 #endif
 
+#include "BL_ActionManager.h"
+#include "BL_ArmatureObject.h"
 #include "BL_SceneConverter.h"
 #include "GPU_matrix.hh"
 #include "KX_Camera.h"
@@ -70,10 +80,15 @@
 #include "PHY_ICharacter.h"
 #include "RAS_ICanvas.h"
 #include "RAS_IDisplayArray.h"
+#include "SCA_LogicManager.h"
 #include "RAS_IVertex.h"
 #include "RAS_MeshObject.h"
+#include "DEV_Joystick.h"
+#include "SCA_EventManager.h"
 #include "SCA_IInputDevice.h"
+#include "SCA_JoystickManager.h"
 #include "SCA_KeyboardManager.h"
+#include "SCA_LogicManager.h"
 #include "SCA_MouseManager.h"
 
 namespace {
@@ -115,6 +130,76 @@ SCA_InputEvent::SCA_EnumInputs ToEventMode(KX_InputMode mode)
 int LastValue(const SCA_InputEvent &event)
 {
   return event.m_values.empty() ? 0 : event.m_values.back();
+}
+
+/** Resolve a gamepad by index through the scene's joystick event manager. */
+DEV_Joystick *SceneJoystick(KX_Scene *scene, int pad)
+{
+  if (scene == nullptr || pad < 0) {
+    return nullptr;
+  }
+  SCA_LogicManager *logic = scene->GetLogicManager();
+  if (logic == nullptr) {
+    return nullptr;
+  }
+  SCA_EventManager *manager = logic->FindEventManager(SCA_EventManager::JOY_EVENTMGR);
+  if (manager == nullptr) {
+    return nullptr;
+  }
+  return static_cast<SCA_JoystickManager *>(manager)->GetJoystickDevice(pad);
+}
+
+/** Minimal, documented key-name table used by "ctrl+shift+a" combos. */
+int KeyCodeFromName(std::string name)
+{
+  for (char &c : name) {
+    if (c >= 'A' && c <= 'Z') {
+      c = char(c - 'A' + 'a');
+    }
+  }
+  if (name.size() == 1) {
+    const char c = name[0];
+    if (c >= 'a' && c <= 'z') {
+      return SCA_IInputDevice::AKEY + (c - 'a');
+    }
+    if (c >= '0' && c <= '9') {
+      return SCA_IInputDevice::ZEROKEY + (c - '0');
+    }
+  }
+  if (name == "space") {
+    return SCA_IInputDevice::SPACEKEY;
+  }
+  if (name == "enter" || name == "return") {
+    return SCA_IInputDevice::RETKEY;
+  }
+  if (name == "esc" || name == "escape") {
+    return SCA_IInputDevice::ESCKEY;
+  }
+  if (name == "tab") {
+    return SCA_IInputDevice::TABKEY;
+  }
+  if (name == "shift") {
+    return SCA_IInputDevice::LEFTSHIFTKEY;
+  }
+  if (name == "ctrl" || name == "control") {
+    return SCA_IInputDevice::LEFTCTRLKEY;
+  }
+  if (name == "alt") {
+    return SCA_IInputDevice::LEFTALTKEY;
+  }
+  if (name == "up") {
+    return SCA_IInputDevice::UPARROWKEY;
+  }
+  if (name == "down") {
+    return SCA_IInputDevice::DOWNARROWKEY;
+  }
+  if (name == "left") {
+    return SCA_IInputDevice::LEFTARROWKEY;
+  }
+  if (name == "right") {
+    return SCA_IInputDevice::RIGHTARROWKEY;
+  }
+  return SCA_IInputDevice::NOKEY;
 }
 
 class EngineInputAdapter final : public KX_InputAdapter {
@@ -243,6 +328,111 @@ class EngineInputAdapter final : public KX_InputAdapter {
       return;
     }
     canvas_->SetMouseState(visible ? RAS_ICanvas::MOUSE_NORMAL : RAS_ICanvas::MOUSE_INVISIBLE);
+  }
+
+  /* B6.2 input extensions. */
+
+  bool IsGamepadButtonDown(int pad, int button) override
+  {
+    DEV_Joystick *joystick = SceneJoystick(scene_, pad);
+    if (joystick == nullptr || button < 0) {
+      return false;
+    }
+    return joystick->aButtonPressIsPositive(button);
+  }
+
+  void GetGamepadAxis(int pad, int axis, float &x, float &y) override
+  {
+    x = 0.0f;
+    y = 0.0f;
+    DEV_Joystick *joystick = SceneJoystick(scene_, pad);
+    if (joystick == nullptr || axis < 0 || axis > 2) {
+      return;
+    }
+    const int base = axis * 2;
+    x = float(joystick->GetAxisPosition(base)) / 32767.0f;
+    y = float(joystick->GetAxisPosition(base + 1)) / 32767.0f;
+  }
+
+  void GetGamepadTrigger(int pad, int trigger, float &value) override
+  {
+    value = 0.0f;
+    DEV_Joystick *joystick = SceneJoystick(scene_, pad);
+    if (joystick == nullptr || trigger < 0 || trigger > 1) {
+      return;
+    }
+    const int axis = 4 + trigger;
+    value = std::max(0.0f, std::min(1.0f, float(joystick->GetAxisPosition(axis)) / 32767.0f));
+  }
+
+  void GetTouch(int index, float &x, float &y, bool &down) override
+  {
+    /* The Ketsji input layer has no touch device wired up in this build. */
+    (void)index;
+    x = 0.0f;
+    y = 0.0f;
+    down = false;
+  }
+
+  int GetTouchCount() override
+  {
+    return 0;
+  }
+
+  bool IsKeyComboDown(const std::string &keys) override
+  {
+    if (keyboard_ == nullptr) {
+      return false;
+    }
+    size_t start = 0;
+    while (start <= keys.size()) {
+      const size_t plus = keys.find('+', start);
+      std::string token = keys.substr(
+          start, plus == std::string::npos ? std::string::npos : plus - start);
+      while (!token.empty() && (token.front() == ' ' || token.front() == '\t')) {
+        token.erase(token.begin());
+      }
+      while (!token.empty() && (token.back() == ' ' || token.back() == '\t')) {
+        token.pop_back();
+      }
+      if (token.empty()) {
+        return false;
+      }
+      const int code = KeyCodeFromName(token);
+      if (code == SCA_IInputDevice::NOKEY) {
+        std::fprintf(stderr, "GameNode: KeyCombo: unknown key name '%s'\n", token.c_str());
+        return false;
+      }
+      if (!keyboard_->GetInput(ToInputCode(code)).Find(SCA_InputEvent::ACTIVE)) {
+        return false;
+      }
+      if (plus == std::string::npos) {
+        break;
+      }
+      start = plus + 1;
+    }
+    return true;
+  }
+
+  bool VibrateGamepad(int pad, float intensity, float duration) override
+  {
+    DEV_Joystick *joystick = SceneJoystick(scene_, pad);
+    if (joystick == nullptr) {
+      std::fprintf(stderr,
+                   "GameNode: VibrateGamepad: no gamepad at index %d\n",
+                   pad);
+      return false;
+    }
+    if (!joystick->GetRumbleSupport()) {
+      std::fprintf(stderr,
+                   "GameNode: VibrateGamepad: gamepad %d has no rumble support\n",
+                   pad);
+      return false;
+    }
+    const float strength = std::max(0.0f, std::min(1.0f, intensity));
+    const unsigned int milliseconds = static_cast<unsigned int>(
+        std::max(0.0f, std::min(10000.0f, duration * 1000.0f)));
+    return joystick->RumblePlay(strength, strength, milliseconds);
   }
 
  private:
@@ -432,9 +622,143 @@ class EngineSceneAdapter final : public KX_SceneAdapter {
     return true;
   }
 
+  /**
+   * Pure inverse projection for the legacy WorldPosition node.
+   *
+   * The cursor pixel is unprojected to the near and far planes with the same
+   * view/projection inverse used by #RayCastFromScreen, but the result is never
+   * tested against physics. The pixel's lateral offset from the camera center
+   * line is preserved, then the point is advanced along the view direction by
+   * #depth, so depth 0 returns the camera plane and a negative depth returns a
+   * point behind the camera.
+   */
+  bool RayCastFromScreenAnyDepth(float sx, float sy, float depth, float out[3]) override
+  {
+    out[0] = out[1] = out[2] = 0.0f;
+    if (scene_ == nullptr) {
+      return false;
+    }
+    KX_Camera *camera = scene_->GetActiveCamera();
+    if (camera == nullptr) {
+      return false;
+    }
+    RAS_ICanvas *canvas = scene_->GetCanvas();
+    if (canvas == nullptr) {
+      return false;
+    }
+
+    int viewport[4];
+    canvas->GetViewportArea().Pack(viewport);
+    if (viewport[2] <= 0 || viewport[3] <= 0) {
+      return false;
+    }
+
+    MT_Matrix4x4 world_to_camera(camera->GetWorldToCamera());
+    MT_Matrix4x4 projection(camera->GetProjectionMatrix());
+    float model_inverse[4][4];
+    float projection_value[4][4];
+    world_to_camera.inverse().getValue(static_cast<float *>(&model_inverse[0][0]));
+    projection.getValue(static_cast<float *>(&projection_value[0][0]));
+
+    /* Pixels are already in viewport space with the origin at the bottom left,
+     * which is exactly what GPU_matrix_unproject_3fv expects. */
+    float near_pixel[3] = {sx, sy, 0.0f};
+    float far_pixel[3] = {sx, sy, 1.0f};
+    float near_world[3];
+    float far_world[3];
+    blender::GPU_matrix_unproject_3fv(
+        near_pixel, model_inverse, projection_value, viewport, near_world);
+    blender::GPU_matrix_unproject_3fv(
+        far_pixel, model_inverse, projection_value, viewport, far_world);
+
+    const MT_Vector3 near_point(near_world);
+    const MT_Vector3 direction = (MT_Vector3(far_world) - near_point).safe_normalized();
+    if (direction.length2() < 1e-12f) {
+      return false;
+    }
+
+    const MT_Vector3 eye = camera->NodeGetWorldPosition();
+    const MT_Vector3 offset = near_point - eye;
+    const MT_Vector3 lateral = offset - direction * offset.dot(direction);
+    const MT_Vector3 position = eye + lateral + direction * depth;
+    position.getValue(out);
+    return true;
+  }
+
+  /**
+   * Point query behind the legacy Touch node.
+   *
+   * The physics world has no "overlap at a point" entry point, so this walks the
+   * scene object list and treats every object as a sphere centered on its world
+   * position with the largest world scale component as radius. This is an
+   * approximation of the collider, deliberately kept separate from the physical
+   * Collision sensor: Touch asks "which objects sit around the ray hit point",
+   * not "which bodies are in contact this frame". The hit object itself is
+   * always reported first with its exact ray point and normal.
+   */
+  void OverlapQuery(const KX_RayHit &hit,
+                    float threshold,
+                    KX_OverlapCallback fn,
+                    void *user) override
+  {
+    if (fn == nullptr || scene_ == nullptr) {
+      return;
+    }
+    if (hit.object != nullptr) {
+      KX_OverlapHit own;
+      own.object = hit.object;
+      own.point[0] = hit.point[0];
+      own.point[1] = hit.point[1];
+      own.point[2] = hit.point[2];
+      own.normal[0] = hit.normal[0];
+      own.normal[1] = hit.normal[1];
+      own.normal[2] = hit.normal[2];
+      fn(own, user);
+    }
+
+    if (threshold <= 0.0f) {
+      return;
+    }
+
+    const MT_Vector3 point(hit.point);
+    for (KX_GameObject *object : scene_->GetObjectList()) {
+      if (object == nullptr || object == hit.object) {
+        continue;
+      }
+      const MT_Vector3 center = object->NodeGetWorldPosition();
+      const MT_Vector3 scaling = object->NodeGetWorldScaling();
+      const float radius = std::max(std::fabs(float(scaling.x())),
+                                    std::max(std::fabs(float(scaling.y())),
+                                             std::fabs(float(scaling.z()))));
+      const MT_Vector3 delta = point - center;
+      const float distance = delta.length();
+      if (distance > threshold + radius) {
+        continue;
+      }
+
+      KX_OverlapHit overlap;
+      overlap.object = object;
+      if (distance > 1e-6f) {
+        const MT_Vector3 normal = delta.safe_normalized();
+        /* Closest point on the approximating sphere toward the ray hit. */
+        const MT_Vector3 contact = center + normal * std::min(distance, radius);
+        contact.getValue(overlap.point);
+        normal.getValue(overlap.normal);
+      }
+      else {
+        point.getValue(overlap.point);
+      }
+      fn(overlap, user);
+    }
+  }
+
   void RemoveObject(KX_GameObject *object) override
   {
     if (scene_ != nullptr && object != nullptr) {
+      if (audio_ != nullptr) {
+        /* Drop audio ownership while the pointer is still valid. */
+        audio_->ForgetObject(object);
+      }
       scene_->DelayedRemoveObject(object);
     }
   }
@@ -619,8 +943,12 @@ class EngineSceneAdapter final : public KX_SceneAdapter {
     cam->InvalidateProjectionMatrix(false);
   }
 
+  /** Wire the audio adapter so object removal can drop audio ownership. */
+  void SetAudioAdapter(KX_AudioAdapter *audio) { audio_ = audio; }
+
  private:
   KX_Scene *scene_;
+  KX_AudioAdapter *audio_ = nullptr;
 };
 
 class EnginePhysicsAdapter final : public KX_PhysicsAdapter {
@@ -915,6 +1243,22 @@ class EngineObjectAdapter final : public KX_ObjectAdapter {
            KX_DefaultPropertyBackend()->Type(object, name) != KX_VALUE_NONE;
   }
 
+  unsigned short GetCollisionGroup(KX_GameObject *object) const override
+  {
+    return object != nullptr ? object->GetCollisionGroup() : 0;
+  }
+
+  bool GetLinearVelocity(KX_GameObject *object, float out[3]) const override
+  {
+    if (object == nullptr) {
+      out[0] = out[1] = out[2] = 0.0f;
+      return false;
+    }
+    MT_Vector3 velocity = object->GetLinearVelocity(false);
+    velocity.getValue(out);
+    return true;
+  }
+
   bool GetWorldPosition(KX_GameObject *object, float out[3]) override
   {
     if (object == nullptr) {
@@ -933,9 +1277,10 @@ class EngineObjectAdapter final : public KX_ObjectAdapter {
     float pitch;
     float roll;
     object->NodeGetWorldOrientation().getEuler(yaw, pitch, roll);
-    out[0] = roll;
+    /* Match SetWorldOrientation's Euler order (x, y, z). */
+    out[0] = yaw;
     out[1] = pitch;
-    out[2] = yaw;
+    out[2] = roll;
     return true;
   }
 
@@ -974,6 +1319,26 @@ class EngineObjectAdapter final : public KX_ObjectAdapter {
       return false;
     }
     object->NodeSetLocalScale(MT_Vector3(value));
+    object->NodeUpdateGS(0.0);
+    return true;
+  }
+
+  bool SetWorldPosition(KX_GameObject *object, const float value[3]) override
+  {
+    if (object == nullptr) {
+      return false;
+    }
+    object->NodeSetWorldPosition(MT_Vector3(value));
+    object->NodeUpdateGS(0.0);
+    return true;
+  }
+
+  bool SetWorldOrientation(KX_GameObject *object, const float value[3]) override
+  {
+    if (object == nullptr) {
+      return false;
+    }
+    object->NodeSetGlobalOrientation(MT_Matrix3x3(MT_Vector3(value)));
     object->NodeUpdateGS(0.0);
     return true;
   }
@@ -1036,6 +1401,33 @@ class EngineObjectAdapter final : public KX_ObjectAdapter {
     /* Mesh replacement stays deferred: it needs the converter level material
      * swap path, which is not part of the node runtime yet. */
     return false;
+  }
+
+  bool SetMaterial(KX_GameObject *object, const std::string &name, int slot) override
+  {
+    if (object == nullptr) {
+      return false;
+    }
+    blender::Object *blender_object = object->GetBlenderObject();
+    if (blender_object == nullptr) {
+      return false;
+    }
+    blender::Material *material = reinterpret_cast<blender::Material *>(
+        blender::BKE_libblock_find_name(blender::G.main, blender::ID_MA, name.c_str()));
+    if (material == nullptr) {
+      std::fprintf(stderr,
+                   "[SetMaterial] material datablock '%s' not found on object '%s'\n",
+                   name.c_str(),
+                   object->GetName().c_str());
+      return false;
+    }
+    if (slot < 0) {
+      slot = 0;
+    }
+    blender::BKE_object_material_assign_single_obdata(
+        blender::G.main, blender_object, material, static_cast<short>(slot + 1));
+    object->UpdateBlenderObjectMatrix(blender_object);
+    return true;
   }
 
   KX_GameObject *GetParent(KX_GameObject *object) override
@@ -1208,6 +1600,173 @@ class EngineAnimationAdapter final : public KX_AnimationAdapter {
   {
     return object != nullptr ? object->GetActionName(static_cast<short>(layer)) : std::string();
   }
+
+  /* --- B6.1 animation advanced --- */
+
+  bool PlayActionByLayer(KX_GameObject *object,
+                         const std::string &name,
+                         int layer,
+                         float blend_in) override
+  {
+    if (object == nullptr || name.empty()) {
+      return false;
+    }
+    float start = 0.0f;
+    float end = 0.0f;
+    if (!ActionRange(object, name, start, end)) {
+      fprintf(stderr,
+              "[PlayActionByLayer] action '%s' has no frame range, cannot play it\n",
+              name.c_str());
+      return false;
+    }
+    return object->PlayAction(name,
+                              start,
+                              end,
+                              static_cast<short>(layer),
+                              0,
+                              blend_in,
+                              0,
+                              1.0f,
+                              0,
+                              1.0f,
+                              0);
+  }
+
+  bool BlendActions(KX_GameObject *object,
+                    const std::string &action_a,
+                    const std::string &action_b,
+                    float factor) override
+  {
+    if (object == nullptr || action_a.empty() || action_b.empty()) {
+      return false;
+    }
+    if (!(factor >= 0.0f && factor <= 1.0f)) {
+      fprintf(stderr, "[BlendActions] factor %.3f is outside [0, 1]\n", factor);
+      return false;
+    }
+    float a_start = 0.0f, a_end = 0.0f, b_start = 0.0f, b_end = 0.0f;
+    if (!ActionRange(object, action_a, a_start, a_end) ||
+        !ActionRange(object, action_b, b_start, b_end)) {
+      fprintf(stderr, "[BlendActions] both actions need a frame range\n");
+      return false;
+    }
+    /* Real layer weight blending: A on layer 0, B on layer 1. BL_Action applies
+     * the layer weight through BL_ArmatureObject::BlendInPose (dst = 1 - src),
+     * so the visible result is (1 - factor) A + factor B. Layer 0 ignores its
+     * weight (BL_ActionManager forces it to -1), B alone drives the blend.
+     * Fixed occupancy: this overwrites whatever was playing on layers 0 and 1,
+     * and only two actions can be mixed (no N-way weighted blending). */
+    return object->PlayAction(action_a, a_start, a_end, 0, 0, 0.0f, 0, 1.0f - factor, 0, 1.0f, 0) &&
+           object->PlayAction(action_b, b_start, b_end, 1, 0, 0.0f, 0, factor, 0, 1.0f, 0);
+  }
+
+  bool SetBoneTransform(KX_GameObject *object,
+                        const std::string &bone,
+                        const float position[3],
+                        const float rotation[3]) override
+  {
+    if (object == nullptr || bone.empty()) {
+      return false;
+    }
+    if (object->GetGameObjectType() != SCA_IObject::OBJ_ARMATURE) {
+      fprintf(stderr, "[SetBoneTransform] object '%s' is not an armature\n", object->GetName().c_str());
+      return false;
+    }
+    BL_ArmatureObject *armature = static_cast<BL_ArmatureObject *>(object);
+    blender::bPose *pose = nullptr;
+    armature->GetPose(&pose);
+    if (pose == nullptr) {
+      fprintf(stderr, "[SetBoneTransform] armature '%s' has no pose\n", object->GetName().c_str());
+      return false;
+    }
+    blender::bPoseChannel *channel = blender::BKE_pose_channel_find_name(pose, bone.c_str());
+    if (channel == nullptr) {
+      fprintf(stderr,
+              "[SetBoneTransform] bone '%s' not found on armature '%s'\n",
+              bone.c_str(),
+              object->GetName().c_str());
+      return false;
+    }
+    channel->loc[0] = position[0];
+    channel->loc[1] = position[1];
+    channel->loc[2] = position[2];
+    channel->rotmode = blender::ROT_MODE_XYZ;
+    channel->eul[0] = rotation[0];
+    channel->eul[1] = rotation[1];
+    channel->eul[2] = rotation[2];
+    /* The pose is recomputed on the next armature update; the engine exposes
+     * no immediate re-evaluation hook. */
+    armature->ApplyPose();
+    return true;
+  }
+
+  bool SetBoneWeight(KX_GameObject *object, const std::string &bone, float weight, std::string *error) override
+  {
+    (void)object;
+    (void)bone;
+    (void)weight;
+    if (error != nullptr) {
+      *error =
+          "vertex group weights are evaluated at conversion time; the runtime has no setter";
+    }
+    return false;
+  }
+
+  bool PlayBoneAction(KX_GameObject *object,
+                      const std::string &bone,
+                      const std::string &action,
+                      std::string *error) override
+  {
+    (void)object;
+    (void)bone;
+    (void)action;
+    if (error != nullptr) {
+      *error = "BL_ActionManager plays whole object actions; per bone masking is not exposed";
+    }
+    return false;
+  }
+
+  float GetActionNormalized(KX_GameObject *object, int layer) override
+  {
+    if (object == nullptr) {
+      return 0.0f;
+    }
+    BL_ActionManager *manager = object->GetActionManagerNoCreate();
+    if (manager == nullptr) {
+      return 0.0f;
+    }
+    blender::bAction *action = manager->GetCurrentAction(static_cast<short>(layer));
+    if (action == nullptr) {
+      return 0.0f;
+    }
+    const float start = action->frame_start;
+    const float end = action->frame_end;
+    if (!(end > start)) {
+      return 0.0f;
+    }
+    const float frame = object->GetActionFrame(static_cast<short>(layer));
+    const float normalized = (frame - start) / (end - start);
+    return std::max(0.0f, std::min(1.0f, normalized));
+  }
+
+ private:
+  static bool ActionRange(KX_GameObject *object, const std::string &name, float &start, float &end)
+  {
+    if (object == nullptr || object->GetScene() == nullptr) {
+      return false;
+    }
+    SCA_LogicManager *manager = object->GetScene()->GetLogicManager();
+    if (manager == nullptr) {
+      return false;
+    }
+    blender::bAction *action = static_cast<blender::bAction *>(manager->GetActionByName(name));
+    if (action == nullptr) {
+      return false;
+    }
+    start = action->frame_start;
+    end = action->frame_end;
+    return end > start;
+  }
 };
 
 class EngineMessageAdapter final : public KX_MessageAdapter {
@@ -1322,6 +1881,90 @@ class EngineSceneControlAdapter final : public KX_SceneControlAdapter {
     return replica;
   }
 
+  bool HasScene(const std::string &name) override
+  {
+    if (name.empty()) {
+      return false;
+    }
+    KX_KetsjiEngine *engine = KX_GetActiveEngine();
+    if (engine == nullptr) {
+      return false;
+    }
+    for (KX_Scene *scene : engine->CurrentScenes()) {
+      if (scene != nullptr && scene->GetName() == name) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  bool UnloadScene(const std::string &name) override
+  {
+    return UnloadSceneDetailed(name, nullptr) == KX_SceneUnloadResult::Success;
+  }
+
+  KX_SceneUnloadResult UnloadSceneDetailed(const std::string &name,
+                                           std::string *reason) override
+  {
+    KX_KetsjiEngine *engine = KX_GetActiveEngine();
+    if (engine == nullptr) {
+      if (reason != nullptr) {
+        *reason = "no active engine";
+      }
+      return KX_SceneUnloadResult::Unsupported;
+    }
+    if (name.empty() || !HasScene(name)) {
+      if (reason != nullptr) {
+        *reason = "scene not found";
+      }
+      return KX_SceneUnloadResult::Missing;
+    }
+    /* A scene in the running list owns live graphs and objects; freeing it
+     * would invalidate nodes mid-frame. Refuse instead of crashing. */
+    for (KX_Scene *active : engine->CurrentScenes()) {
+      if (active != nullptr && active->GetName() == name) {
+        if (reason != nullptr) {
+          *reason = "scene is active";
+        }
+        return KX_SceneUnloadResult::SceneActive;
+      }
+    }
+    /* KX_KetsjiEngine::RemoveScene is disabled in this build (see the early
+     * return in KX_KetsjiEngine.cpp around line 1343), so removal cannot be
+     * honoured even for a non-active scene. */
+    if (reason != nullptr) {
+      *reason = "engine RemoveScene is disabled";
+    }
+    return KX_SceneUnloadResult::Unsupported;
+  }
+
+  void ActiveSceneNames(std::vector<std::string> &out) override
+  {
+    out.clear();
+    KX_KetsjiEngine *engine = KX_GetActiveEngine();
+    if (engine == nullptr) {
+      return;
+    }
+    for (KX_Scene *scene : engine->CurrentScenes()) {
+      if (scene != nullptr) {
+        out.push_back(scene->GetName());
+      }
+    }
+  }
+
+  bool SetSceneTimeScale(const std::string &name, float scale) override
+  {
+    KX_KetsjiEngine *engine = KX_GetActiveEngine();
+    if (engine == nullptr || !HasScene(name) || scale < 0.0f) {
+      return false;
+    }
+    /* The engine only exposes one global time scale; the scene name is
+     * validated, then the global scale is applied. Per-scene scaling is a
+     * documented limitation, not a fake per-scene result. */
+    engine->SetTimeScale(double(scale));
+    return true;
+  }
+
  private:
   KX_Scene *scene_ = nullptr;
 };
@@ -1373,6 +2016,7 @@ class EngineAudioAdapter final : public KX_AudioAdapter {
         entry.second->stop();
       }
     }
+    ClearSoundOwners();
   }
 
   uint64_t PlaySound(const std::string &filepath, bool loop, float volume, float pitch) override
@@ -1466,6 +2110,7 @@ class EngineAudioAdapter final : public KX_AudioAdapter {
 
   void StopSound(uint64_t handle) override
   {
+    ReleaseSoundOwner(handle);
     std::map<uint64_t, std::shared_ptr<aud::IHandle>>::iterator it = handles_.find(handle);
     if (it == handles_.end()) {
       return;
@@ -1474,6 +2119,8 @@ class EngineAudioAdapter final : public KX_AudioAdapter {
       it->second->stop();
     }
     handles_.erase(it);
+    base_volume_.erase(handle);
+    handle_bus_.erase(handle);
   }
 
   void SetVolume(uint64_t handle, float volume) override
@@ -1511,8 +2158,285 @@ class EngineAudioAdapter final : public KX_AudioAdapter {
     return status != aud::STATUS_PLAYING && status != aud::STATUS_PAUSED;
   }
 
+  /* B6.2 audio extensions. */
+
+  void SetAttenuation(KX_GameObject *object,
+                      int model,
+                      float reference_distance,
+                      float maximum_distance) override
+  {
+    /* Null object keeps the pre B6.2 global behaviour; a concrete object only
+     * touches the handles it owns. */
+    if (object == nullptr) {
+      last_attenuation_.model = model;
+      last_attenuation_.reference_distance = reference_distance;
+      last_attenuation_.maximum_distance = maximum_distance;
+    }
+    else {
+      AttenuationSettings settings;
+      settings.model = model;
+      settings.reference_distance = reference_distance;
+      settings.maximum_distance = maximum_distance;
+      object_attenuation_[object] = settings;
+    }
+#ifdef WITH_AUDASPACE
+    auto device3d = AudDevice3D();
+    if (!device3d) {
+      std::fprintf(stderr,
+                   "GameNode: SetAudioAttenuation: audio device has no 3D support\n");
+
+      return;
+    }
+    if (object == nullptr) {
+      if (model >= 0 && model <= 5) {
+        /* Node ids 0..5 are Inverse..ExponentClamped; audaspace uses 1..6. */
+        device3d->setDistanceModel(static_cast<aud::DistanceModel>(model + 1));
+      }
+      for (std::map<uint64_t, std::shared_ptr<aud::IHandle>>::iterator it = handles_.begin();
+           it != handles_.end();
+           ++it)
+      {
+        std::shared_ptr<aud::I3DHandle> handle = std::dynamic_pointer_cast<aud::I3DHandle>(
+            it->second);
+        if (!handle) {
+          continue;
+        }
+        handle->setDistanceReference(reference_distance);
+        handle->setDistanceMaximum(maximum_distance);
+        handle->setAttenuation(1.0f);
+      }
+      return;
+    }
+
+    /* audaspace models are device wide, so an object scoped model cannot be
+     * isolated; the per handle reference/maximum/attenuation can. */
+    if ((model >= 0 && model <= 5) && !attenuation_model_warned_) {
+      std::fprintf(stderr,
+                   "GameNode: SetAudioAttenuation: distance model is device wide; "
+                   "the object scoped model value is not applied per object\n");
+      attenuation_model_warned_ = true;
+    }
+    const std::vector<uint64_t> owned = HandlesFor(object);
+    for (uint64_t owned_handle : owned) {
+      std::map<uint64_t, std::shared_ptr<aud::IHandle>>::iterator it = handles_.find(
+          owned_handle);
+      if (it == handles_.end()) {
+        continue;
+      }
+      std::shared_ptr<aud::I3DHandle> handle = std::dynamic_pointer_cast<aud::I3DHandle>(
+          it->second);
+      if (!handle) {
+        continue;
+      }
+      handle->setDistanceReference(reference_distance);
+      handle->setDistanceMaximum(maximum_distance);
+      handle->setAttenuation(1.0f);
+    }
+#else
+    (void)reference_distance;
+    (void)maximum_distance;
+#endif
+  }
+
+  void SetDopplerFactor(KX_GameObject *object, float factor) override
+  {
+    const float clamped = std::max(0.0f, factor);
+    if (object == nullptr) {
+      last_doppler_ = clamped;
+#ifdef WITH_AUDASPACE
+      auto device3d = AudDevice3D();
+      if (!device3d) {
+        std::fprintf(stderr, "GameNode: SetAudioDoppler: audio device has no 3D support\n");
+        return;
+      }
+      device3d->setDopplerFactor(clamped);
+#endif
+      return;
+    }
+
+    object_doppler_[object] = clamped;
+#ifdef WITH_AUDASPACE
+    /* audaspace exposes a single factor per device. Apply it only when this
+     * object owns every registered handle, otherwise keep the previous device
+     * value so other objects are not affected. */
+    if (handle_owner_.size() != HandlesFor(object).size()) {
+      if (!doppler_object_warned_) {
+        std::fprintf(stderr,
+                     "GameNode: SetAudioDoppler: audaspace doppler is device wide; "
+                     "the object scoped value is stored but not applied while other "
+                     "objects own handles\n");
+        doppler_object_warned_ = true;
+      }
+      return;
+    }
+    auto device3d = AudDevice3D();
+    if (!device3d) {
+      std::fprintf(stderr, "GameNode: SetAudioDoppler: audio device has no 3D support\n");
+      return;
+    }
+    device3d->setDopplerFactor(clamped);
+#endif
+  }
+
+  /** Object destruction hook: drop ownership and per object settings. */
+  void ForgetObject(KX_GameObject *object) override
+  {
+    object_attenuation_.erase(object);
+    object_doppler_.erase(object);
+    KX_AudioAdapter::ForgetObject(object);
+  }
+
+  uint64_t SetAudioZone(const std::string &zone_name,
+                        const std::string &sound,
+                        float volume) override
+  {
+    if (zone_name.empty() || sound.empty()) {
+      std::fprintf(stderr, "GameNode: AudioZone: empty zone or sound name\n");
+      return 0;
+    }
+    /* Equivalent implementation: audaspace has no zone concept, so the zone is
+     * a looping ambient source at the listener position. Re-registering the
+     * same zone replaces (stops) the previous ambient. */
+    std::map<std::string, uint64_t>::iterator it = zones_.find(zone_name);
+    if (it != zones_.end()) {
+      StopSound(it->second);
+    }
+    const uint64_t handle = PlaySoundByName(sound, true, volume, 1.0f);
+    if (handle != 0) {
+      zones_[zone_name] = handle;
+      base_volume_[handle] = volume;
+      handle_bus_[handle] = "master";
+    }
+    return handle;
+  }
+
+  void SetAudioBus(const std::string &bus, float volume) override
+  {
+    const float gain = std::max(0.0f, std::min(1.0f, volume));
+    bus_gain_[bus] = gain;
+    /* Equivalent implementation: there is no native bus, so named gain groups
+     * multiply the base volume of every handle they own. */
+    for (std::map<uint64_t, std::shared_ptr<aud::IHandle>>::iterator it = handles_.begin();
+         it != handles_.end();
+         ++it)
+    {
+      std::map<uint64_t, std::string>::const_iterator bus_it = handle_bus_.find(it->first);
+      const std::string owner = bus_it != handle_bus_.end() ? bus_it->second : std::string("master");
+      if (owner != bus || !it->second) {
+        continue;
+      }
+      std::map<uint64_t, float>::const_iterator base_it = base_volume_.find(it->first);
+      const float base = base_it != base_volume_.end() ? base_it->second : 1.0f;
+      it->second->setVolume(base * gain);
+    }
+  }
+
+  uint64_t PlaySound3D(const std::string &sound,
+                       const float position[3],
+                       float volume,
+                       float pitch) override
+  {
+    const uint64_t handle = PlaySoundByName(sound, false, volume, pitch);
+    if (handle == 0) {
+      return 0;
+    }
+    base_volume_[handle] = volume;
+    handle_bus_[handle] = "master";
+#ifdef WITH_AUDASPACE
+    std::map<uint64_t, std::shared_ptr<aud::IHandle>>::iterator it = handles_.find(handle);
+    if (it == handles_.end() || !it->second) {
+      return handle;
+    }
+    std::shared_ptr<aud::I3DHandle> handle3d = std::dynamic_pointer_cast<aud::I3DHandle>(
+        it->second);
+    if (!handle3d) {
+      std::fprintf(stderr,
+                   "GameNode: PlaySound3D: audio device does not expose a 3D handle\n");
+      return handle;
+    }
+    const float *origin = position != nullptr ? position : listener_position_;
+    handle3d->setRelative(false);
+    handle3d->setLocation(aud::Vector3(origin[0], origin[1], origin[2]));
+    if (last_attenuation_.reference_distance > 0.0f) {
+      handle3d->setDistanceReference(last_attenuation_.reference_distance);
+    }
+    if (last_attenuation_.maximum_distance > 0.0f) {
+      handle3d->setDistanceMaximum(last_attenuation_.maximum_distance);
+    }
+#else
+    (void)position;
+#endif
+    return handle;
+  }
+
+  /** PlaySound3D plus ownership and any object scoped attenuation. */
+  uint64_t PlaySound3DFor(KX_GameObject *object,
+                          const std::string &sound,
+                          const float position[3],
+                          float volume,
+                          float pitch) override
+  {
+    const uint64_t handle = PlaySound3D(sound, position, volume, pitch);
+    RegisterSoundOwner(object, handle);
+    if (object == nullptr || handle == 0) {
+      return handle;
+    }
+    std::map<KX_GameObject *, AttenuationSettings>::const_iterator found =
+        object_attenuation_.find(object);
+    if (found == object_attenuation_.end()) {
+      return handle;
+    }
+#ifdef WITH_AUDASPACE
+    std::map<uint64_t, std::shared_ptr<aud::IHandle>>::iterator it = handles_.find(handle);
+    if (it == handles_.end()) {
+      return handle;
+    }
+    std::shared_ptr<aud::I3DHandle> handle3d = std::dynamic_pointer_cast<aud::I3DHandle>(
+        it->second);
+    if (!handle3d) {
+      return handle;
+    }
+    handle3d->setDistanceReference(found->second.reference_distance);
+    handle3d->setDistanceMaximum(found->second.maximum_distance);
+    handle3d->setAttenuation(1.0f);
+#endif
+    return handle;
+  }
+
  private:
 #ifdef WITH_AUDASPACE
+  std::shared_ptr<aud::I3DDevice> AudDevice3D()
+  {
+    auto device = aud::DeviceManager::getDevice();
+    if (!device) {
+      return nullptr;
+    }
+    return std::dynamic_pointer_cast<aud::I3DDevice>(device);
+  }
+#endif
+
+
+#ifdef WITH_AUDASPACE
+  /**
+   * Allocate the next node visible handle.
+   *
+   * Node ports carry handles as 32-bit integers (#KX_VALUE_INT), so ids stay in
+   * 1..INT32_MAX; a wider id could not survive the node boundary and would be
+   * rejected there. Ids that are still in #handles_ are skipped.
+   */
+  uint64_t AllocateHandle()
+  {
+    const uint64_t limit = 0x7fffffffu;
+    for (size_t attempt = 0; attempt <= handles_.size(); ++attempt) {
+      const uint64_t id = next_handle_;
+      next_handle_ = id >= limit ? 1u : id + 1u;
+      if (handles_.find(id) == handles_.end()) {
+        return id;
+      }
+    }
+    return 0;
+  }
+
   uint64_t StartHandle(AUD_Sound sound, bool loop, float volume, float pitch)
   {
     if (!sound) {
@@ -1532,8 +2456,15 @@ class EngineAudioAdapter final : public KX_AudioAdapter {
       }
       handle->setVolume(volume);
       handle->setPitch(pitch);
-      const uint64_t id = next_handle_++;
+      const uint64_t id = AllocateHandle();
+      if (id == 0u) {
+        /* No free id left in the node visible range; the shared handle above
+         * stops itself when this scope ends. */
+        return 0;
+      }
       handles_[id] = handle;
+      base_volume_[id] = volume;
+      handle_bus_[id] = "master";
       return id;
     }
     catch (aud::Exception &) {
@@ -1542,8 +2473,24 @@ class EngineAudioAdapter final : public KX_AudioAdapter {
   }
 #endif
 
+  struct AttenuationSettings {
+    int model = 0;
+    float reference_distance = 0.0f;
+    float maximum_distance = 0.0f;
+  };
+
   uint64_t next_handle_ = 1;
   std::map<uint64_t, std::shared_ptr<aud::IHandle>> handles_;
+  std::map<uint64_t, float> base_volume_;
+  std::map<uint64_t, std::string> handle_bus_;
+  std::map<std::string, float> bus_gain_;
+  std::map<std::string, uint64_t> zones_;
+  std::map<KX_GameObject *, AttenuationSettings> object_attenuation_;
+  std::map<KX_GameObject *, float> object_doppler_;
+  AttenuationSettings last_attenuation_;
+  float last_doppler_ = 1.0f;
+  bool attenuation_model_warned_ = false;
+  bool doppler_object_warned_ = false;
   KX_Scene *scene_ = nullptr;
   float listener_position_[3] = {0.0f, 0.0f, 0.0f};
   float listener_orientation_[3] = {0.0f, 0.0f, -1.0f};
@@ -1565,8 +2512,13 @@ std::unique_ptr<KX_AdapterSet> KX_CreateEngineAdapters(KX_Scene *scene)
   set->animation = std::make_unique<EngineAnimationAdapter>();
   set->message = std::make_unique<EngineMessageAdapter>(scene);
   set->audio = std::make_unique<EngineAudioAdapter>(scene);
+  /* B6.2: object removal must release audio ownership before the pointer dies. */
+  static_cast<EngineSceneAdapter *>(set->scene.get())->SetAudioAdapter(set->audio.get());
   set->scene_control = std::make_unique<EngineSceneControlAdapter>(scene);
   set->ui = KX_CreateEngineUIAdapter(scene);
   set->file = KX_CreateEngineFileAdapter(scene);
+  set->network = KX_CreateEngineNetworkAdapter();
+  set->physics_advanced = std::unique_ptr<KX_PhysicsAdvancedAdapter>(
+      KX_CreateEnginePhysicsAdvancedAdapter(scene));
   return set;
 }

@@ -41,6 +41,7 @@
 
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <vector>
 
@@ -49,7 +50,9 @@
 #include "KX_ValuePool.h"
 
 class KX_AnimationAdapter;
+class KX_CompiledGraph;
 class KX_MessageAdapter;
+class KX_NetworkAdapter;
 class KX_AudioAdapter;
 class KX_AssetRegistry;
 class KX_ExecutionPlan;
@@ -58,6 +61,7 @@ class KX_GameObject;
 class KX_InputAdapter;
 class KX_ObjectAdapter;
 class KX_PhysicsAdapter;
+class KX_PhysicsAdvancedAdapter;
 class KX_PropertyBackend;
 class KX_Scene;
 class KX_SceneAdapter;
@@ -69,6 +73,8 @@ struct KX_TriggerTarget {
   uint32_t node_index = 0;
   /** Trigger input slot, KX_INVALID_OFFSET for nodes without trigger inputs. */
   uint32_t input_offset = KX_INVALID_OFFSET;
+  /** Set when a snapshot node already consumed this entry in the same frame. */
+  bool consumed = false;
 };
 
 /** A trigger output a stateful node raised during #Tick. */
@@ -97,6 +103,16 @@ class KX_ExecutionContext {
    * touches the slots listed in the plan.
    */
   void Bind(const KX_ExecutionPlan *plan, KX_Scene *scene, KX_GameObject *owner);
+
+  /**
+   * Attach a compiled graph and address *its* runtime data buffer.
+   *
+   * Unlike #Bind this never clears the data block: the P4.1 hot reload path
+   * migrates state into the new graph first and only then binds it. Passing
+   * nullptr restores the internal buffer and drops the plan.
+   */
+  void BindGraph(KX_CompiledGraph *graph, KX_Scene *scene, KX_GameObject *owner);
+
   const KX_ExecutionPlan *Plan() const;
 
   KX_RuntimeData &Data();
@@ -109,6 +125,17 @@ class KX_ExecutionContext {
   /** Read a trigger flag and clear it, used by node trigger inputs. */
   bool ConsumeTrigger(uint32_t offset);
   void ClearTriggers();
+
+  /**
+   * Push one per-node trigger snapshot while a snapshot node executes.
+   *
+   * #bits holds the trigger state of the node trigger inputs in port order,
+   * captured by #PropagateTriggers before the node clears its inputs.
+   */
+  void PushTriggerSnapshot(const std::vector<bool> &bits);
+  void PopTriggerSnapshot();
+  /** Bit #index of the innermost snapshot, false without a live snapshot. */
+  bool TriggerSnapshot(size_t index) const;
 
   void BeginFrame(float delta_time);
   void TickStatefulNodes();
@@ -161,7 +188,9 @@ class KX_ExecutionContext {
                    KX_AudioAdapter *audio = nullptr,
                    KX_SceneControlAdapter *scene_control = nullptr,
                    KX_UIAdapter *ui = nullptr,
-                   KX_FileAdapter *file = nullptr);
+                   KX_FileAdapter *file = nullptr,
+                   KX_NetworkAdapter *network = nullptr,
+                   KX_PhysicsAdvancedAdapter *physics_advanced = nullptr);
   KX_InputAdapter &Input();
   KX_SceneAdapter &SceneQuery();
   KX_PhysicsAdapter &Physics();
@@ -172,6 +201,8 @@ class KX_ExecutionContext {
   KX_SceneControlAdapter &SceneControl();
   KX_UIAdapter &UI();
   KX_FileAdapter &File();
+  KX_NetworkAdapter &Network();
+  KX_PhysicsAdvancedAdapter &PhysicsAdvanced();
 
   /** Per frame string and list storage used by the extended value types. */
   KX_ValuePool &Pool();
@@ -211,6 +242,8 @@ class KX_ExecutionContext {
   void EnqueueNodeOutputs(uint32_t node_index, std::vector<KX_TriggerTarget> &queue);
 
   KX_RuntimeData data_;
+  /** Borrowed buffer of a #KX_CompiledGraph; null means #data_ is used. */
+  KX_RuntimeData *bound_data_ = nullptr;
   const KX_ExecutionPlan *plan_ = nullptr;
   KX_Scene *scene_ = nullptr;
   KX_GameObject *owner_ = nullptr;
@@ -221,6 +254,8 @@ class KX_ExecutionContext {
   bool paused_ = false;
 
   std::vector<uint32_t> trigger_slots_;
+  /** Innermost last; only populated while a snapshot node is executing. */
+  std::vector<std::vector<bool>> trigger_snapshot_stack_;
   std::vector<KX_TriggerTarget> pending_triggers_;
   std::vector<KX_PendingTrigger> pending_trigger_outputs_;
   uint32_t current_tick_node_ = 0;
@@ -235,6 +270,8 @@ class KX_ExecutionContext {
   KX_SceneControlAdapter *scene_control_adapter_ = nullptr;
   KX_UIAdapter *ui_adapter_ = nullptr;
   KX_FileAdapter *file_adapter_ = nullptr;
+  KX_NetworkAdapter *network_adapter_ = nullptr;
+  KX_PhysicsAdvancedAdapter *physics_advanced_adapter_ = nullptr;
   std::vector<uint8_t> executed_nodes_;
   uint32_t duplicate_executions_ = 0;
 };

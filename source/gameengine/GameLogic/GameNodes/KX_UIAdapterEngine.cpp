@@ -72,6 +72,9 @@ void KX_UIAdapterEngine::BeginFrame(float delta_time,
   mouse_x_ = mouse_x;
   mouse_y_ = mouse_y;
   mouse_down_ = mouse_down;
+  /* B6.7: Polar children get their final coordinates before hit testing, so
+   * clicks no longer land on the authored position. */
+  KX_UILayoutPolarElements(elements_);
   UpdateEvents();
 }
 
@@ -141,6 +144,8 @@ void KX_UIAdapterEngine::DrawScreen(int width, int height)
   if (width <= 0 || height <= 0) {
     return;
   }
+  screen_w_ = width;
+  screen_h_ = height;
   renderer_.Draw(elements_, width, height, true);
 }
 
@@ -167,6 +172,14 @@ int KX_UIAdapterEngine::CreateCanvas(const std::string &name)
 {
   (void)name;
   return CreateElement(KX_UIElementType::Canvas, -1, std::string());
+}
+
+bool KX_UIAdapterEngine::LoadFont(const std::string &name, const std::string &path)
+{
+  /* The default stack stays untouched: BLF_load_unique gives the extra face
+   * its own slot, so the single-shot EnsureFontStack guard keeps its meaning. */
+  EnsureFontStack();
+  return KX_UIRenderer::LoadFont(name, path);
 }
 
 int KX_UIAdapterEngine::CreateLabel(int canvas, const std::string &text)

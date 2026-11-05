@@ -795,6 +795,8 @@ void FuncListClear(KX_FunctionNode &node, KX_ExecutionContext &ctx)
 struct KX_ForEachState {
   const KX_ValueList *list = nullptr;
   uint32_t count = 0;
+  /** Element cursor, only meaningful while the sequence is fanning out. */
+  uint32_t index = 0;
 };
 
 const KX_FuncPort kForEachInputs[] = {
@@ -812,6 +814,7 @@ void FuncForEachExec(KX_FunctionNode &node, KX_ExecutionContext &ctx)
   KX_ForEachState *state = node.StateBlock<KX_ForEachState>(ctx);
   state->list = nullptr;
   state->count = 0;
+  state->index = 0;
 
   if (!node.InTrigger(ctx, 1)) {
     return;
@@ -842,6 +845,7 @@ void FuncForEachElement(KX_FunctionNode &node, KX_ExecutionContext &ctx, uint32_
   if (state->list == nullptr || index >= state->count) {
     return;
   }
+  state->index = index;
   node.Out(ctx, 1, (*state->list)[index]);
   node.OutTrigger(ctx, 0, true);
 }
@@ -1634,4 +1638,37 @@ void RegisterB2FunctionGameNodes()
         signature,
         []() { return std::unique_ptr<KX_LogicNodeRuntime>(new KX_StringFormatNode()); });
   }
+}
+
+bool KX_ReadForEachCursor(uint32_t state_offset,
+                          const KX_RuntimeData &data,
+                          KX_ForEachCursor *cursor)
+{
+  if (cursor == nullptr || state_offset == KX_INVALID_OFFSET) {
+    return false;
+  }
+  const KX_ForEachState *state = data.State<KX_ForEachState>(state_offset);
+  if (state == nullptr) {
+    return false;
+  }
+  cursor->index = state->index;
+  cursor->count = state->count;
+  return true;
+}
+
+void KX_WriteForEachCursor(uint32_t state_offset,
+                           KX_RuntimeData &data,
+                           const KX_ForEachCursor &cursor)
+{
+  if (state_offset == KX_INVALID_OFFSET) {
+    return;
+  }
+  KX_ForEachState *state = data.State<KX_ForEachState>(state_offset);
+  if (state == nullptr) {
+    return;
+  }
+  /* The list pointer stays null: a rebuild happens between frames and the next
+   * Execute re-reads the list input before any element runs. */
+  state->index = cursor.index;
+  state->count = cursor.count;
 }

@@ -27,31 +27,9 @@
 
 #include "KX_GraphInstance.h"
 
-#include "KX_GraphCompiler.h"
+#include <cstdio>
 
-namespace {
-
-std::string FormatDiagnostic(const KX_CompileDiagnostic &diagnostic, const GraphIR &ir)
-{
-  std::string message;
-  if (diagnostic.severity == KX_CompileDiagnostic::Severity::Warning) {
-    message = "warning: ";
-  }
-  else {
-    message = "error: ";
-  }
-
-  if (diagnostic.node_index >= 0 &&
-      static_cast<size_t>(diagnostic.node_index) < ir.nodes.size())
-  {
-    const IRNode &node = ir.nodes[diagnostic.node_index];
-    message += "node '" + node.debug_name + "' (" + node.type_id + "): ";
-  }
-  message += diagnostic.message;
-  return message;
-}
-
-}  // namespace
+#include "KX_CompiledGraph.h"
 
 KX_GraphInstance::KX_GraphInstance(KX_Scene *scene,
                                    KX_GameObject *owner,
@@ -67,61 +45,109 @@ KX_GraphInstance::~KX_GraphInstance()
 
 bool KX_GraphInstance::Load(const GraphIR &ir, std::vector<std::string> *warnings)
 {
-  KX_CompileResult result = CompileGraph(ir);
+  std::vector<std::string> diagnostics;
+  std::shared_ptr<KX_CompiledGraph> graph =
+      KX_CompiledGraph::Compile(ir, scene_, owner_, manager_, &diagnostics);
   if (warnings != nullptr) {
-    for (const KX_CompileDiagnostic &diagnostic : result.diagnostics) {
-      warnings->push_back(FormatDiagnostic(diagnostic, ir));
-    }
+    warnings->insert(warnings->end(), diagnostics.begin(), diagnostics.end());
   }
-
-  if (!result.ok || !result.plan) {
+  if (!graph) {
     return false;
   }
 
-  plan_ = std::move(result.plan);
-  context_.Bind(plan_.get(), scene_, owner_);
+  graph_ = std::move(graph);
+  context_.BindGraph(graph_.get(), scene_, owner_);
   return true;
 }
 
 bool KX_GraphInstance::Rebuild(const GraphIR &ir, std::vector<std::string> *warnings)
 {
-  /* Compile into a temporary plan so a failed hot reload keeps the graph
-   * running with its previous behavior instead of going dark. */
-  KX_CompileResult result = CompileGraph(ir);
+  std::vector<std::string> diagnostics;
+  std::shared_ptr<KX_CompiledGraph> next =
+      KX_CompiledGraph::Compile(ir, scene_, owner_, manager_, &diagnostics);
   if (warnings != nullptr) {
-    for (const KX_CompileDiagnostic &diagnostic : result.diagnostics) {
-      warnings->push_back(FormatDiagnostic(diagnostic, ir));
-    }
+    warnings->insert(warnings->end(), diagnostics.begin(), diagnostics.end());
   }
 
-  if (!result.ok || !result.plan) {
+  if (!next) {
+    /* Keep the old graph running: a broken hot reload must never stop the
+     * scene or fall back to the Python executor mid frame. */
+    const std::string reason = diagnostics.empty() ? std::string("unknown error")
+                                                   : diagnostics.front();
+    std::fprintf(stderr, "rebuild failed, keeping old graph: %s\n", reason.c_str());
     return false;
   }
 
-  plan_ = std::move(result.plan);
-  context_.Bind(plan_.get(), scene_, owner_);
+  /* Migrate while both graphs are alive and nothing is executing. The new
+   * artifact stays in pending_ until the next Tick boundary. */
+  if (graph_) {
+    next->MigrateStateFrom(*graph_);
+  }
+  pending_ = std::move(next);
   return true;
 }
 
 void KX_GraphInstance::Tick(float delta_time)
 {
-  if (plan_ == nullptr) {
+  CommitPendingGraph();
+  if (graph_ == nullptr) {
     return;
   }
   context_.RunFrame(delta_time);
+  graph_->RefreshUIHandlesFromState();
+}
+
+void KX_GraphInstance::CommitPendingGraph()
+{
+  if (!pending_) {
+    return;
+  }
+
+  /* Double buffering: both artifacts are complete, the swap is one pointer
+   * exchange at the frame boundary, then the context re-binds to the buffer of
+   * the new graph. Nothing outside this function observes a mixed state. */
+  graph_.swap(pending_);
+  pending_.reset();
+  context_.BindGraph(graph_.get(), scene_, owner_);
 }
 
 void KX_GraphInstance::Shutdown()
 {
-  /* Destroying the plan releases the asset references its nodes acquired, so
+  /* Destroying the graph releases the asset references its nodes acquired, so
    * this must happen before the manager unregisters the assets. */
-  plan_.reset();
+  pending_.reset();
+  graph_.reset();
   context_.Bind(nullptr, nullptr, nullptr);
+}
+
+bool KX_GraphInstance::HasPendingRebuild() const
+{
+  return pending_ != nullptr;
 }
 
 const KX_ExecutionPlan *KX_GraphInstance::GetPlan() const
 {
-  return plan_.get();
+  return graph_ != nullptr ? graph_->Plan() : nullptr;
+}
+
+const KX_CompiledGraph *KX_GraphInstance::GetGraph() const
+{
+  return graph_.get();
+}
+
+const KX_CompiledGraph *KX_GraphInstance::GetPendingGraph() const
+{
+  return pending_.get();
+}
+
+void KX_GraphInstance::SetGraphId(const std::string &graph_id)
+{
+  graph_id_ = graph_id;
+}
+
+const std::string &KX_GraphInstance::GraphId() const
+{
+  return graph_id_;
 }
 
 KX_ExecutionContext *KX_GraphInstance::GetContext()

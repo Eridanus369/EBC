@@ -41,6 +41,7 @@
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 class KX_Scene;
 
@@ -62,6 +63,32 @@ class KX_FileAdapter {
   {
     (void)slot;
     (void)json_out;
+    return false;
+  }
+
+  /**
+   * B6.4: write a binary save game blob (versioned header, CRC32, same field
+   * schema as the JSON save). Used by the SaveGameBinary node.
+   */
+  virtual bool SaveGameBinary(const std::string &slot, const std::string &data)
+  {
+    (void)slot;
+    (void)data;
+    return false;
+  }
+
+  /** B6.4: read the raw bytes of a binary save slot. */
+  virtual bool LoadGameBinary(const std::string &slot, std::string *out)
+  {
+    (void)slot;
+    (void)out;
+    return false;
+  }
+
+  /** B6.4: list available save slot names (JSON and binary), sorted, unique. */
+  virtual bool ListSaveSlots(std::vector<std::string> *slots)
+  {
+    (void)slots;
     return false;
   }
 
@@ -118,6 +145,9 @@ class KX_MockFileAdapter : public KX_FileAdapter {
 
   size_t save_calls = 0;
   size_t load_calls = 0;
+  size_t savebin_calls = 0;
+  size_t loadbin_calls = 0;
+  size_t list_slots_calls = 0;
   size_t read_calls = 0;
   size_t write_calls = 0;
   size_t exists_calls = 0;
@@ -125,6 +155,9 @@ class KX_MockFileAdapter : public KX_FileAdapter {
 
   bool SaveGame(const std::string &slot, const std::string &json_data) override;
   bool LoadGame(const std::string &slot, std::string *json_out) override;
+  bool SaveGameBinary(const std::string &slot, const std::string &data) override;
+  bool LoadGameBinary(const std::string &slot, std::string *out) override;
+  bool ListSaveSlots(std::vector<std::string> *slots) override;
   bool ReadFile(const std::string &path, bool binary, std::string *out) override;
   bool WriteFile(const std::string &path,
                  bool binary,
@@ -140,6 +173,9 @@ class KX_MockFileAdapter : public KX_FileAdapter {
 /** Key used by #KX_MockFileAdapter for a save slot. */
 std::string KX_MockFileKey(const std::string &slot);
 
+/** Key used by #KX_MockFileAdapter for a binary save slot. */
+std::string KX_MockBinaryFileKey(const std::string &slot);
+
 /** Filesystem adapter rooted at @p blend_dir. Save slots live in `<blend_dir>/save/`. */
 class KX_FileAdapterEngine : public KX_FileAdapter {
  public:
@@ -147,6 +183,9 @@ class KX_FileAdapterEngine : public KX_FileAdapter {
 
   bool SaveGame(const std::string &slot, const std::string &json_data) override;
   bool LoadGame(const std::string &slot, std::string *json_out) override;
+  bool SaveGameBinary(const std::string &slot, const std::string &data) override;
+  bool LoadGameBinary(const std::string &slot, std::string *out) override;
+  bool ListSaveSlots(std::vector<std::string> *slots) override;
   bool ReadFile(const std::string &path, bool binary, std::string *out) override;
   bool WriteFile(const std::string &path,
                  bool binary,

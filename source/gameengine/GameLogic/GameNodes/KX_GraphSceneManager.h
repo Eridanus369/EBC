@@ -37,6 +37,9 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
+#include <functional>
+#include <limits>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -79,6 +82,43 @@ class KX_GraphSceneManager {
    */
   void OnSceneUnload();
 
+  /**
+   * Poll `<blend_dir>/.hot_reload.flag` once per frame.
+   *
+   * A changed modification time re-reads the scene manifest, replaces the
+   * compiled graph sources and stages a rebuild for every instance. The
+   * rebuild itself lands at the next Tick boundary of each instance.
+   */
+  void CheckHotReload();
+
+  /**
+   * Recompile every mounted instance from #manifest.
+   *
+   * Assets are not re-registered here: a hot reload only swaps graph code, so
+   * an asset table change still requires a scene reload.
+   */
+  void ReloadGraphs(const KX_SceneManifest &manifest);
+
+  /**
+   * Test seam: replace the flag path and manifest provider.
+   *
+   * Passing empty callbacks restores the production source, which reads
+   * #KX_Scene::GraphHotReloadFlagPath and #KX_Scene::ReadGraphManifestJson.
+   */
+  void SetHotReloadSources(std::function<std::string()> flag_path,
+                           std::function<std::string()> manifest_json);
+
+  /**
+   * Mount one graph on an object after the scene is already running.
+   *
+   * The scene load path uses #OnSceneLoad; this entry point exists for runtime
+   * mounting (embedded preview) and for the hot reload end to end test, which
+   * drives a player loop without constructing a full bpy scene.
+   */
+  KX_GraphInstance *MountGraph(KX_GameObject *object,
+                               const std::string &graph_id,
+                               const GraphIR &ir);
+
   /** Tick every mounted graph in deterministic order. */
   void Tick(float delta_time);
 
@@ -109,8 +149,25 @@ class KX_GraphSceneManager {
   KX_Scene *Scene() const;
 
  private:
+  /**
+   * Sentinel for "the flag has never been observed".
+   *
+   * The raw file clock count can be negative on libstdc++, so -1 must not be
+   * used to signal a missing flag.
+   */
+  static constexpr std::int64_t kUnknownFlagMtime =
+      std::numeric_limits<std::int64_t>::min();
+
   void Warn(const std::string &message);
   KX_GameObject *FindObject(const std::string &name) const;
+  /** Record the current flag time once, so a stale flag never triggers a reload. */
+  void PrimeHotReloadMtime();
+  /** Raw flag modification count, #kUnknownFlagMtime when unreadable. */
+  std::int64_t ReadFlagMtime(const std::string &path) const;
+
+  std::function<std::string()> hot_reload_flag_path_;
+  std::function<std::string()> hot_reload_manifest_json_;
+  std::int64_t hot_reload_mtime_ = kUnknownFlagMtime;
 
   KX_Scene *scene_ = nullptr;
   std::unique_ptr<KX_AdapterSet> adapters_;

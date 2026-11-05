@@ -29,9 +29,10 @@ _SCALE_MODE = {
 }
 
 _LAYOUT_TYPE = {
-    'items': [('sequential', 'Sequential', ''), ('box', 'Box', '')],
+    'items': [('sequential', 'Sequential', ''), ('box', 'Box', ''),
+              ('polar', 'Polar', '')],
     'default': 'sequential',
-    'values': {'sequential': 0, 'box': 1},
+    'values': {'sequential': 0, 'box': 1, 'polar': 2},
 }
 
 _ORIENTATION = {

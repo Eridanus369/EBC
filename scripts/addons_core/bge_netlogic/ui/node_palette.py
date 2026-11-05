@@ -40,6 +40,15 @@ DOMAINS = (
         ('GameNodeRadar', 'Radar'),
         ('GameNodeSetMousePosition', 'Set Mouse Position'),
         ('GameNodeSetCursorVisible', 'Show Mouse Cursor'),
+        ('GameNodeMouseLook', 'Mouse Look'),
+        ('GameNodeGamepadButton', 'Gamepad Button'),
+        ('GameNodeGamepadAxis', 'Gamepad Axis'),
+        ('GameNodeGamepadTrigger', 'Gamepad Trigger'),
+        ('GameNodeTouchInput', 'Touch Input'),
+        ('GameNodeKeyCombo', 'Key Combo'),
+        ('GameNodeInputMap', 'Input Map'),
+        ('GameNodeGetInputValue', 'Get Input Value'),
+        ('GameNodeVibrateGamepad', 'Vibrate Gamepad'),
     )),
     ('object', 'Object', (
         ('GameNodeAddObject', 'Add Object'),
@@ -63,6 +72,10 @@ DOMAINS = (
         ('GameNodeSetActionFrame', 'Set Action Frame'),
         ('GameNodeGetActionFrame', 'Get Action Frame'),
         ('GameNodeSetActionSpeed', 'Set Action Speed'),
+        ('GameNodeRotateTo', 'Rotate To'),
+        ('GameNodeMoveTo', 'Move To'),
+        ('GameNodeAlignAxisToVector', 'Align Axis To Vector'),
+        ('GameNodeSetMaterial', 'Set Material'),
     )),
     ('physics', 'Physics', (
         ('GameNodeApplyForce', 'Apply Force'),
@@ -128,10 +141,25 @@ DOMAINS = (
         ('GameNodeListSet', 'List Set'),
         ('GameNodeListRemove', 'List Remove'),
         ('GameNodeListLength', 'List Length'),
+        ('GameNodeStringSplit', 'String Split'),
+        ('GameNodeStringJoin', 'String Join'),
+        ('GameNodeStringRegexMatch', 'String Regex Match'),
+        ('GameNodeStringRegexReplace', 'String Regex Replace'),
+        ('GameNodeStringTrim', 'String Trim'),
+        ('GameNodeStringPad', 'String Pad'),
+        ('GameNodeStringLengthChars', 'String Length (Chars)'),
+        ('GameNodeStringPadChars', 'String Pad (Chars)'),
+        ('GameNodeListSort', 'List Sort'),
+        ('GameNodeListFilter', 'List Filter'),
+        ('GameNodeListMap', 'List Map'),
+        ('GameNodeListFind', 'List Find'),
+        ('GameNodeListSlice', 'List Slice'),
+        ('GameNodeListConcat', 'List Concat'),
         ('GameNodeRandomFloat', 'Random Float'),
         ('GameNodeRandomValue', 'Random Value'),
         ('GameNodeAssetGet', 'Asset Get'),
         ('GameNodeAssetSet', 'Asset Set'),
+        ('GameNodeObjectPropertyOperator', 'Object Property Operator'),
     )),
     ('uiscene', 'UI & Scene', (
         ('GameNodeSetActiveCamera', 'Set Active Camera'),
@@ -148,6 +176,32 @@ DOMAINS = (
         ('GameNodeSetSoundVolume', 'Set Sound Volume'),
         ('GameNodeSetSoundPitch', 'Set Sound Pitch'),
         ('GameNodeSet3DListener', 'Set 3D Listener'),
+        ('GameNodeSetAudioAttenuation', 'Set Audio Attenuation'),
+        ('GameNodeSetAudioDoppler', 'Set Audio Doppler'),
+        ('GameNodeAudioZone', 'Audio Zone'),
+        ('GameNodeSetAudioBusVolume', 'Set Audio Bus Volume'),
+        ('GameNodePlaySound3D', 'Play Sound 3D'),
+    )),
+    ('ui', 'UI Widgets', (
+        ('GameNodeCreateUICanvas', 'Create Canvas'),
+        ('GameNodeCreateUILayout', 'Create Layout'),
+        ('GameNodeCreateUILabel', 'Create Label'),
+        ('GameNodeCreateUIImage', 'Create Image'),
+        ('GameNodeCreateUIButton', 'Create Button'),
+        ('GameNodeCreateUISliderWidget', 'Create Slider'),
+        ('GameNodeMoveWidget', 'Move Widget'),
+        ('GameNodeSetUIWidgetAttr', 'Set Widget Attribute'),
+        ('GameNodeGetUIWidgetAttr', 'Get Widget Attribute'),
+    )),
+    ('file', 'Files', (
+        ('GameNodeSaveGame', 'Save Game'),
+        ('GameNodeLoadGame', 'Load Game'),
+        ('GameNodeReadFile', 'Read File'),
+        ('GameNodeWriteFile', 'Write File'),
+        ('GameNodeFileExists', 'File Exists'),
+        ('GameNodeDeleteFile', 'Delete File'),
+        ('GameNodeJSONStringify', 'JSON Stringify'),
+        ('GameNodeJSONParse', 'JSON Parse'),
     )),
     ('utility', 'Utility', (
         ('GameNodePrint', 'Print'),
@@ -158,6 +212,14 @@ DOMAINS = (
         ('GameNodeSendMessage', 'Send Message'),
     )),
 )
+
+
+# The two B4.5 domains use the explicit preference names requested for them;
+# the older domains keep their historical `palette_<key>_open` properties.
+_EXPANDED_PROPS = {
+    'ui': 'palette_ui_expanded',
+    'file': 'palette_file_expanded',
+}
 
 
 @ui_panel
@@ -178,7 +240,7 @@ class LOGIC_NODES_PT_native_palette(bpy.types.Panel):
         prefs = preferences()
         layout = self.layout
         for key, label, nodes in DOMAINS:
-            prop = f'palette_{key}_open'
+            prop = _EXPANDED_PROPS.get(key) or f'palette_{key}_open'
             is_open = getattr(prefs, prop, True)
             row = layout.row(align=True)
             row.prop(

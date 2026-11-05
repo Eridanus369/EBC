@@ -48,6 +48,16 @@ struct KX_UIRenderStats {
   /** Batches rebuilt during the full update pass. */
   int full_rebuilds = 0;
   int elements = 0;
+  /** B6.4: virtualized elements skipped because they are outside their clip. */
+  int culled = 0;
+  /** B6.6: filled circle draws requested; one per visible slider knob. */
+  int circle_calls = 0;
+};
+
+/** B6.6: one run of label text with its own color. */
+struct KX_UIRichSegment {
+  std::string text;
+  float color[4] = {1.0f, 1.0f, 1.0f, 1.0f};
 };
 
 class KX_UIRenderer {
@@ -62,6 +72,60 @@ class KX_UIRenderer {
   void Invalidate();
 
   const KX_UIRenderStats &Stats() const;
+
+  /**
+   * B6.6: place `children` evenly on a circle.
+   *
+   * `angle_i = start_angle + i * 360 / count` (degrees, screen space so y
+   * grows downwards) and `position = center + radius * (cos, sin)`. A single
+   * child or radius 0 are valid and collapse onto the center.
+   */
+  static void LayoutPolar(const std::vector<KX_UIElement *> &children,
+                          const float center[2],
+                          float radius,
+                          float start_angle_degrees);
+
+  /**
+   * B6.6: split `{color:red}...{/color}` / `{color:#RRGGBB}...{/color}`
+   * markup into colored runs. Nesting is not supported: the innermost color
+   * wins and the renderer warns once.
+   */
+  static std::vector<KX_UIRichSegment> ParseRichText(const std::string &text,
+                                                     const float base_color[4]);
+
+  /** B6.6: 0 until a nested `{color:` run was seen, then 1 (warned once). */
+  static int RichTextNestedWarnings();
+
+  /**
+   * Resolved screen rectangle of a handle after the last Draw().
+   *
+   * Returns false when the handle was never laid out. Used by the headless
+   * harness to assert layout results (polar placement, anchors).
+   */
+  bool ResolvedRect(int handle, float out[4]) const;
+
+  /**
+   * B6.7: load an extra font face and expose it under `name`.
+   *
+   * Uses BLF_load_unique, so the default font stack (loaded once by the
+   * adapter) keeps its single-load guard. Returns false on an empty name or
+   * path, or when BLF rejects the file.
+   */
+  static bool LoadFont(const std::string &name, const std::string &path);
+  /** B6.7: bind an already loaded BLF font id to `name`. */
+  static void RegisterFont(const std::string &name, int font_id);
+  /** B6.7: 0 means "default face"; an unknown name warns once per process. */
+  static int ResolveFont(const std::string &name);
+  /** B6.7: 0 or 1, the single unknown-font warning. */
+  static int MissingFontWarnings();
+
+  /**
+   * Test seam: text rows and row heights as laid out by the last Draw().
+   *
+   * Vertical text produces one row per UTF-8 character with the row height
+   * equal to the font size; horizontal text keeps the newline rows.
+   */
+  bool LaidOutLines(int handle, std::vector<std::string> *lines, std::vector<float> *heights) const;
 
   /**
    * Synthetic 100 label + 50 button + 10 image scene.

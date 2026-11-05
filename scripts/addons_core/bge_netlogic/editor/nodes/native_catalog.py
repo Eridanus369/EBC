@@ -413,6 +413,148 @@ CATALOG = {
         {'Subject': 'String', 'Body': 'String'},
         (),
     ),
+
+    # --------------------------------------------------------------- B5.1 remap
+    # Only legacy nodes whose *native* ports are all present with matching
+    # kind and declaration order are listed here. Legacy-only sockets stay
+    # editor-side and are not exported (same policy as SendMessage above,
+    # which ignores the legacy "From" input).
+    #
+    # Once: native has a single OnEnter -> OnOut; the legacy Repeat and
+    # Reset After inputs have no runtime counterpart and are dropped.
+    'NLConditionOnceNode': (
+        'Once',
+        (('OnEnter', 'input_condition'),),
+        (('OnOut', 'OUT'),),
+        {},
+        (),
+    ),
+    # Compare: generic value sockets are narrowed to Float (their editor
+    # value_type is FLOAT) and the legacy operator ids are mapped onto the
+    # native comparison keys. The always-disabled Threshold input is dropped.
+    'NLConditionLogicOperation': (
+        'Compare',
+        (('A', 'param_a'), ('B', 'param_b')),
+        (('Value', 'RESULT'),),
+        {'A': 'Float', 'B': 'Float'},
+        (('op', 'operator', {'0': 'eq', '1': 'ne', '2': 'gt', '3': 'lt',
+                             '4': 'ge', '5': 'le'}),),
+    ),
+    # ------------------------------------------------------------ B6.5 legacy
+    # The legacy socket layouts below do not match any pre-existing native node
+    # (extra trigger outputs, trigger instead of Bool ports, different port
+    # order), so each entry points at a dedicated `*Legacy` runtime type whose
+    # port list is a byte for byte copy of the old editor node. No native
+    # signature was modified, therefore older IR keeps rebuilding unchanged.
+    'NLConditionTimeElapsed': (
+        'TimerLegacy',
+        (('OnEnter', 'condition'), ('Seconds', 'delta_time')),
+        (('WhenElapsed', 'OUT'),),
+        {'Seconds': 'Float'},
+        (),
+    ),
+    'NLActionEndGame': (
+        'QuitGameLegacy',
+        (('OnEnter', 'condition'),),
+        (),
+        {},
+        (),
+    ),
+    'NLActionRemoveParentNode': (
+        'ClearParentLegacy',
+        (('OnEnter', 'condition'), ('Child', 'child_object')),
+        (('OnDone', 'OUT'), ('Parent', 'PARENT')),
+        {},
+        (),
+    ),
+    'NLParameterReceiveMessage': (
+        'MessageReceivedLegacy',
+        (('Subject', 'subject'), ('Target', 'target')),
+        (('OnMessage', 'OUT'), ('Body', 'BODY'), ('Messenger', 'TARGET')),
+        {'Body': 'String', 'Subject': 'String'},
+        (('use_target', 'use_target', None),),
+    ),
+    'LogicNodeObjectByName': (
+        'ObjectByNameLegacy',
+        (('Name', 'object_name'),),
+        (('Object', 'GAME_OBJECT'),),
+        {'Name': 'String'},
+        (),
+    ),
+    'NLActionFindObjectNode': (
+        'GetObjectLegacy',
+        (('Object', 'game_object'),),
+        (('Object', 'OUT'),),
+        {},
+        (),
+    ),
+    'NLParameterTimeNode': (
+        'TimeDataLegacy',
+        (),
+        (('Time', 'TIMELINE'), ('Delta', 'TIME_PER_FRAME'), ('FPS', 'FPS')),
+        {},
+        (),
+    ),
+    'LogicNodeSimpleValue': (
+        'SimpleValueLegacy',
+        (('Float', 'value'), ('Integer', 'value'),
+         ('Boolean', 'value'), ('String', 'value')),
+        (('Float', 'OUT'), ('Integer', 'OUT'),
+         ('Boolean', 'OUT'), ('String', 'OUT')),
+        {'String': 'String'},
+        (),
+    ),
+    'NLSetMaterial': (
+        'SetMaterialLegacy',
+        (('OnEnter', 'condition'), ('Object', 'game_object'),
+         ('Slot', 'slot'), ('Material', 'mat_name')),
+        (('OnDone', 'OUT'),),
+        {'Material': 'String'},
+        (),
+    ),
+    'NLActionTimeFilter': (
+        'PulsifyLegacy',
+        (('OnEnter', 'condition'), ('Gap', 'delay')),
+        (('Out', 'OUT'),),
+        {'Gap': 'Float'},
+        (),
+    ),
+    'NLActionTimeBarrier': (
+        'BarrierLegacy',
+        (('OnEnter', 'condition'), ('Time', 'time')),
+        (('Out', 'OUT'),),
+        {'Time': 'Float'},
+        (),
+    ),
+    # The legacy property nodes expose a Mode enum and an operator; the native
+    # runtime reads them from config. Mode 1 (internal attributes) is rejected
+    # at runtime because the property backend only covers game properties.
+    'NLObjectPropertyOperator': (
+        'EvaluatePropertyLegacy',
+        (('Object', 'game_object'), ('Property', 'property_name'),
+         ('Value', 'compare_value')),
+        (('IfTrue', 'OUT'), ('Value', 'VAL')),
+        {'Value': 'Float', 'Property': 'String'},
+        (('mode', 'mode', {'0': 0, '1': 1}),
+         ('op', 'operator', {'0': 0, '1': 1, '2': 2, '3': 3, '4': 4, '5': 5})),
+    ),
+    'NLAddToGameObjectGamePropertyActionNode': (
+        'ModifyPropertyLegacy',
+        (('OnEnter', 'condition'), ('Object', 'game_object'),
+         ('Property', 'property_name'), ('Value', 'property_value'),
+         ('Min', 'min_value'), ('Max', 'max_value')),
+        (('OnDone', 'OUT'),),
+        {'Property': 'String'},
+        (('mode', 'mode', {'0': 0, '1': 1}), ('clamp', 'clamp', None), ('op', 'operator', None)),
+    ),
+    'NLActionAlignAxisToVector': (
+        'AlignAxisToVectorLegacy',
+        (('OnEnter', 'condition'), ('Object', 'game_object'),
+         ('Vector', 'vector'), ('Axis', 'axis'), ('Factor', 'factor')),
+        (('OnDone', 'OUT'),),
+        {},
+        (('local', 'local', None),),
+    ),
 }
 
 

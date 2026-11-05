@@ -322,18 +322,8 @@ const KX_FuncPort kGetWidgetAttrOutputs[] = {
 /* State                                                                     */
 /* ------------------------------------------------------------------------- */
 
-/* The runtime data buffer zeroes node state, so a "created" flag tracks the
- * first successful creation instead of relying on a negative handle sentinel. */
-struct KX_UIHandleState {
-  int handle = -1;
-  bool created = false;
-};
-
-struct KX_UISliderState {
-  int handle = -1;
-  float value = 0.0f;
-  bool created = false;
-};
+/* KX_UIHandleState / KX_UISliderState live in KX_UIElement.h so the P4.1
+ * hot reload migration can read the same layout without duplicating it. */
 
 /* ------------------------------------------------------------------------- */
 /* Executors                                                                 */
@@ -371,7 +361,9 @@ void FuncCreateLayout(KX_FunctionNode &node, KX_ExecutionContext &ctx)
   const bool trigger = node.InTrigger(ctx, 0);
   if (trigger && state != nullptr && !state->created) {
     const int parent = node.InInt(ctx, 1);
-    state->handle = ctx.UI().CreateLayout(parent, node.ConfigInt("layout_type", 0));
+    /* KX_UI_LAYOUT_SEQUENTIAL / BOX / POLAR; the enum lives in KX_UIElement.h. */
+    const int layout_type = node.ConfigInt("layout_type", KX_UI_LAYOUT_SEQUENTIAL);
+    state->handle = ctx.UI().CreateLayout(parent, layout_type);
     state->created = state->handle >= 0;
     if (state->handle >= 0) {
       SetAttrValue(node,
@@ -388,7 +380,7 @@ void FuncCreateLayout(KX_FunctionNode &node, KX_ExecutionContext &ctx)
                    ctx,
                    state->handle,
                    "layout_type",
-                   KX_RuntimeValue::Int(node.ConfigInt("layout_type", 0)));
+                   KX_RuntimeValue::Int(layout_type));
       SetAttr(node, ctx, state->handle, "rel_pos", 2);
       SetAttrVector(node, ctx, state->handle, "position", 3);
       SetAttr(node, ctx, state->handle, "rel_size", 4);

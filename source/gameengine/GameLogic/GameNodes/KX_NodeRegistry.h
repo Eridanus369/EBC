@@ -81,6 +81,15 @@ struct KX_NodeSignature {
    * #KX_LogicNodeRuntime::ConfigurePorts.
    */
   bool ports_from_ir = false;
+  /**
+   * Opt-in for versioned trailing output extensions.
+   *
+   * When false (the default) the IR must declare exactly the registered
+   * number of outputs. When true the IR may declare a shorter prefix, so
+   * graphs exported before the extension still rebuild; the node runtime is
+   * told the shorter count and must not write the missing ports.
+   */
+  bool allow_fewer_outputs = false;
 };
 
 class KX_NodeRegistry {

@@ -41,15 +41,34 @@ GAME_NODES_DIR = os.path.join(REPO_ROOT, 'source', 'gameengine', 'GameLogic',
 PYTHON_TABLES = (
     ('native_b2.py', 'NATIVE_B2'),
     ('native_b3.py', 'NATIVE_B3'),
+    ('native_b4.py', 'NATIVE_B4'),
     ('native_b4b.py', 'NATIVE_B4B'),
     ('native_batch.py', 'NATIVE_BATCH'),
+    ('native_b5.py', 'NATIVE_B5'),
+    ('native_b6b.py', 'NATIVE_B6B'),
+    ('native_b6c.py', 'NATIVE_B6C'),
+    ('native_b6ui.py', 'NATIVE_B6UI'),
+    ('native_b6file.py', 'NATIVE_B6FILE'),
+    ('native_b6.py', 'NATIVE_B6'),
 )
 
 CPP_TABLES = (
     ('KX_FunctionNode.cpp', 'kSpecs'),
     ('KX_FunctionNodesB2.cpp', 'kB2Specs'),
     ('KX_FunctionNodesB3.cpp', 'kB3Specs'),
+    ('KX_FunctionNodesB4.cpp', 'kB4Specs'),
     ('KX_FunctionNodesB4File.cpp', 'kB4FileSpecs'),
+    ('KX_FunctionNodesB5.cpp', 'kB5Specs'),
+    ('KX_FunctionNodesB6Input.cpp', 'kB6InputSpecs'),
+    ('KX_FunctionNodesB6String.cpp', 'kB6StringSpecs'),
+    ('KX_FunctionNodesB6Audio.cpp', 'kB6AudioSpecs'),
+    ('KX_FunctionNodesB6Net.cpp', 'kB6NetSpecs'),
+    ('KX_FunctionNodesB6Sensor.cpp', 'kB6SensorSpecs'),
+    ('KX_FunctionNodesB6Scene.cpp', 'kB6SceneSpecs'),
+    ('KX_FunctionNodesB6LegacyQuery.cpp', 'kB6LegacyQuerySpecs'),
+    ('KX_FunctionNodesB6UI.cpp', 'kB6UISpecs'),
+    ('KX_FunctionNodesB6File.cpp', 'kB6FileSpecs'),
+    ('KX_FunctionNodesB6.cpp', 'kB6Specs'),
 )
 
 ACCESSORS = {

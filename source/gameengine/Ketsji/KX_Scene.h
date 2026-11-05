@@ -689,6 +689,31 @@ class KX_Scene : public KX_PythonProxy, public SCA_IScene {
     return m_blenderScene;
   }
 
+  /**
+   * Re-read the exported game graph manifest from the bpy scene property.
+   *
+   * Used by the P4.2 hot reload poll: the editor operator rewrites the
+   * property, the running scene reads it back without touching the manager.
+   */
+  std::string ReadGraphManifestJson() const;
+
+  /**
+   * Manifest used by the hot reload poll.
+   *
+   * Prefers `<blend_dir>/.hot_reload_manifest.json`, which the editor operator
+   * writes for a player running in another process, and falls back to the scene
+   * property so an embedded session keeps working without a file.
+   */
+  std::string ReadGraphHotReloadManifestJson() const;
+
+  /**
+   * `<blend_dir>/.hot_reload.flag`.
+   *
+   * Empty when the .blend has never been saved, which disables hot reload for
+   * that session instead of polling the filesystem root.
+   */
+  std::string GraphHotReloadFlagPath() const;
+
   bool MergeScene(KX_Scene *other);
 
   // void PrintStats(int verbose_level) {

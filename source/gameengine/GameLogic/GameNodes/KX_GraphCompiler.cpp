@@ -273,7 +273,14 @@ KX_CompileResult CompileGraph(const GraphIR &ir)
                         std::to_string(signature.inputs.size()));
       ports_match = false;
     }
-    if (ir_node.outputs.size() != signature.outputs.size()) {
+    /* A graph exported before a trailing output port extension only declares
+     * the ports that existed then. Only signatures that opt in through
+     * #KX_NodeSignature::allow_fewer_outputs accept that shorter prefix
+     * (Collision today); every other node must declare exactly its outputs. */
+    const bool output_count_ok =
+        signature.allow_fewer_outputs ? ir_node.outputs.size() <= signature.outputs.size()
+                                      : ir_node.outputs.size() == signature.outputs.size();
+    if (!output_count_ok) {
       AddDiagnostic(diagnostics,
                     KX_CompileDiagnostic::Severity::Error,
                     static_cast<int>(node_index),
@@ -444,6 +451,10 @@ KX_CompileResult CompileGraph(const GraphIR &ir)
       KX_NodePortSignature &sig_port = signature.outputs[port];
       if (!sig_port.dynamic_type) {
         continue;
+      }
+      /* A legacy IR may omit trailing ports; there is nothing to resolve. */
+      if (port >= ir_node.outputs.size()) {
+        break;
       }
 
       const KX_ValueType resolved = node.ResolvedPortType(false, port);

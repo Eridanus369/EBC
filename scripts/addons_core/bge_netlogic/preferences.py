@@ -45,6 +45,8 @@ class LogicNodesAddonPreferences(bpy.types.AddonPreferences):
     palette_logic_open: bpy.props.BoolProperty(default=True)
     palette_value_open: bpy.props.BoolProperty(default=True)
     palette_uiscene_open: bpy.props.BoolProperty(default=True)
+    palette_ui_expanded: bpy.props.BoolProperty(default=True)
+    palette_file_expanded: bpy.props.BoolProperty(default=True)
     palette_utility_open: bpy.props.BoolProperty(default=True)
 
     custom_logic_nodes: bpy.props.CollectionProperty(

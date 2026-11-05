@@ -97,6 +97,19 @@ class KX_LogicNodeRuntime {
   virtual KX_ExecResult Execute(KX_ExecutionContext &ctx) = 0;
 
   /**
+   * Execute a node that only produces values, used by #KX_InlinedBlock.
+   *
+   * Pure value nodes implement this and return true. Stateful and trigger
+   * nodes keep the default false so the inline pass never merges them and
+   * callers fall back to #Execute.
+   */
+  virtual bool ExecuteValueOnly(KX_ExecutionContext &ctx)
+  {
+    (void)ctx;
+    return false;
+  }
+
+  /**
    * Bind the IR port names to their indices.
    *
    * Called by the compiler after #Configure and before any execution. Table
@@ -219,6 +232,21 @@ class KX_LogicNodeRuntime {
    * their unconnected trigger inputs into per frame entry points.
    */
   virtual bool IsValueNode() const
+  {
+    return false;
+  }
+
+  /**
+   * True when the node must observe all of its trigger inputs in one Execute.
+   *
+   * The scheduler normally clears every trigger input right after the node
+   * runs. A node that combines several trigger edges in the same frame (the
+   * logic gates) opts in here: the scheduler latches the current trigger bits
+   * of its input ports and keeps them readable through
+   * #KX_ExecutionContext::TriggerSnapshot while Execute runs. Default false
+   * keeps the original scheduling path untouched.
+   */
+  virtual bool NeedsTriggerSnapshot() const
   {
     return false;
   }

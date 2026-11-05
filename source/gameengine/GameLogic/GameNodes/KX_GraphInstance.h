@@ -45,6 +45,7 @@
 #include "KX_ExecutionPlan.h"
 #include "KX_GraphIR.h"
 
+class KX_CompiledGraph;
 class KX_ExecutionContext;
 class KX_GameObject;
 class KX_GraphSceneManager;
@@ -66,22 +67,43 @@ class KX_GraphInstance {
    */
   bool Load(const GraphIR &ir, std::vector<std::string> *warnings);
 
-  /** Replace the plan with a freshly compiled one. P4 hot reload entry point. */
+  /**
+   * Compile #ir into a pending graph and stage it for the next frame boundary.
+   *
+   * The running graph keeps executing until #Tick starts, so a caller never
+   * observes a half replaced plan. A failed compile keeps the old graph and
+   * reports `rebuild failed, keeping old graph: <diagnostic>` on stderr.
+   */
   bool Rebuild(const GraphIR &ir, std::vector<std::string> *warnings);
 
   /** Run one frame of the fixed P1 order (clear, tick, values, triggers). */
   void Tick(float delta_time);
 
+  /** True while a hot reload waits for the next #Tick. */
+  bool HasPendingRebuild() const;
+
   /** Release the plan before the owner disappears. Idempotent. */
   void Shutdown();
 
   const KX_ExecutionPlan *GetPlan() const;
+  /** Currently bound compiled artifact, null after Shutdown. */
+  const KX_CompiledGraph *GetGraph() const;
+  const KX_CompiledGraph *GetPendingGraph() const;
+
+  /** Manifest graph id this instance was mounted from, used by hot reload. */
+  void SetGraphId(const std::string &graph_id);
+  const std::string &GraphId() const;
   KX_ExecutionContext *GetContext();
   KX_GameObject *Owner() const;
   KX_Scene *Scene() const;
 
  private:
-  std::unique_ptr<KX_ExecutionPlan> plan_;
+  /** Installed at the start of the next Tick after a rebuild. */
+  void CommitPendingGraph();
+
+  std::shared_ptr<KX_CompiledGraph> graph_;
+  std::shared_ptr<KX_CompiledGraph> pending_;
+  std::string graph_id_;
   KX_ExecutionContext context_;
   KX_Scene *scene_ = nullptr;
   KX_GameObject *owner_ = nullptr;
