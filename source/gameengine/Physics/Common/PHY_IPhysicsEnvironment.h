@@ -31,6 +31,7 @@
 
 #pragma once
 
+#include "MT_Matrix3x3.h"
 #include "MT_Matrix4x4.h"
 #include "MT_Vector2.h"
 #include "MT_Vector3.h"
@@ -78,6 +79,26 @@ struct PHY_RayCastResult {
   }
 };
 
+/**
+ * Volume used by TestShapeContact: a sphere, box or cone with an explicit
+ * world transform. Kept free of Bullet types so game logic can ask the physics
+ * environment without including the Bullet headers.
+ */
+struct PHY_ShapeDesc {
+  enum Kind {
+    PHY_SHAPE_SPHERE = 0,
+    PHY_SHAPE_BOX = 1,
+    PHY_SHAPE_CONE = 2,
+  };
+
+  Kind kind = PHY_SHAPE_SPHERE;
+  /** Sphere radius, or base radius of the cone. */
+  float radius = 0.0f;
+  /** Cone height, measured from apex to base. */
+  float height = 0.0f;
+  /** Half extents of the box. */
+  float half_extents[3] = {0.0f, 0.0f, 0.0f};
+};
 
 /**
  * This class replaces the ignoreController parameter of rayTest function.
@@ -242,6 +263,35 @@ class PHY_IPhysicsEnvironment {
                                           float toX,
                                           float toY,
                                           float toZ) = 0;
+
+  /**
+   * Narrow-phase contact test between an explicit query volume and one
+   * existing controller. #position is the volume centre in world space and
+   * #orientation its world rotation. Returns true on overlap.
+   */
+  virtual bool TestShapeContact(const PHY_ShapeDesc &shape,
+                                const MT_Vector3 &position,
+                                const MT_Matrix3x3 &orientation,
+                                PHY_IPhysicsController *other)
+  {
+    (void)shape;
+    (void)position;
+    (void)orientation;
+    (void)other;
+    return false;
+  }
+
+  /**
+   * Narrow-phase contact test between two existing controllers. Used when the
+   * query volume is the collision shape of an object already in the world.
+   */
+  virtual bool TestControllerContact(PHY_IPhysicsController *first,
+                                     PHY_IPhysicsController *second)
+  {
+    (void)first;
+    (void)second;
+    return false;
+  }
 
   // Methods for gamelogic collision/physics callbacks
   virtual void AddSensor(PHY_IPhysicsController *ctrl) = 0;

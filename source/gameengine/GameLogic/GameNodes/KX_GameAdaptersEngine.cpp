@@ -32,6 +32,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <limits>
 #include <map>
@@ -42,8 +43,12 @@
 #include "BKE_context.hh"
 #include "BKE_global.hh"
 #include "BKE_lib_id.hh"
+#include "BKE_main.hh"
 #include "BKE_material.hh"
 #include "BKE_sound.hh"
+#include "BLI_fileops.hh"
+#include "BLI_path_utils.hh"
+#include "BLI_string.hh"
 #include "DNA_action_types.h"
 #include "DNA_armature_types.h"
 
@@ -107,6 +112,41 @@ class EngineRayCastCallback final : public KX_RayCast {
   }
 
   KX_GameObject *hit_object = nullptr;
+};
+
+/**
+ * B6.9 collecting callback.
+ *
+ * `RayHit` returns false so KX_RayCast::RayTest keeps advancing past the hit and
+ * reports the next surface. `reportHit` fills m_hitPoint/m_hitNormal before each
+ * RayHit, so every entry carries the exact contact of its own surface.
+ */
+class EngineRayCastAllCallback final : public KX_RayCast {
+ public:
+  EngineRayCastAllCallback(PHY_IPhysicsController *ignore_controller,
+                           std::vector<KX_RaycastResult> *out)
+      : KX_RayCast(ignore_controller, true, false), out_(out)
+  {
+  }
+
+  bool RayHit(KX_ClientObjectInfo *client) override
+  {
+    if (client == nullptr || client->m_gameobject == nullptr || out_ == nullptr) {
+      return false;
+    }
+    KX_RaycastResult hit;
+    hit.hit = true;
+    hit.object = client->m_gameobject;
+    for (int axis = 0; axis < 3; ++axis) {
+      hit.point[axis] = float(m_hitPoint[axis]);
+      hit.normal[axis] = float(m_hitNormal[axis]);
+    }
+    out_->push_back(hit);
+    return false;
+  }
+
+ private:
+  std::vector<KX_RaycastResult> *out_ = nullptr;
 };
 
 SCA_IInputDevice::SCA_EnumInputs ToInputCode(int code)
@@ -216,6 +256,15 @@ class EngineInputAdapter final : public KX_InputAdapter {
   {
   }
 
+#ifdef KX_INPUT_TEST_HOOKS
+  /** Test-only: bind the adapter to an externally injected joystick. */
+  EngineInputAdapter(KX_Scene *scene, DEV_Joystick *test_joystick)
+      : EngineInputAdapter(scene)
+  {
+    test_joystick_ = test_joystick;
+  }
+#endif
+
   void BeginFrame(float delta_time) override
   {
     (void)delta_time;
@@ -238,6 +287,16 @@ class EngineInputAdapter final : public KX_InputAdapter {
     if (mouse_->GetInput(SCA_IInputDevice::WHEELDOWNMOUSE).Find(SCA_InputEvent::JUSTACTIVATED)) {
       wheel_ -= 1;
     }
+  }
+
+  void EndFrame() override
+  {
+    DEV_Joystick *joystick = JoystickFor(0);
+    for (int i = 0; i < JOYBUT_MAX; ++i) {
+      previous_joystick_buttons_[i] =
+          joystick != nullptr && joystick->aButtonPressIsPositive(i);
+    }
+    have_joystick_previous_ = joystick != nullptr;
   }
 
   bool KeyActive(int code, KX_InputMode mode) override
@@ -310,6 +369,35 @@ class EngineInputAdapter final : public KX_InputAdapter {
     return wheel_;
   }
 
+  float JoystickAxis(int axis) const override
+  {
+    DEV_Joystick *joystick = JoystickFor(0);
+    if (joystick == nullptr || axis < 0 || axis >= JOYAXIS_MAX) {
+      return 0.0f;
+    }
+    return float(joystick->GetAxisPosition(axis)) / 32767.0f;
+  }
+
+  bool JoystickButton(int index, KX_InputMode mode) override
+  {
+    DEV_Joystick *joystick = JoystickFor(0);
+    if (joystick == nullptr || index < 0 || index >= JOYBUT_MAX) {
+      return false;
+    }
+    const bool down = joystick->aButtonPressIsPositive(index);
+    const bool previous =
+        have_joystick_previous_ && previous_joystick_buttons_[index];
+    switch (mode) {
+      case KX_InputMode::Press:
+        return down && !previous;
+      case KX_InputMode::Release:
+        return !down && previous;
+      case KX_InputMode::Hold:
+        return down;
+    }
+    return false;
+  }
+
   void SetMousePosition(float nx, float ny) override
   {
     if (canvas_ == nullptr) {
@@ -339,6 +427,28 @@ class EngineInputAdapter final : public KX_InputAdapter {
       return false;
     }
     return joystick->aButtonPressIsPositive(button);
+  }
+
+  float GetGamepadButtonValue(int pad, int button) override
+  {
+    /* DEV_Joystick exposes digital buttons only; report them as 0/1 so a
+     * button deadzone above 0 still treats a real press as pressed. */
+    DEV_Joystick *joystick = SceneJoystick(scene_, pad);
+    if (joystick == nullptr || button < 0) {
+      return 0.0f;
+    }
+    return joystick->aButtonPressIsPositive(button) ? 1.0f : 0.0f;
+  }
+
+  int GetGamepadCount() override
+  {
+    int count = 0;
+    for (short slot = 0; slot < JOYINDEX_MAX; ++slot) {
+      if (DEV_Joystick::GetInstance(slot) != nullptr) {
+        ++count;
+      }
+    }
+    return count;
   }
 
   void GetGamepadAxis(int pad, int axis, float &x, float &y) override
@@ -436,6 +546,17 @@ class EngineInputAdapter final : public KX_InputAdapter {
   }
 
  private:
+  DEV_Joystick *JoystickFor(int pad) const
+  {
+#ifdef KX_INPUT_TEST_HOOKS
+    if (test_joystick_ != nullptr) {
+      (void)pad;
+      return test_joystick_;
+    }
+#endif
+    return SceneJoystick(scene_, pad);
+  }
+
   KX_Scene *scene_;
   SCA_IInputDevice *keyboard_;
   SCA_IInputDevice *mouse_;
@@ -446,7 +567,50 @@ class EngineInputAdapter final : public KX_InputAdapter {
   float delta_x_ = 0.0f;
   float delta_y_ = 0.0f;
   int wheel_ = 0;
+  bool have_joystick_previous_ = false;
+  bool previous_joystick_buttons_[JOYBUT_MAX] = {};
+#ifdef KX_INPUT_TEST_HOOKS
+  DEV_Joystick *test_joystick_ = nullptr;
+#endif
 };
+
+/** World-space bounding radius derived from the first mesh and world scale.
+ *  Objects without a mesh fall back to a unit radius, which keeps the broad
+ *  phase conservative without touching physics state. */
+static float ObjectBoundingRadius(KX_GameObject *object)
+{
+  const MT_Vector3 scale = object->NodeGetWorldScaling();
+  float extent[3] = {1.0f, 1.0f, 1.0f};
+  RAS_MeshObject *mesh = object->GetMesh(0);
+  if (mesh != nullptr) {
+    RAS_IDisplayArray *array = mesh->GetDisplayArray(0);
+    if (array != nullptr && array->GetVertexCount() != 0) {
+      float bounds_min[3] = {std::numeric_limits<float>::max(),
+                             std::numeric_limits<float>::max(),
+                             std::numeric_limits<float>::max()};
+      float bounds_max[3] = {-std::numeric_limits<float>::max(),
+                             -std::numeric_limits<float>::max(),
+                             -std::numeric_limits<float>::max()};
+      const unsigned int count = array->GetVertexCount();
+      for (unsigned int i = 0; i < count; ++i) {
+        RAS_IVertex *vertex = array->GetVertex(i);
+        const float *xyz = vertex != nullptr ? vertex->getXYZ() : nullptr;
+        if (xyz == nullptr) {
+          continue;
+        }
+        for (int axis = 0; axis < 3; ++axis) {
+          bounds_min[axis] = std::min(bounds_min[axis], xyz[axis]);
+          bounds_max[axis] = std::max(bounds_max[axis], xyz[axis]);
+        }
+      }
+      for (int axis = 0; axis < 3; ++axis) {
+        extent[axis] = std::fabs((bounds_max[axis] - bounds_min[axis]) * 0.5f * scale[axis]);
+      }
+    }
+  }
+  return std::sqrt(extent[0] * extent[0] + extent[1] * extent[1] +
+                   extent[2] * extent[2]);
+}
 
 class EngineSceneAdapter final : public KX_SceneAdapter {
  public:
@@ -552,6 +716,182 @@ class EngineSceneAdapter final : public KX_SceneAdapter {
               [](const KX_ProximityHit &a, const KX_ProximityHit &b) {
                 return a.distance < b.distance;
               });
+  }
+
+  /**
+   * Shape-aware proximity query.
+   *
+   * Candidates are pruned by origin distance plus their bounding radius, then
+   * tested one by one against their real Bullet collision object with
+   * CcdPhysicsEnvironment::TestShapeContact / TestControllerContact. The
+   * per-node budget keeps this bounded; past the budget the query falls back to
+   * the origin-distance path and reports the degradation to the caller.
+   */
+  bool QueryProximityShapes(const KX_ProximityShapeQuery &query,
+                            std::vector<KX_ProximityHit> &out) override
+  {
+    out.clear();
+    if (scene_ == nullptr || query.origin == nullptr || query.radius <= 0.0f) {
+      return false;
+    }
+
+    const MT_Vector3 origin_position = query.origin->NodeGetWorldPosition();
+    MT_Vector3 local_axis(query.local_axis);
+    if (local_axis.length2() < 1e-12f) {
+      local_axis = MT_Vector3(0.0f, 0.0f, 1.0f);
+    }
+    const MT_Vector3 world_axis =
+        (query.origin->NodeGetWorldOrientation() * local_axis).safe_normalized();
+    const bool use_cone = query.shape == KX_PROXIMITY_CONE &&
+                          query.angle_deg > 0.0f && query.angle_deg < 360.0f;
+
+    float box_radius = 0.0f;
+    if (query.shape == KX_PROXIMITY_BOX) {
+      box_radius = std::sqrt(query.half_extents[0] * query.half_extents[0] +
+                             query.half_extents[1] * query.half_extents[1] +
+                             query.half_extents[2] * query.half_extents[2]);
+    }
+    const float query_extent = std::max(
+        query.radius,
+        std::max(box_radius, ObjectBoundingRadius(query.origin)));
+
+    KX_PropertyBackend *backend = KX_DefaultPropertyBackend();
+    struct Candidate {
+      KX_GameObject *object;
+      float distance;
+      float angle;
+      PHY_IPhysicsController *controller;
+    };
+    std::vector<Candidate> candidates;
+
+    for (KX_GameObject *object : scene_->GetObjectList()) {
+      if (object == nullptr || object == query.origin) {
+        continue;
+      }
+      if (!query.property.empty() &&
+          (backend == nullptr || backend->Type(object, query.property) == KX_VALUE_NONE))
+      {
+        continue;
+      }
+
+      const MT_Vector3 delta = object->NodeGetWorldPosition() - origin_position;
+      const float distance = delta.length();
+      const float extent = ObjectBoundingRadius(object) + 1e-3f;
+      if (distance > query_extent + extent) {
+        continue;
+      }
+
+      float angle = 0.0f;
+      if (use_cone && distance > 1e-6f) {
+        const float cosine = delta.safe_normalized().dot(world_axis);
+        angle = std::acos(std::min(1.0f, std::max(-1.0f, cosine))) *
+                float(MT_DEGS_PER_RAD);
+      }
+
+      candidates.push_back(Candidate{object, distance, angle, object->GetPhysicsController()});
+    }
+
+    const bool over_budget =
+        static_cast<int>(candidates.size()) > KX_PROXIMITY_SHAPE_BUDGET;
+    PHY_IPhysicsEnvironment *physics = scene_->GetPhysicsEnvironment();
+    if (over_budget || physics == nullptr) {
+      /* Degraded: exactly the legacy origin-distance result. */
+      QueryProximity(query.origin,
+                     query.local_axis,
+                     query.radius,
+                     query.angle_deg,
+                     query.property,
+                     out);
+      return true;
+    }
+
+    PHY_IPhysicsController *origin_controller = query.origin->GetPhysicsController();
+
+    PHY_ShapeDesc shape;
+    MT_Vector3 shape_position = origin_position;
+    MT_Matrix3x3 shape_orientation;
+    shape_orientation.setValue(1.0f, 0.0f, 0.0f,
+                               0.0f, 1.0f, 0.0f,
+                               0.0f, 0.0f, 1.0f);
+    if (query.shape == KX_PROXIMITY_BOX) {
+      shape.kind = PHY_ShapeDesc::PHY_SHAPE_BOX;
+      for (int axis = 0; axis < 3; ++axis) {
+        shape.half_extents[axis] = query.half_extents[axis];
+      }
+      shape_orientation = query.origin->NodeGetWorldOrientation();
+    }
+    else if (query.shape == KX_PROXIMITY_CONE && use_cone) {
+      shape.kind = PHY_ShapeDesc::PHY_SHAPE_CONE;
+      shape.radius = query.radius *
+                     std::tan(query.angle_deg * 0.5f * float(MT_RADS_PER_DEG));
+      shape.height = query.radius;
+      shape_position = origin_position + world_axis * (query.radius * 0.5f);
+      /* Rotate local +Y onto the cone direction. */
+      MT_Vector3 x_axis =
+          ((std::fabs(world_axis[2]) < 0.9f ? MT_Vector3(0.0f, 0.0f, 1.0f) :
+                                              MT_Vector3(1.0f, 0.0f, 0.0f))
+               .cross(world_axis))
+              .safe_normalized();
+      MT_Vector3 z_axis = x_axis.cross(world_axis);
+      shape_orientation.setValue(x_axis[0],
+                                 world_axis[0],
+                                 z_axis[0],
+                                 x_axis[1],
+                                 world_axis[1],
+                                 z_axis[1],
+                                 x_axis[2],
+                                 world_axis[2],
+                                 z_axis[2]);
+    }
+    else {
+      shape.kind = PHY_ShapeDesc::PHY_SHAPE_SPHERE;
+      shape.radius = query.radius;
+    }
+
+    for (const Candidate &candidate : candidates) {
+      bool overlaps = false;
+      if (candidate.controller != nullptr) {
+        if (query.shape == KX_PROXIMITY_BOX && origin_controller != nullptr) {
+          overlaps = physics->TestControllerContact(origin_controller, candidate.controller);
+        }
+        else {
+          overlaps = physics->TestShapeContact(
+              shape, shape_position, shape_orientation, candidate.controller);
+        }
+      }
+
+      KX_ProximityHit hit;
+      hit.object = candidate.object;
+      hit.distance = candidate.distance;
+      hit.angle = candidate.angle;
+      if (overlaps) {
+        hit.shape_overlap = true;
+      }
+      else if (candidate.controller == nullptr) {
+        /* No collider: the old origin distance rule is the only available
+         * approximation. The AreaSensor node applies its box filter to these
+         * hits, matching the legacy two-stage behaviour. */
+        if (candidate.distance > query.radius) {
+          continue;
+        }
+        if (use_cone && candidate.distance > 1e-6f &&
+            candidate.angle > query.angle_deg * 0.5f)
+        {
+          continue;
+        }
+      }
+      else {
+        continue;
+      }
+      out.push_back(hit);
+    }
+
+    std::sort(out.begin(),
+              out.end(),
+              [](const KX_ProximityHit &a, const KX_ProximityHit &b) {
+                return a.distance < b.distance;
+              });
+    return false;
   }
 
   /**
@@ -993,6 +1333,43 @@ class EnginePhysicsAdapter final : public KX_PhysicsAdapter {
       result.normal[i] = callback.m_hitNormal[i];
     }
     return result;
+  }
+
+  void RaycastAll(const float origin_data[3],
+                  const float direction_data[3],
+                  float max_dist,
+                  const KX_GameObject *ignore,
+                  std::vector<KX_RaycastResult> &out) override
+  {
+    if (scene_ == nullptr) {
+      return;
+    }
+    PHY_IPhysicsEnvironment *environment = scene_->GetPhysicsEnvironment();
+    if (environment == nullptr || max_dist <= 0.0f) {
+      return;
+    }
+    const MT_Vector3 origin(origin_data[0], origin_data[1], origin_data[2]);
+    const MT_Vector3 direction(direction_data[0], direction_data[1], direction_data[2]);
+    if (direction.length2() < 1e-12f) {
+      return;
+    }
+    const MT_Vector3 target = origin + direction.safe_normalized() * max_dist;
+    PHY_IPhysicsController *ignore_controller = ignore != nullptr
+                                                    ? const_cast<KX_GameObject *>(ignore)->GetPhysicsController()
+                                                    : nullptr;
+    EngineRayCastAllCallback callback(ignore_controller, &out);
+    KX_RayCast::RayTest(environment, origin, target, callback);
+
+    /* Contract: nearest hit first. KX_RayCast advances along the ray, so the
+     * natural order is already near to far; sorting makes that a guarantee
+     * instead of an implementation detail. */
+    std::stable_sort(out.begin(),
+                     out.end(),
+                     [&origin](const KX_RaycastResult &a, const KX_RaycastResult &b) {
+                       const MT_Vector3 pa(a.point[0], a.point[1], a.point[2]);
+                       const MT_Vector3 pb(b.point[0], b.point[1], b.point[2]);
+                       return (pa - origin).length2() < (pb - origin).length2();
+                     });
   }
 
   void SetLinearVelocity(KX_GameObject *object, const float velocity[3]) override
@@ -1654,16 +2031,19 @@ class EngineAnimationAdapter final : public KX_AnimationAdapter {
      * the layer weight through BL_ArmatureObject::BlendInPose (dst = 1 - src),
      * so the visible result is (1 - factor) A + factor B. Layer 0 ignores its
      * weight (BL_ActionManager forces it to -1), B alone drives the blend.
+     * The weight passed for B must therefore be 1 - factor: the blend keeps
+     * `weight` of the pre-existing pose (A) and `1 - weight` of B.
      * Fixed occupancy: this overwrites whatever was playing on layers 0 and 1,
      * and only two actions can be mixed (no N-way weighted blending). */
     return object->PlayAction(action_a, a_start, a_end, 0, 0, 0.0f, 0, 1.0f - factor, 0, 1.0f, 0) &&
-           object->PlayAction(action_b, b_start, b_end, 1, 0, 0.0f, 0, factor, 0, 1.0f, 0);
+           object->PlayAction(action_b, b_start, b_end, 1, 0, 0.0f, 0, 1.0f - factor, 0, 1.0f, 0);
   }
 
   bool SetBoneTransform(KX_GameObject *object,
                         const std::string &bone,
                         const float position[3],
-                        const float rotation[3]) override
+                        const float rotation[3],
+                        int blend_mode) override
   {
     if (object == nullptr || bone.empty()) {
       return false;
@@ -1672,6 +2052,21 @@ class EngineAnimationAdapter final : public KX_AnimationAdapter {
       fprintf(stderr, "[SetBoneTransform] object '%s' is not an armature\n", object->GetName().c_str());
       return false;
     }
+    if (blend_mode < static_cast<int>(KX_PoseBlendMode::Override) ||
+        blend_mode > static_cast<int>(KX_PoseBlendMode::Multiplicative))
+    {
+      fprintf(stderr, "[SetBoneTransform] invalid blend mode %d (0=Override 1=Additive 2=Multiplicative)\n",
+              blend_mode);
+      return false;
+    }
+    if (blend_mode == static_cast<int>(KX_PoseBlendMode::Multiplicative)) {
+      /* Reserved for P2; refuse explicitly instead of silently behaving like Override. */
+      fprintf(stderr,
+              "[SetBoneTransform] blend mode 2 (Multiplicative) is not implemented; "
+              "use 0 (Override) or 1 (Additive)\n");
+      return false;
+    }
+    const KX_PoseBlendMode mode = static_cast<KX_PoseBlendMode>(blend_mode);
     BL_ArmatureObject *armature = static_cast<BL_ArmatureObject *>(object);
     blender::bPose *pose = nullptr;
     armature->GetPose(&pose);
@@ -1687,17 +2082,35 @@ class EngineAnimationAdapter final : public KX_AnimationAdapter {
               object->GetName().c_str());
       return false;
     }
-    channel->loc[0] = position[0];
-    channel->loc[1] = position[1];
-    channel->loc[2] = position[2];
-    channel->rotmode = blender::ROT_MODE_XYZ;
-    channel->eul[0] = rotation[0];
-    channel->eul[1] = rotation[1];
-    channel->eul[2] = rotation[2];
-    /* The pose is recomputed on the next armature update; the engine exposes
-     * no immediate re-evaluation hook. */
-    armature->ApplyPose();
+    /* Register the override and let ApplyPoseOverrides() write the channel. The override layer
+     * stores the target/delta as a quaternion and combines with the action-evaluated pose
+     * (current * delta for Additive), so it must not be pre-added into the euler channels. */
+    armature->SetPoseOverride(bone, mode, position, rotation);
+    armature->ApplyPoseImmediate();
     return true;
+  }
+
+  bool ClearPoseOverride(KX_GameObject *object, const std::string &bone) override
+  {
+    if (object == nullptr || bone.empty()) {
+      return false;
+    }
+    if (object->GetGameObjectType() != SCA_IObject::OBJ_ARMATURE) {
+      fprintf(stderr,
+              "[ClearBoneOverride] object '%s' is not an armature\n",
+              object->GetName().c_str());
+      return false;
+    }
+    BL_ArmatureObject *armature = static_cast<BL_ArmatureObject *>(object);
+    const bool cleared = armature->ClearPoseOverride(bone);
+    if (!cleared) {
+      /* Unknown bone / no override: documented no-op, not an error that may crash. */
+      fprintf(stderr,
+              "[ClearBoneOverride] bone '%s' has no pose override on armature '%s'\n",
+              bone.c_str(),
+              object->GetName().c_str());
+    }
+    return cleared;
   }
 
   bool SetBoneWeight(KX_GameObject *object, const std::string &bone, float weight, std::string *error) override
@@ -1747,6 +2160,49 @@ class EngineAnimationAdapter final : public KX_AnimationAdapter {
     const float frame = object->GetActionFrame(static_cast<short>(layer));
     const float normalized = (frame - start) / (end - start);
     return std::max(0.0f, std::min(1.0f, normalized));
+  }
+
+  /* --- C.4 animation-event bridge --- */
+
+  int GetActionLayer(KX_GameObject *object, const std::string &action) override
+  {
+    if (object == nullptr || action.empty()) {
+      return -1;
+    }
+    BL_ActionManager *manager = object->GetActionManagerNoCreate();
+    if (manager == nullptr) {
+      return -1;
+    }
+    return manager->FindLayerByActionName(action);
+  }
+
+  float GetActionFrameAtCurrentEngineTime(KX_GameObject *object, int layer) override
+  {
+    if (object == nullptr) {
+      return 0.0f;
+    }
+    BL_ActionManager *manager = object->GetActionManagerNoCreate();
+    if (manager == nullptr) {
+      return 0.0f;
+    }
+    return manager->GetActionFrameAtTime(static_cast<short>(layer),
+                                         static_cast<float>(KX_GetActiveEngine()->GetFrameTime()));
+  }
+
+  /* B6.9-A pose read-back: returns the pose channel values the renderer uses for this frame,
+   * so a graph (or an E2E probe) can tell a surviving manual override from an overwritten one. */
+  bool GetBoneTransform(KX_GameObject *object,
+                        const std::string &bone,
+                        float position[3],
+                        float rotation[3]) override
+  {
+    if (object == nullptr || bone.empty() ||
+        object->GetGameObjectType() != SCA_IObject::OBJ_ARMATURE)
+    {
+      return false;
+    }
+    BL_ArmatureObject *armature = static_cast<BL_ArmatureObject *>(object);
+    return armature->GetPoseChannelTransform(bone, position, rotation);
   }
 
  private:
@@ -1808,8 +2264,64 @@ class EngineMessageAdapter final : public KX_MessageAdapter {
     return result;
   }
 
+  /* B6.9-Ms Ms-2: delayed messages are owned by the scene adapter, so a scene
+   * unload drops whatever is still pending and reports it on stderr. */
+  ~EngineMessageAdapter() override
+  {
+    if (!delayed_.empty()) {
+      std::fprintf(stderr,
+                   "GameNode: message bus: %zu delayed message(s) dropped on scene unload\n",
+                   delayed_.size());
+    }
+  }
+
+  void SendDelayed(const std::string &to,
+                   KX_GameObject *from,
+                   const std::string &subject,
+                   const std::string &body,
+                   float delay_seconds) override
+  {
+    if (!(delay_seconds > 0.0f)) {
+      Send(to, from, subject, body);
+      return;
+    }
+    Delayed delayed;
+    delayed.to = to;
+    delayed.from = from;
+    delayed.subject = subject;
+    delayed.body = body;
+    delayed.remaining = delay_seconds;
+    delayed_.push_back(delayed);
+  }
+
+  void TickDelayed(float delta_time) override
+  {
+    if (delta_time <= 0.0f) {
+      return;
+    }
+    for (size_t index = 0; index < delayed_.size();) {
+      delayed_[index].remaining -= delta_time;
+      if (delayed_[index].remaining > 0.0f) {
+        ++index;
+        continue;
+      }
+      const Delayed entry = delayed_[index];
+      delayed_.erase(delayed_.begin() + static_cast<std::ptrdiff_t>(index));
+      Send(entry.to, entry.from, entry.subject, entry.body);
+    }
+  }
+
  private:
+  struct Delayed {
+    std::string to;
+    KX_GameObject *from = nullptr;
+    std::string subject;
+    std::string body;
+    float remaining = 0.0f;
+  };
+
   KX_Scene *scene_;
+  std::vector<Delayed> delayed_;
 };
 
 /**
@@ -2013,9 +2525,22 @@ class EngineAudioAdapter final : public KX_AudioAdapter {
   {
     for (auto &entry : handles_) {
       if (entry.second) {
+        if (AudioTraceEnabled()) {
+          std::fprintf(stderr,
+                       "[SOUND-STOP] handle=%llu status=%d pos=%.3f\n",
+                       (unsigned long long)entry.first,
+                       static_cast<int>(entry.second->getStatus()),
+                       entry.second->getPosition());
+        }
         entry.second->stop();
       }
     }
+    for (auto &entry : path_sounds_) {
+      if (fallback_main_ != nullptr) {
+        BKE_id_free(fallback_main_, entry.second);
+      }
+    }
+    path_sounds_.clear();
     ClearSoundOwners();
   }
 
@@ -2026,9 +2551,11 @@ class EngineAudioAdapter final : public KX_AudioAdapter {
       return 0;
     }
     try {
-      return StartHandle(std::make_shared<aud::File>(filepath), loop, volume, pitch);
+      return StartHandle(
+          std::make_shared<aud::File>(filepath), loop, volume, pitch, filepath.c_str());
     }
-    catch (aud::Exception &) {
+    catch (aud::Exception &e) {
+      std::fprintf(stderr, "[Audio] failed to play file '%s': %s\n", filepath.c_str(), e.what());
       return 0;
     }
 #else
@@ -2050,13 +2577,6 @@ class EngineAudioAdapter final : public KX_AudioAdapter {
     }
     BL_SceneConverter *converter = scene_ != nullptr ? scene_->GetBlenderSceneConverter() :
                                                        nullptr;
-    blender::bSound *sound = converter != nullptr ? converter->FindSound(name) : nullptr;
-    if (sound == nullptr) {
-      std::fprintf(stderr,
-                   "GameNode: PlaySoundByName: sound datablock '%s' not found\n",
-                   name.c_str());
-      return 0;
-    }
     blender::bContext *context = KX_GetActiveEngine() != nullptr ?
                                      KX_GetActiveEngine()->GetContext() :
                                      nullptr;
@@ -2066,6 +2586,30 @@ class EngineAudioAdapter final : public KX_AudioAdapter {
                    name.c_str());
       return 0;
     }
+    blender::Main *main = CTX_data_main(context);
+    blender::bSound *sound = converter != nullptr ? converter->FindSound(name) : nullptr;
+    if (sound == nullptr) {
+      /* The value may be a file name/path instead of a datablock name, or the
+       * datablock may have no user and therefore not be saved in the .blend.
+       * Try to resolve it as a file next to the blend before giving up. */
+      sound = FindSoundByPath(name, main);
+      if (sound != nullptr && converter != nullptr) {
+        converter->RegisterSound(name, sound);
+      }
+    }
+    if (sound == nullptr) {
+      std::fprintf(stderr,
+                   "GameNode: PlaySoundByName: sound datablock '%s' not found "
+                   "(neither as a datablock name nor as a file next to the blend)\n",
+                   name.c_str());
+      return 0;
+    }
+    if (AudioTraceEnabled()) {
+      std::fprintf(stderr,
+                   "[SOUND-RESOLVE] name='%s' filepath='%s'\n",
+                   name.c_str(),
+                   sound->filepath);
+    }
     BKE_sound_load_no_assert(CTX_data_main(context), sound);
     AUD_Sound loaded = BKE_sound_playback_handle_get(sound);
     if (!loaded) {
@@ -2074,7 +2618,7 @@ class EngineAudioAdapter final : public KX_AudioAdapter {
                    name.c_str());
       return 0;
     }
-    return StartHandle(loaded, loop, volume, pitch);
+    return StartHandle(loaded, loop, volume, pitch, sound->filepath);
 #else
     (void)name;
     (void)loop;
@@ -2113,9 +2657,20 @@ class EngineAudioAdapter final : public KX_AudioAdapter {
     ReleaseSoundOwner(handle);
     std::map<uint64_t, std::shared_ptr<aud::IHandle>>::iterator it = handles_.find(handle);
     if (it == handles_.end()) {
+      if (AudioTraceEnabled()) {
+        std::fprintf(stderr, "[SOUND-STOP-CMD] handle=%llu unknown\n",
+                     (unsigned long long)handle);
+      }
       return;
     }
     if (it->second) {
+      if (AudioTraceEnabled()) {
+        std::fprintf(stderr,
+                     "[SOUND-STOP-CMD] handle=%llu status=%d pos=%.3f\n",
+                     (unsigned long long)handle,
+                     static_cast<int>(it->second->getStatus()),
+                     it->second->getPosition());
+      }
       it->second->stop();
     }
     handles_.erase(it);
@@ -2437,7 +2992,7 @@ class EngineAudioAdapter final : public KX_AudioAdapter {
     return 0;
   }
 
-  uint64_t StartHandle(AUD_Sound sound, bool loop, float volume, float pitch)
+  uint64_t StartHandle(AUD_Sound sound, bool loop, float volume, float pitch, const char *who)
   {
     if (!sound) {
       return 0;
@@ -2445,10 +3000,12 @@ class EngineAudioAdapter final : public KX_AudioAdapter {
     try {
       auto device = aud::DeviceManager::getDevice();
       if (!device) {
+        std::fprintf(stderr, "[Audio] no audio device for '%s'\n", who);
         return 0;
       }
       std::shared_ptr<aud::IHandle> handle = device->play(sound, false);
       if (!handle) {
+        std::fprintf(stderr, "[Audio] device refused to play '%s'\n", who);
         return 0;
       }
       if (loop) {
@@ -2465,11 +3022,77 @@ class EngineAudioAdapter final : public KX_AudioAdapter {
       handles_[id] = handle;
       base_volume_[id] = volume;
       handle_bus_[id] = "master";
+      if (AudioTraceEnabled()) {
+        std::fprintf(stderr,
+                     "[SOUND-PLAY] handle=%llu status=%d pos=%.3f vol=%.2f\n",
+                     (unsigned long long)id,
+                     static_cast<int>(handle->getStatus()),
+                     handle->getPosition(),
+                     volume);
+      }
       return id;
     }
-    catch (aud::Exception &) {
+    catch (aud::Exception &e) {
+      std::fprintf(stderr, "[Audio] failed to play '%s': %s\n", who, e.what());
       return 0;
     }
+  }
+
+  static bool AudioTraceEnabled()
+  {
+    static const bool enabled = std::getenv("KX_AUDIO_TRACE") != nullptr;
+    return enabled;
+  }
+
+  /** Resolve a node string value to a bSound created from a file on disk. */
+  blender::bSound *FindSoundByPath(const std::string &name, blender::Main *main)
+  {
+    if (main == nullptr) {
+      return nullptr;
+    }
+    char path[FILE_MAX];
+    blender::BLI_strncpy(path, name.c_str(), sizeof(path));
+    const char *blend_path = BKE_main_blendfile_path(main);
+    if (blender::BLI_path_is_rel(path)) {
+      blender::BLI_path_abs(path, blend_path);
+    }
+    else if (!blender::BLI_path_is_abs_from_cwd(path) && blend_path != nullptr &&
+             blend_path[0] != '\0')
+    {
+      /* Plain relative value: try the directory of the .blend first. */
+      char blend_dir[FILE_MAX];
+      blender::BLI_strncpy(blend_dir, blend_path, sizeof(blend_dir));
+      blender::BLI_path_parent_dir(blend_dir);
+      blender::BLI_path_join(path, sizeof(path), blend_dir, name.c_str());
+    }
+    if (!blender::BLI_exists(path) && !blender::BLI_path_is_rel(name.c_str())) {
+      /* Retry plain relative values against the process cwd. */
+      blender::BLI_strncpy(path, name.c_str(), sizeof(path));
+      blender::BLI_path_abs(path, nullptr);
+    }
+    if (AudioTraceEnabled()) {
+      std::fprintf(stderr,
+                   "[SOUND-PATH] input='%s' blend='%s' resolved='%s' exists=%d\n",
+                   name.c_str(),
+                   blend_path != nullptr ? blend_path : "",
+                   path,
+                   int(blender::BLI_exists(path)));
+    }
+    if (!blender::BLI_exists(path)) {
+      return nullptr;
+    }
+    auto cached = path_sounds_.find(std::string(path));
+    if (cached != path_sounds_.end()) {
+      return cached->second;
+    }
+    blender::bSound *sound = BKE_sound_new_file_exists(main, path);
+    if (sound == nullptr) {
+      return nullptr;
+    }
+    BKE_sound_load_no_assert(main, sound);
+    path_sounds_[std::string(path)] = sound;
+    fallback_main_ = main;
+    return sound;
   }
 #endif
 
@@ -2485,6 +3108,8 @@ class EngineAudioAdapter final : public KX_AudioAdapter {
   std::map<uint64_t, std::string> handle_bus_;
   std::map<std::string, float> bus_gain_;
   std::map<std::string, uint64_t> zones_;
+  std::map<std::string, blender::bSound *> path_sounds_;
+  blender::Main *fallback_main_ = nullptr;
   std::map<KX_GameObject *, AttenuationSettings> object_attenuation_;
   std::map<KX_GameObject *, float> object_doppler_;
   AttenuationSettings last_attenuation_;
@@ -2522,3 +3147,12 @@ std::unique_ptr<KX_AdapterSet> KX_CreateEngineAdapters(KX_Scene *scene)
       KX_CreateEnginePhysicsAdvancedAdapter(scene));
   return set;
 }
+
+#ifdef KX_INPUT_TEST_HOOKS
+/* Test-only entry point: an EngineInputAdapter bound to an injected joystick.
+ * Kept outside the anonymous namespace so the standalone harness can link it. */
+KX_InputAdapter *KX_CreateEngineInputAdapterForTest(KX_Scene *scene, DEV_Joystick *joystick)
+{
+  return new EngineInputAdapter(scene, joystick);
+}
+#endif

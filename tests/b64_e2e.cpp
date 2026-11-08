@@ -46,12 +46,12 @@ void Check(bool ok, const char *what, double actual = 0.0, double expected = 0.0
 /* ------------------------------------------------------------------ harness */
 
 int g_sink_hits[16] = {0};
-int g_ints[8] = {0};
-std::vector<std::vector<std::string>> g_lists(8);
-float g_vectors[8][3] = {{0.0f, 0.0f, 0.0f}};
-bool g_gates[8] = {false};
+int g_ints[12] = {0};
+std::vector<std::vector<std::string>> g_lists(12);
+float g_vectors[12][3] = {{0.0f, 0.0f, 0.0f}};
+bool g_gates[12] = {false};
 
-class TestSinkNode : public KX_LogicNodeRuntime {
+class TestSinkNode : public KX_GameNodeRuntime {
  public:
   explicit TestSinkNode(int slot) : slot_(slot) {}
   KX_ExecResult Execute(KX_ExecutionContext &ctx) override
@@ -66,7 +66,7 @@ class TestSinkNode : public KX_LogicNodeRuntime {
   int slot_;
 };
 
-class TestIntNode : public KX_LogicNodeRuntime {
+class TestIntNode : public KX_GameNodeRuntime {
  public:
   explicit TestIntNode(int slot) : slot_(slot) {}
   KX_ExecResult Execute(KX_ExecutionContext &ctx) override
@@ -79,7 +79,7 @@ class TestIntNode : public KX_LogicNodeRuntime {
   int slot_;
 };
 
-class TestListNode : public KX_LogicNodeRuntime {
+class TestListNode : public KX_GameNodeRuntime {
  public:
   explicit TestListNode(int slot) : slot_(slot) {}
   KX_ExecResult Execute(KX_ExecutionContext &ctx) override
@@ -97,7 +97,7 @@ class TestListNode : public KX_LogicNodeRuntime {
   int slot_;
 };
 
-class TestVectorNode : public KX_LogicNodeRuntime {
+class TestVectorNode : public KX_GameNodeRuntime {
  public:
   explicit TestVectorNode(int slot) : slot_(slot) {}
   KX_ExecResult Execute(KX_ExecutionContext &ctx) override
@@ -112,7 +112,7 @@ class TestVectorNode : public KX_LogicNodeRuntime {
 };
 
 /* Root node that raises its trigger only while the harness flag is set. */
-class TestGateNode : public KX_LogicNodeRuntime {
+class TestGateNode : public KX_GameNodeRuntime {
  public:
   explicit TestGateNode(int slot) : slot_(slot) {}
   KX_ExecResult Execute(KX_ExecutionContext &ctx) override
@@ -189,37 +189,37 @@ void RegisterHarnessNodes()
                           "B64Sink" + std::to_string(slot),
                           SinkSignature(),
                           [captured]() {
-                            return std::unique_ptr<KX_LogicNodeRuntime>(new TestSinkNode(captured));
+                            return std::unique_ptr<KX_GameNodeRuntime>(new TestSinkNode(captured));
                           });
   }
-  for (int slot = 0; slot < 8; ++slot) {
+  for (int slot = 0; slot < 12; ++slot) {
     const int captured = slot;
     registry.RegisterType("B64Int" + std::to_string(slot),
                           "B64Int" + std::to_string(slot),
                           IntSignature(),
                           [captured]() {
-                            return std::unique_ptr<KX_LogicNodeRuntime>(new TestIntNode(captured));
+                            return std::unique_ptr<KX_GameNodeRuntime>(new TestIntNode(captured));
                           });
     registry.RegisterType("B64List" + std::to_string(slot),
                           "B64List" + std::to_string(slot),
                           ListSignature(),
                           [captured]() {
-                            return std::unique_ptr<KX_LogicNodeRuntime>(new TestListNode(captured));
+                            return std::unique_ptr<KX_GameNodeRuntime>(new TestListNode(captured));
                           });
     registry.RegisterType("B64Gate" + std::to_string(slot),
                           "B64Gate" + std::to_string(slot),
                           GateSignature(),
                           [captured]() {
-                            return std::unique_ptr<KX_LogicNodeRuntime>(new TestGateNode(captured));
+                            return std::unique_ptr<KX_GameNodeRuntime>(new TestGateNode(captured));
                           });
   }
-  for (int slot = 0; slot < 8; ++slot) {
+  for (int slot = 0; slot < 12; ++slot) {
     const int captured = slot;
     registry.RegisterType("B64Vector" + std::to_string(slot),
                           "B64Vector" + std::to_string(slot),
                           VectorSignature(),
                           [captured]() {
-                            return std::unique_ptr<KX_LogicNodeRuntime>(new TestVectorNode(captured));
+                            return std::unique_ptr<KX_GameNodeRuntime>(new TestVectorNode(captured));
                           });
   }
 }
@@ -385,6 +385,21 @@ float LastAttr(const KX_MockUIAdapter &ui, int handle, const std::string &key)
   return std::nanf("");
 }
 
+/* Last recorded vector attribute (x/y) for `handle` and `key`. */
+bool LastVector2(const KX_MockUIAdapter &ui, int handle, const std::string &key, float out[2])
+{
+  for (auto it = ui.attribute_calls.rbegin(); it != ui.attribute_calls.rend(); ++it) {
+    if (it->handle == handle && it->key == key) {
+      float vector[3] = {0.0f, 0.0f, 0.0f};
+      it->value.VectorTo(vector);
+      out[0] = vector[0];
+      out[1] = vector[1];
+      return true;
+    }
+  }
+  return false;
+}
+
 int CanvasHandle(const KX_MockUIAdapter &ui, int index)
 {
   int seen = 0;
@@ -394,6 +409,16 @@ int CanvasHandle(const KX_MockUIAdapter &ui, int index)
         return element.handle;
       }
       ++seen;
+    }
+  }
+  return -1;
+}
+
+int CanvasHandleByName(const KX_MockUIAdapter &ui, const std::string &name)
+{
+  for (size_t i = 0; i < ui.canvas_names.size(); ++i) {
+    if (ui.canvas_names[i] == name) {
+      return CanvasHandle(ui, static_cast<int>(i));
     }
   }
   return -1;
@@ -448,6 +473,7 @@ GraphIR BuildUiGraph(UiGraph *out)
   const int scroll_size = AddVector(ir, "size_scroll", 5, 200.0f, 100.0f, 0.0f);
   const int items = AddList(ir, "items", 0);
   const int tab_names = AddList(ir, "tab_names", 1);
+  const int gate_list_clear = AddGate(ir, "gate_list_clear", 7);
 
   ids.scroll = static_cast<int>(ir.nodes.size());
   MakeNode(ir, "CreateScrollView", "scroll");
@@ -463,6 +489,7 @@ GraphIR BuildUiGraph(UiGraph *out)
   Connect(ir, pos0, 0, ids.list_lit, 2);
   Connect(ir, view_size, 0, ids.list_lit, 3);
   Connect(ir, items, 0, ids.list_lit, 4);
+  Connect(ir, gate_list_clear, 0, ids.list_lit, 5);
 
   ids.list_virt = static_cast<int>(ir.nodes.size());
   MakeNode(ir, "CreateListView", "list_virt");
@@ -471,6 +498,7 @@ GraphIR BuildUiGraph(UiGraph *out)
   Connect(ir, pos0, 0, ids.list_virt, 2);
   Connect(ir, view_size, 0, ids.list_virt, 3);
   Connect(ir, items, 0, ids.list_virt, 4);
+  Connect(ir, gate_list_clear, 0, ids.list_virt, 5);
 
   ids.tab = static_cast<int>(ir.nodes.size());
   MakeNode(ir, "CreateTabView", "tab");
@@ -606,6 +634,50 @@ void CheckLists(KX_GraphInstance &instance,
         lit_index,
         3.0);
   Frame(instance, ui, 0.016f, 100.0f, 24.0f, false);
+
+  /* Selection is latched: it must survive later frames without a new click. */
+  for (int i = 0; i < 3; ++i) {
+    Frame(instance, ui, 0.016f, 100.0f, 24.0f, false);
+  }
+  const KX_RuntimeValue *lit_hold = ReadOutput(instance, ids.list_lit, 2);
+  const KX_RuntimeValue *virt_hold = ReadOutput(instance, ids.list_virt, 2);
+  Check(lit_hold != nullptr && lit_hold->AsInt() == 3,
+        "selection stays latched after 3 idle frames",
+        lit_hold != nullptr ? lit_hold->AsInt() : -100.0, 3.0);
+  Check(virt_hold != nullptr && virt_hold->AsInt() == 3,
+        "virtual list latches the same index after 3 idle frames",
+        virt_hold != nullptr ? virt_hold->AsInt() : -100.0, 3.0);
+
+  /* A new click replaces the latched index (scroll back to the first row). */
+  if (lit_bar >= 0) {
+    ui.Find(lit_bar)->value = 0.0f;
+  }
+  if (virt_bar >= 0) {
+    ui.Find(virt_bar)->value = 0.0f;
+  }
+  Frame(instance, ui, 0.016f, 100.0f, 12.0f, false);
+  Frame(instance, ui, 0.016f, 100.0f, 24.0f, true);
+  const KX_RuntimeValue *lit_switch = ReadOutput(instance, ids.list_lit, 2);
+  Check(lit_switch != nullptr && lit_switch->AsInt() == 1,
+        "a later click updates the latched index",
+        lit_switch != nullptr ? lit_switch->AsInt() : -100.0, 1.0);
+
+  /* Clear is an explicit edge-triggered reset, not a per-frame wipe. */
+  g_gates[7] = true;
+  Frame(instance, ui, 0.016f, 100.0f, 24.0f, false);
+  g_gates[7] = false;
+  Frame(instance, ui, 0.016f, 100.0f, 24.0f, false);
+  const KX_RuntimeValue *cleared = ReadOutput(instance, ids.list_lit, 2);
+  Check(cleared != nullptr && cleared->AsInt() == -1,
+        "Clear resets the selection to -1",
+        cleared != nullptr ? cleared->AsInt() : 100.0, -1.0);
+  for (int i = 0; i < 3; ++i) {
+    Frame(instance, ui, 0.016f, 100.0f, 24.0f, false);
+  }
+  const KX_RuntimeValue *still_clear = ReadOutput(instance, ids.list_lit, 2);
+  Check(still_clear != nullptr && still_clear->AsInt() == -1,
+        "the cleared selection stays -1 on later frames",
+        still_clear != nullptr ? still_clear->AsInt() : 100.0, -1.0);
 }
 
 void CheckTab(KX_GraphInstance &instance, const UiGraph &ids, KX_MockUIAdapter &ui)
@@ -691,6 +763,125 @@ void CheckScreenStack(KX_GraphInstance &instance,
         static_cast<double>(ui.canvas_names.size()), 2.0);
   Check(ui.Find(handle_a) != nullptr && ui.Find(handle_a)->visible,
         "re-push reuses the original handle");
+}
+
+/* -------------------------------------- per-instance stack / hot reload */
+
+struct IndepStack {
+  int push_a = 0;
+  int push_b = 0;
+  int pop = 0;
+};
+
+GraphIR BuildIndepStackGraph(IndepStack *out, const std::string &screen_a,
+                             const std::string &screen_b,
+                             int gate_push_a, int gate_push_b, int gate_pop)
+{
+  GraphIR ir;
+  const int gate_a = AddGate(ir, "gate_push_a", gate_push_a);
+  const int gate_b = AddGate(ir, "gate_push_b", gate_push_b);
+  const int gate_p = AddGate(ir, "gate_pop", gate_pop);
+
+  out->push_a = static_cast<int>(ir.nodes.size());
+  MakeNode(ir, "UIScreenStack", "push_a");
+  ir.nodes.back().config_json = "{\"mode\": \"push\"}";
+  Connect(ir, gate_a, 0, out->push_a, 0);
+  Connect(ir, AddString(ir, "screen_a", screen_a), 0, out->push_a, 1);
+
+  out->push_b = static_cast<int>(ir.nodes.size());
+  MakeNode(ir, "UIScreenStack", "push_b");
+  ir.nodes.back().config_json = "{\"mode\": \"push\"}";
+  Connect(ir, gate_b, 0, out->push_b, 0);
+  Connect(ir, AddString(ir, "screen_b", screen_b), 0, out->push_b, 1);
+
+  out->pop = static_cast<int>(ir.nodes.size());
+  MakeNode(ir, "UIScreenStack", "pop");
+  ir.nodes.back().config_json = "{\"mode\": \"pop\"}";
+  Connect(ir, gate_p, 0, out->pop, 0);
+  /* pop needs a non-empty name to pass the entry check; it hides the top. */
+  Connect(ir, AddString(ir, "pop_name", screen_a), 0, out->pop, 1);
+
+  return ir;
+}
+
+void CheckStackIsolation(KX_MockUIAdapter &ui, KX_MockInputAdapter &input,
+                         KX_MockFileAdapter &file)
+{
+  IndepStack ids_a, ids_b;
+  GraphIR ir_a = BuildIndepStackGraph(&ids_a, "IndA1", "IndA2", 3, 4, 5);
+  GraphIR ir_b = BuildIndepStackGraph(&ids_b, "IndB1", "IndB2", 8, 9, 10);
+  KX_GraphInstance *inst_a = BuildInstance(ir_a, input, ui, file);
+  KX_GraphInstance *inst_b = BuildInstance(ir_b, input, ui, file);
+  Check(inst_a != nullptr && inst_b != nullptr,
+        "both stack graphs compile", inst_a != nullptr && inst_b != nullptr, 1.0);
+  if (inst_a == nullptr || inst_b == nullptr) {
+    delete inst_a;
+    delete inst_b;
+    return;
+  }
+
+  g_gates[3] = true;
+  Frame(*inst_a, ui, 0.016f, 0.0f, 0.0f, false);
+  g_gates[3] = false;
+  Frame(*inst_a, ui, 0.016f, 0.0f, 0.0f, false);
+  const int handle_a1 = CanvasHandleByName(ui, "IndA1");
+  Check(handle_a1 >= 0 && ui.Find(handle_a1)->visible,
+        "instance A push shows its first screen");
+
+  /* B pushes while A holds a screen: A must be untouched. */
+  g_gates[8] = true;
+  Frame(*inst_b, ui, 0.016f, 0.0f, 0.0f, false);
+  g_gates[8] = false;
+  Frame(*inst_b, ui, 0.016f, 0.0f, 0.0f, false);
+  const int handle_b1 = CanvasHandleByName(ui, "IndB1");
+  Check(ui.Find(handle_b1) != nullptr && ui.Find(handle_b1)->visible,
+        "instance B push shows its own screen");
+  Check(ui.Find(handle_a1) != nullptr && ui.Find(handle_a1)->visible,
+        "instance B push does not hide instance A's screen");
+
+  /* B pops its own screen; A stays on top of its own stack. */
+  g_gates[10] = true;
+  Frame(*inst_b, ui, 0.016f, 0.0f, 0.0f, false);
+  g_gates[10] = false;
+  Frame(*inst_b, ui, 0.016f, 0.0f, 0.0f, false);
+  Check(ui.Find(handle_b1) != nullptr && !ui.Find(handle_b1)->visible,
+        "instance B pop hides only its own screen");
+  Check(ui.Find(handle_a1) != nullptr && ui.Find(handle_a1)->visible,
+        "instance A still shows its screen after B pops");
+
+  /* A pushes a second screen, then the graph is rebuilt (hot reload path). */
+  g_gates[4] = true;
+  Frame(*inst_a, ui, 0.016f, 0.0f, 0.0f, false);
+  g_gates[4] = false;
+  Frame(*inst_a, ui, 0.016f, 0.0f, 0.0f, false);
+  const int handle_a2 = CanvasHandleByName(ui, "IndA2");
+  Check(ui.Find(handle_a2) != nullptr && ui.Find(handle_a2)->visible &&
+            ui.Find(handle_a1) != nullptr && !ui.Find(handle_a1)->visible,
+        "instance A push shows its second screen and hides the first");
+
+  const size_t canvases_before = ui.canvas_names.size();
+  std::vector<std::string> warnings;
+  Check(inst_a->Rebuild(ir_a, &warnings), "hot reload rebuild accepts the graph");
+  Frame(*inst_a, ui, 0.016f, 0.0f, 0.0f, false);
+  Check(ui.canvas_names.size() == canvases_before,
+        "rebuild does not recreate canvases",
+        static_cast<double>(ui.canvas_names.size()),
+        static_cast<double>(canvases_before));
+  Check(ui.Find(handle_a2) != nullptr && ui.Find(handle_a2)->visible &&
+            ui.Find(handle_a1) != nullptr && !ui.Find(handle_a1)->visible,
+        "rebuild keeps the stack (top still IndA2)");
+
+  /* A pop after rebuild proves the depth survived, not just the top handle. */
+  g_gates[5] = true;
+  Frame(*inst_a, ui, 0.016f, 0.0f, 0.0f, false);
+  g_gates[5] = false;
+  Frame(*inst_a, ui, 0.016f, 0.0f, 0.0f, false);
+  Check(ui.Find(handle_a1) != nullptr && ui.Find(handle_a1)->visible &&
+            ui.Find(handle_a2) != nullptr && !ui.Find(handle_a2)->visible,
+        "pop after rebuild returns to the screen below");
+
+  delete inst_a;
+  delete inst_b;
 }
 
 /* --------------------------------------------------------- animation graph */
@@ -789,6 +980,168 @@ void CheckAnimations(KX_GraphInstance &instance, const AnimGraph &ids, KX_MockUI
   Frame(instance, ui, 0.25f, 0.0f, 0.0f, false);
   Check(g_sink_hits[9] == 1, "OnDone does not repeat after completion",
         static_cast<double>(g_sink_hits[9]), 1.0);
+}
+
+/* ------------------------------------------- multi-property animation E2E */
+
+struct MultiAnimGraph {
+  int position = 0;
+  int size = 0;
+  int opacity = 0;
+  int done_position = 0;
+  int done_size = 0;
+  int done_opacity = 0;
+};
+
+GraphIR BuildMultiAnimGraph(int widget, MultiAnimGraph *out)
+{
+  MultiAnimGraph ids;
+  GraphIR ir;
+  MakeNode(ir, "OnInit", "init");
+  g_ints[7] = widget;
+  const int widget_node = AddInt(ir, "widget_multi", 7);
+
+  /* Position: 2 s, linear, (0,0) -> (200,200). */
+  ids.position = static_cast<int>(ir.nodes.size());
+  MakeNode(ir, "UIAnimation", "anim_multi_position");
+  ir.nodes.back().inputs[4].value_tag = KX_VALUE_VECTOR;
+  ir.nodes.back().inputs[5].value_tag = KX_VALUE_VECTOR;
+  ir.nodes.back().config_json = "{\"easing\": \"linear\"}";
+  Connect(ir, 0, 0, ids.position, 0);
+  Connect(ir, widget_node, 0, ids.position, 1);
+  Connect(ir, AddFloat(ir, "multi_duration_position", 2.0f), 0, ids.position, 2);
+  Connect(ir, AddString(ir, "multi_property_position", "position"), 0, ids.position, 3);
+  Connect(ir, AddVector(ir, "multi_from_position", 2, 0.0f, 0.0f, 0.0f), 0, ids.position, 4);
+  Connect(ir, AddVector(ir, "multi_to_position", 6, 200.0f, 200.0f, 0.0f), 0, ids.position, 5);
+
+  /* Scale/size: 4 s, linear, (100,100) -> (500,500). */
+  ids.size = static_cast<int>(ir.nodes.size());
+  MakeNode(ir, "UIAnimation", "anim_multi_size");
+  ir.nodes.back().inputs[4].value_tag = KX_VALUE_VECTOR;
+  ir.nodes.back().inputs[5].value_tag = KX_VALUE_VECTOR;
+  ir.nodes.back().config_json = "{\"easing\": \"linear\"}";
+  Connect(ir, 0, 0, ids.size, 0);
+  Connect(ir, widget_node, 0, ids.size, 1);
+  Connect(ir, AddFloat(ir, "multi_duration_size", 4.0f), 0, ids.size, 2);
+  Connect(ir, AddString(ir, "multi_property_size", "size"), 0, ids.size, 3);
+  Connect(ir, AddVector(ir, "multi_from_size", 7, 100.0f, 100.0f, 0.0f), 0, ids.size, 4);
+  Connect(ir, AddVector(ir, "multi_to_size", 8, 500.0f, 500.0f, 0.0f), 0, ids.size, 5);
+
+  /* Opacity: 1 s, ease_out, 0 -> 1. */
+  ids.opacity = static_cast<int>(ir.nodes.size());
+  MakeNode(ir, "UIAnimation", "anim_multi_opacity");
+  ir.nodes.back().inputs[4].value_tag = KX_VALUE_FLOAT;
+  ir.nodes.back().inputs[5].value_tag = KX_VALUE_FLOAT;
+  ir.nodes.back().config_json = "{\"easing\": \"ease_out\"}";
+  Connect(ir, 0, 0, ids.opacity, 0);
+  Connect(ir, widget_node, 0, ids.opacity, 1);
+  Connect(ir, AddFloat(ir, "multi_duration_opacity", 1.0f), 0, ids.opacity, 2);
+  Connect(ir, AddString(ir, "multi_property_opacity", "opacity"), 0, ids.opacity, 3);
+  Connect(ir, AddFloat(ir, "multi_from_opacity", 0.0f), 0, ids.opacity, 4);
+  Connect(ir, AddFloat(ir, "multi_to_opacity", 1.0f), 0, ids.opacity, 5);
+
+  /* Slots 13..15 keep clear of the file graph's 10/11 sinks, which are
+   * counted in the same global table later in this binary. */
+  ids.done_position = AddSink(ir, "sink_multi_position", 13);
+  ids.done_size = AddSink(ir, "sink_multi_size", 14);
+  ids.done_opacity = AddSink(ir, "sink_multi_opacity", 15);
+  Connect(ir, ids.position, 0, ids.done_position, 0);
+  Connect(ir, ids.size, 0, ids.done_size, 0);
+  Connect(ir, ids.opacity, 0, ids.done_opacity, 0);
+
+  *out = ids;
+  return ir;
+}
+
+void CheckMultiAnimations(int widget,
+                          KX_GraphInstance &instance,
+                          const MultiAnimGraph &ids,
+                          KX_MockUIAdapter &ui)
+{
+  ui.DrawScreen(1280, 720);
+  Frame(instance, ui, 0.25f, 0.0f, 0.0f, false); /* trigger */
+  Frame(instance, ui, 0.25f, 0.0f, 0.0f, false); /* 0.25 s */
+  Frame(instance, ui, 0.25f, 0.0f, 0.0f, false); /* 0.50 s */
+
+  float position[2] = {0.0f, 0.0f};
+  float size[2] = {0.0f, 0.0f};
+  Check(LastVector2(ui, widget, "position", position) &&
+            std::fabs(position[0] - 50.0f) < 0.01f,
+        "multi-anim position x at 0.5 s (2 s clock)",
+        position[0],
+        50.0);
+  Check(std::fabs(position[1] - 50.0f) < 0.01f,
+        "multi-anim position y at 0.5 s (2 s clock)",
+        position[1],
+        50.0);
+  Check(LastVector2(ui, widget, "size", size) && std::fabs(size[0] - 150.0f) < 0.01f,
+        "multi-anim size x at 0.5 s (4 s clock)",
+        size[0],
+        150.0);
+  Check(std::fabs(size[1] - 150.0f) < 0.01f,
+        "multi-anim size y at 0.5 s (4 s clock)",
+        size[1],
+        150.0);
+  const float opacity_mid = LastAttr(ui, widget, "opacity");
+  Check(std::fabs(opacity_mid - 0.75f) < 0.001f,
+        "multi-anim opacity at 0.5 s follows its 1 s ease_out curve",
+        opacity_mid,
+        0.75);
+
+  Frame(instance, ui, 0.25f, 0.0f, 0.0f, false); /* 0.75 s */
+  Frame(instance, ui, 0.25f, 0.0f, 0.0f, false); /* 1.00 s */
+
+  Check(LastVector2(ui, widget, "position", position) &&
+            std::fabs(position[0] - 100.0f) < 0.01f,
+        "multi-anim position x is halfway at 1.0 s",
+        position[0],
+        100.0);
+  Check(std::fabs(position[1] - 100.0f) < 0.01f,
+        "multi-anim position y is halfway at 1.0 s",
+        position[1],
+        100.0);
+  Check(LastVector2(ui, widget, "size", size) && std::fabs(size[0] - 200.0f) < 0.01f,
+        "multi-anim size x is one quarter at 1.0 s",
+        size[0],
+        200.0);
+  Check(std::fabs(size[1] - 200.0f) < 0.01f,
+        "multi-anim size y is one quarter at 1.0 s",
+        size[1],
+        200.0);
+  const float opacity_done = LastAttr(ui, widget, "opacity");
+  Check(std::fabs(opacity_done - 1.0f) < 0.001f,
+        "multi-anim opacity completed at 1.0 s while others still run",
+        opacity_done,
+        1.0);
+
+  Frame(instance, ui, 0.25f, 0.0f, 0.0f, false); /* 1.25 s */
+  Check(g_sink_hits[15] == 1, "opacity OnDone fires at its own 1 s finish",
+        static_cast<double>(g_sink_hits[15]), 1.0);
+  Check(g_sink_hits[14] == 0, "size OnDone has not fired at 1.25 s",
+        static_cast<double>(g_sink_hits[14]), 0.0);
+
+  for (int frame = 0; frame < 11; ++frame) {
+    Frame(instance, ui, 0.25f, 0.0f, 0.0f, false); /* 4.00 s */
+  }
+  Check(LastVector2(ui, widget, "size", size) && std::fabs(size[0] - 500.0f) < 0.01f,
+        "multi-anim size x reaches its 4 s target",
+        size[0],
+        500.0);
+  Check(std::fabs(size[1] - 500.0f) < 0.01f,
+        "multi-anim size y reaches its 4 s target",
+        size[1],
+        500.0);
+  Check(LastVector2(ui, widget, "position", position) &&
+            std::fabs(position[0] - 200.0f) < 0.01f,
+        "multi-anim position x stays at its 2 s target",
+        position[0],
+        200.0);
+  Check(std::fabs(position[1] - 200.0f) < 0.01f,
+        "multi-anim position y stays at its 2 s target",
+        position[1],
+        200.0);
+  Check(g_sink_hits[14] == 1, "size OnDone fires exactly once at 4 s",
+        static_cast<double>(g_sink_hits[14]), 1.0);
 }
 
 /* -------------------------------------------------------------- file graph */
@@ -1061,6 +1414,11 @@ int main()
     delete instance;
   }
 
+  /* ------------------- per-instance stack isolation and hot reload */
+  {
+    CheckStackIsolation(ui, input, file);
+  }
+
   /* ------------------------------------------------------- animation E2E */
   {
     AnimGraph ids;
@@ -1071,6 +1429,21 @@ int main()
       return 1;
     }
     CheckAnimations(*instance, ids, ui);
+    delete instance;
+  }
+
+  /* ------------------------------------- multi-property animation E2E */
+  {
+    const int multi_canvas = ui.CreateCanvas("AnimMulti");
+    const int multi_widget = ui.CreateLabel(multi_canvas, "Multi");
+    MultiAnimGraph ids;
+    GraphIR ir = BuildMultiAnimGraph(multi_widget, &ids);
+    KX_GraphInstance *instance = BuildInstance(ir, input, ui, file);
+    if (instance == nullptr) {
+      std::printf("FAIL multi-animation graph did not compile\n");
+      return 1;
+    }
+    CheckMultiAnimations(multi_widget, *instance, ids, ui);
     delete instance;
   }
 

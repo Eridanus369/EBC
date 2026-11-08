@@ -8,14 +8,17 @@
  * Version patch user preferences.
  */
 #define DNA_DEPRECATED_ALLOW
+#include <cstdio>
 #include <cstring>
 
 #include <fmt/format.h>
 
+#include "BLI_fileops.hh"
 #include "BLI_listbase.hh"
 #include "BLI_map.hh"
 #include "BLI_math_rotation_c.hh"
 #include "BLI_math_vector_c.hh"
+#include "BLI_path_utils.hh"
 #include "BLI_string.hh"
 #include "BLI_string_utf8.hh"
 #include "BLI_string_utils.hh"
@@ -29,6 +32,7 @@
 #include "DNA_windowmanager_types.h"
 
 #include "BKE_addon.h"
+#include "BKE_appdir.hh"
 #include "BKE_blender_version.h"
 #include "BKE_colorband.hh"
 #include "BKE_idprop.hh"
@@ -821,6 +825,251 @@ static void keymap_update_mesh_texture_paint_brushes(wmKeyMap *keymap)
   }();
 
   keymap_update_brushes(keymap, asset_prefix, tool_property, tool_tool_map, {}, id_asset_map);
+}
+
+/* ----------------------------------------------------------------------------
+ * Game Nodes: migrate the legacy add-on preferences to native UserDef data.
+ */
+
+static bool game_nodes_idp_bool(const IDProperty *group, const char *name, bool fallback)
+{
+  const IDProperty *prop = IDP_GetPropertyFromGroup_null(group, name);
+  if (prop == nullptr) {
+    return fallback;
+  }
+  if (prop->type == IDP_BOOLEAN) {
+    return IDP_bool_get(prop) != 0;
+  }
+  if (prop->type == IDP_INT) {
+    return IDP_int_get(prop) != 0;
+  }
+  return fallback;
+}
+
+static void game_nodes_idp_string(const IDProperty *group,
+                                  const char *name,
+                                  char *dst,
+                                  const size_t dst_size)
+{
+  const IDProperty *prop = IDP_GetPropertyFromGroup_null(group, name);
+  if (prop == nullptr || prop->type != IDP_STRING) {
+    return;
+  }
+  BLI_strncpy(dst, IDP_string_get(prop), dst_size);
+}
+
+static const char *game_nodes_idp_string_ptr(const IDProperty *group, const char *name)
+{
+  const IDProperty *prop = IDP_GetPropertyFromGroup_null(group, name);
+  if (prop == nullptr || prop->type != IDP_STRING) {
+    return "";
+  }
+  return IDP_string_get(prop);
+}
+
+static eGameNodesUplogicVersion game_nodes_idp_uplogic_version(const IDProperty *group)
+{
+  static const char *ids[] = {
+      "latest", "1.9.5", "2.0.1", "3.2", "3.2.1", "4.5", "4.5.2", "5.1.1"};
+  const IDProperty *prop = IDP_GetPropertyFromGroup_null(group, "uplogic_version");
+  if (prop == nullptr) {
+    return GAME_NODES_UPLOGIC_511;
+  }
+  if (prop->type == IDP_INT) {
+    const int value = IDP_int_get(prop);
+    if (value >= 0 && value <= GAME_NODES_UPLOGIC_511) {
+      return eGameNodesUplogicVersion(value);
+    }
+  }
+  else if (prop->type == IDP_STRING) {
+    for (int i = 0; i < ARRAY_SIZE(ids); i++) {
+      if (STREQ(IDP_string_get(prop), ids[i])) {
+        return eGameNodesUplogicVersion(i);
+      }
+    }
+  }
+  return GAME_NODES_UPLOGIC_511;
+}
+
+static eGameNodesFilterBy game_nodes_idp_filter_by(const IDProperty *group)
+{
+  static const char *ids[] = {"TREES", "FLOAT", "INT", "BOOL", "STRING", "TIMER", "NAME"};
+  const IDProperty *prop = IDP_GetPropertyFromGroup_null(group, "filter_by");
+  if (prop == nullptr) {
+    return GAME_NODES_FILTER_NAME;
+  }
+  if (prop->type == IDP_INT) {
+    const int value = IDP_int_get(prop);
+    if (value >= 0 && value <= GAME_NODES_FILTER_NAME) {
+      return eGameNodesFilterBy(value);
+    }
+  }
+  else if (prop->type == IDP_STRING) {
+    for (int i = 0; i < ARRAY_SIZE(ids); i++) {
+      if (STREQ(IDP_string_get(prop), ids[i])) {
+        return eGameNodesFilterBy(i);
+      }
+    }
+  }
+  return GAME_NODES_FILTER_NAME;
+}
+
+static std::string game_nodes_json_escape(const char *value)
+{
+  std::string result;
+  for (const char *c = value; *c; c++) {
+    switch (*c) {
+      case '"':
+        result += "\\\"";
+        break;
+      case '\\':
+        result += "\\\\";
+        break;
+      case '\b':
+        result += "\\b";
+        break;
+      case '\f':
+        result += "\\f";
+        break;
+      case '\n':
+        result += "\\n";
+        break;
+      case '\r':
+        result += "\\r";
+        break;
+      case '\t':
+        result += "\\t";
+        break;
+      default:
+        if (static_cast<unsigned char>(*c) < 0x20) {
+          result += fmt::format("\\u{:04x}", int(*c));
+        }
+        else {
+          result += *c;
+        }
+        break;
+    }
+  }
+  return result;
+}
+
+static void game_nodes_json_append_node(std::string &json,
+                                        bool &first,
+                                        const IDProperty &node)
+{
+  if (node.type != IDP_GROUP) {
+    return;
+  }
+  json += first ? "\n    {" : ",\n    {";
+  first = false;
+  json += "\"idname\": \"" + game_nodes_json_escape(
+                               game_nodes_idp_string_ptr(&node, "idname")) + "\",";
+  json += " \"label\": \"" + game_nodes_json_escape(
+                              game_nodes_idp_string_ptr(&node, "label")) + "\",";
+  json += " \"modname\": \"" + game_nodes_json_escape(
+                                game_nodes_idp_string_ptr(&node, "modname")) + "\",";
+  json += " \"ui_code\": \"" + game_nodes_json_escape(
+                                game_nodes_idp_string_ptr(&node, "ui_code")) + "\",";
+  json += " \"logic_code\": \"" + game_nodes_json_escape(
+                                   game_nodes_idp_string_ptr(&node, "logic_code")) + "\"}";
+}
+
+static void game_nodes_write_custom_nodes_json(const IDProperty *group)
+{
+  const IDProperty *nodes = IDP_GetPropertyFromGroup_null(group, "custom_game_nodes");
+  if (nodes == nullptr) {
+    /* Pre-rename add-on builds stored the collection under `custom_logic_nodes`. */
+    nodes = IDP_GetPropertyFromGroup_null(group, "custom_logic_nodes");
+  }
+  if (nodes == nullptr) {
+    return;
+  }
+
+  std::string json = "{\n  \"custom_game_nodes\": [";
+  bool first = true;
+  if (nodes->type == IDP_GROUP) {
+    for (const IDProperty &node : nodes->data.group) {
+      game_nodes_json_append_node(json, first, node);
+    }
+  }
+  else if (nodes->type == IDP_IDPARRAY) {
+    const IDProperty *items = IDP_property_array_get(nodes);
+    for (int i = 0; i < nodes->len; i++) {
+      game_nodes_json_append_node(json, first, items[i]);
+    }
+  }
+  else {
+    return;
+  }
+  json += "\n  ]\n}\n";
+
+  const std::optional<std::string> config_dir = BKE_appdir_folder_id_create(BLENDER_USER_CONFIG,
+                                                                           "game_nodes");
+  if (!config_dir.has_value()) {
+    return;
+  }
+  char filepath[1024];
+  BLI_path_join(filepath, sizeof(filepath), config_dir->c_str(), "custom_nodes.json");
+
+  FILE *file = BLI_fopen(filepath, "w");
+  if (file == nullptr) {
+    return;
+  }
+  fwrite(json.c_str(), 1, json.size(), file);
+  fclose(file);
+}
+
+static void game_nodes_migrate_prefs(UserDef *userdef, const IDProperty *group)
+{
+  GameNodesPrefs &prefs = userdef->game_nodes;
+
+  /* Filter settings used to live in the nested `prop_filter` pointer group. */
+  const IDProperty *filter = IDP_GetPropertyFromGroup_null(group, "prop_filter");
+  if (filter == nullptr || filter->type != IDP_GROUP) {
+    filter = group;
+  }
+
+  game_nodes_idp_string(group, "project_path", prefs.project_path, sizeof(prefs.project_path));
+  prefs.copy_engine = game_nodes_idp_bool(group, "copy_engine", prefs.copy_engine);
+  prefs.use_symlink = game_nodes_idp_bool(group, "use_symlink", prefs.use_symlink);
+  prefs.use_reload_text = game_nodes_idp_bool(group, "use_reload_text", prefs.use_reload_text);
+  prefs.auto_switch_trees = game_nodes_idp_bool(
+      group, "auto_switch_trees", prefs.auto_switch_trees);
+  prefs.use_node_debug = game_nodes_idp_bool(group, "use_node_debug", prefs.use_node_debug);
+  prefs.use_node_notify = game_nodes_idp_bool(group, "use_node_notify", prefs.use_node_notify);
+  prefs.use_fmod_nodes = game_nodes_idp_bool(group, "use_fmod_nodes", prefs.use_fmod_nodes);
+  prefs.uplogic_version = game_nodes_idp_uplogic_version(group);
+
+  prefs.palette_trigger_open = game_nodes_idp_bool(
+      group, "palette_trigger_open", prefs.palette_trigger_open);
+  prefs.palette_input_open = game_nodes_idp_bool(
+      group, "palette_input_open", prefs.palette_input_open);
+  prefs.palette_object_open = game_nodes_idp_bool(
+      group, "palette_object_open", prefs.palette_object_open);
+  prefs.palette_physics_open = game_nodes_idp_bool(
+      group, "palette_physics_open", prefs.palette_physics_open);
+  prefs.palette_logic_open = game_nodes_idp_bool(
+      group, "palette_logic_open", prefs.palette_logic_open);
+  prefs.palette_value_open = game_nodes_idp_bool(
+      group, "palette_value_open", prefs.palette_value_open);
+  prefs.palette_uiscene_open = game_nodes_idp_bool(
+      group, "palette_uiscene_open", prefs.palette_uiscene_open);
+  prefs.palette_ui_expanded = game_nodes_idp_bool(
+      group, "palette_ui_expanded", prefs.palette_ui_expanded);
+  prefs.palette_file_expanded = game_nodes_idp_bool(
+      group, "palette_file_expanded", prefs.palette_file_expanded);
+  prefs.palette_utility_open = game_nodes_idp_bool(
+      group, "palette_utility_open", prefs.palette_utility_open);
+
+  prefs.do_filter = game_nodes_idp_bool(filter, "do_filter", prefs.do_filter);
+  prefs.filter_by = game_nodes_idp_filter_by(filter);
+  game_nodes_idp_string(filter, "filter_name", prefs.filter_name, sizeof(prefs.filter_name));
+  prefs.show_hidden = game_nodes_idp_bool(filter, "show_hidden", prefs.show_hidden);
+  prefs.show_trees = game_nodes_idp_bool(filter, "show_trees", prefs.show_trees);
+  prefs.collapse_trees = game_nodes_idp_bool(filter, "collapse_trees", prefs.collapse_trees);
+
+  /* Custom node definitions are too large for DNA; keep them in the user config JSON. */
+  game_nodes_write_custom_nodes_json(group);
 }
 
 void blo_do_versions_userdef(UserDef *userdef)
@@ -1699,7 +1948,6 @@ void blo_do_versions_userdef(UserDef *userdef)
   }
 
   if (!USER_UPBGE_VERSION_ATLEAST(50, 3)) {
-    BKE_addon_ensure(&userdef->addons, "bge_netlogic");
     BKE_addon_ensure(&userdef->addons, "bge_bricknodes");
     BKE_addon_ensure(&userdef->addons, "game_engine_save_as_runtime_eevee");
   }
@@ -1827,6 +2075,23 @@ void blo_do_versions_userdef(UserDef *userdef)
       userdef->sequencer_default_strip_length = 1.0f;
     }
   }
+
+  if (!USER_VERSION_ATLEAST(503, 22)) {
+    /* Move the Game Nodes add-on preferences into native UserDef data. */
+    userdef->game_nodes = GameNodesPrefs();
+    for (const char *module : {"bge_netlogic", "bge_gamenodes"}) {
+      const bAddon *addon = BKE_addon_find(&userdef->addons, module);
+      if (addon == nullptr || addon->prop == nullptr) {
+        continue;
+      }
+      game_nodes_migrate_prefs(userdef, addon->prop);
+    }
+    BKE_addon_remove_safe(&userdef->addons, "bge_netlogic");
+    BKE_addon_remove_safe(&userdef->addons, "bge_gamenodes");
+  }
+
+  /* Game Nodes is a startup module now; drop stale enabled add-on entries. */
+  BKE_addon_remove_safe(&userdef->addons, "bge_gamenodes");
 
   /**
    * Always bump subversion in BKE_blender_version.h when adding versioning

@@ -112,10 +112,11 @@ class HiZBuffer {
 
   /**
    * Update the content of the HiZ buffer with the source depth set by `set_source()`.
-   * Noop if the buffer has not been tagged as dirty.
+   * Noop if the buffer has not been tagged as dirty, unless `force` is set (used after a pass
+   * modified the depth buffer in place, like the heightfield displacement trace).
    * Should be called before each passes that needs to read the hiz buffer.
    */
-  void update();
+  void update(bool force = false);
 
   void debug_draw(View &view, gpu::FrameBuffer *view_fb);
 

@@ -18,13 +18,21 @@ class PHY_IVehicle {
  public:
   virtual ~PHY_IVehicle(){};
 
+  /**
+   * @param ownsMotionState true when the vehicle owns @a motionState and must
+   *        delete it (legacy Python addWheel creates a fresh one), false when
+   *        the caller keeps ownership (e.g. the wheel controller's own motion
+   *        state). Deleting a non-owned motion state double-frees it when the
+   *        controller is destroyed later.
+   */
   virtual void AddWheel(PHY_IMotionState *motionState,
                         MT_Vector3 connectionPoint,
                         MT_Vector3 downDirection,
                         MT_Vector3 axleDirection,
                         float suspensionRestLength,
                         float wheelRadius,
-                        bool hasSteering) = 0;
+                        bool hasSteering,
+                        bool ownsMotionState = true) = 0;
 
   virtual int GetNumWheels() const = 0;
 
@@ -50,6 +58,9 @@ class PHY_IVehicle {
   virtual void SetSuspensionDamping(float suspensionStiffness, int wheelIndex) = 0;
 
   virtual void SetSuspensionCompression(float suspensionStiffness, int wheelIndex) = 0;
+
+  /** Per-wheel suspension rest length (the ray length used by the vehicle). */
+  virtual void SetSuspensionRestLength(float suspensionRestLength, int wheelIndex) = 0;
 
   virtual void SetRollInfluence(float rollInfluence, int wheelIndex) = 0;
 

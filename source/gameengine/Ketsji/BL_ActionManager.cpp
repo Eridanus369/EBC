@@ -195,3 +195,19 @@ void BL_ActionManager::Update(float curtime, bool applyToObject)
     pair.second->UpdateIPOs();
   }
 }
+
+short BL_ActionManager::FindLayerByActionName(const std::string &name)
+{
+  for (const auto &pair : m_layers) {
+    if (pair.second != nullptr && pair.second->GetName() == name) {
+      return pair.first;
+    }
+  }
+  return -1;
+}
+
+float BL_ActionManager::GetActionFrameAtTime(short layer, float curtime)
+{
+  BL_Action *action = GetAction(layer);
+  return action != nullptr ? action->GetFrameAtTime(curtime) : 0.0f;
+}

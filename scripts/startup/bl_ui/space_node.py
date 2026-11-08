@@ -354,9 +354,70 @@ class NODE_MT_add(node_add_menu.AddNodeMenu):
             layout.menu_contents("NODE_MT_texture_node_add_all")
         elif snode.tree_type == 'EeveeFilterGraphNodeTree':
             layout.menu_contents("NODE_MT_filter_graph_node_add_all")
+        elif snode.tree_type == 'PhysNodeTree':
+            layout.menu_contents("NODE_MT_Phys_add_all")
         elif nodeitems_utils.has_node_categories(context):
             # Actual node sub-menus are defined by draw functions from node categories.
             nodeitems_utils.draw_node_categories_menu(self, context)
+
+
+def _physnodes_ui_enabled():
+    """True when the physnodes addon is loaded and can own the Add menu.
+
+    With the addon enabled, the same 8 C++ nodes are drawn inside its
+    collapsible per-domain submenus (NODE_MT_add hook); drawing them here too
+    would duplicate every native entry.  Without the addon the legacy flat
+    list below stays available.
+    """
+    try:
+        import addon_utils
+
+        for name in ("bl_ext.user_default.physnodes", "physnodes"):
+            try:
+                loaded, enabled = addon_utils.check(name)
+            except Exception:
+                continue
+            if loaded and enabled:
+                return True
+    except Exception:
+        pass
+    return False
+
+
+class NODE_MT_Phys_add_all(node_add_menu.AddNodeMenu):
+    bl_space_type = 'NODE_EDITOR'
+    bl_label = "Add Physics Node"
+    bl_translation_context = i18n_contexts.operator_default
+
+    def draw(self, context):
+        layout = self.layout
+        layout.operator_context = 'INVOKE_REGION_WIN'
+
+        if _physnodes_ui_enabled():
+            # The addon hook appended to NODE_MT_add draws the unified
+            # collapsible groups (native + Python) for this same menu.
+            return
+
+        # A PhysNodeTree is required before any node can be added: the generic
+        # `node.add_node` operator polls `space.edit_tree`, so without a tree
+        # every entry below would be disabled with no visible reason.
+        if getattr(context.space_data, "node_tree", None) is None:
+            column = layout.column()
+            column.label(text="尚无激活的物理节点树", icon="INFO")
+            column.label(text="点顶部「新建」创建 PhysNodeTree 后，下列节点才可用")
+            layout.separator()
+
+        layout.label(text="输入节点")
+        self.node_operator(layout, "PhysRigidBodyNodeCXX", label="Rigid Body")
+        self.node_operator(layout, "PhysColliderNodeCXX", label="Collider")
+        self.node_operator(layout, "PhysCollectionInputNodeCXX", label="Collection Input")
+        self.node_operator(layout, "PhysTimeNodeCXX", label="Time")
+        layout.separator()
+        layout.label(text="输出节点")
+        self.node_operator(layout, "PhysOutputNodeCXX", label="Output")
+        self.node_operator(layout, "PhysParticleToMeshNodeCXX", label="Particle to Mesh")
+        self.node_operator(layout, "PhysParticleToVolumeNodeCXX", label="Particle to Volume")
+        self.node_operator(layout, "PhysVolumeOutputNodeCXX", label="Volume Output")
 
 
 class NODE_MT_filter_graph_node_input(node_add_menu.AddNodeMenu):
@@ -1349,6 +1410,7 @@ classes = (
     NODE_HT_header,
     NODE_MT_editor_menus,
     NODE_MT_add,
+    NODE_MT_Phys_add_all,
     NODE_MT_filter_graph_node_input,
     NODE_MT_filter_graph_node_pass,
     NODE_MT_filter_graph_node_output,

@@ -7,14 +7,14 @@
 ## 0. 怎么用这份清单
 
 本清单回答的是「**已经做出来的能力，哪里还不完整**」，不回答「哪些还没做」。
-后者唯一出处是 [DEFERRED_FOREVER.md](DEFERRED_FOREVER.md)（57 条基线 + 本轮新增 9 条）。
+后者唯一出处是 [DEFERRED_FOREVER.md](DEFERRED_FOREVER.md)（57 条基线 + 本轮新增 8 条）。
 一份报告里如果同时引用两者，必须分开写「未实现（FOREVER）」与「已实现但有边界（本清单）」。
 
 ### 0.1 三种口径不能混
 
 | 口径 | 分母 | 当前主数字 | 说明什么 | 出处 |
 |---|---|---|---|---|
-| 能力域加权（已注册节点） | **286** | 严格 `252/286 = 88.1%`；加权 `267/286 = 93.4%`；覆盖 `282/286 = 98.6%` | 新节点体系自身的完成度 | [CAPABILITY_WEIGHT_AUDIT.md](CAPABILITY_WEIGHT_AUDIT.md) §0 |
+| 能力域加权（286 域表快照，**不是 327 口径**） | **286**（`TypeCount() = 327`；286 是旧 14 域权重表分母） | 严格 `252/286 = 88.1%`；加权 `267/286 = 93.4%`；覆盖 `282/286 = 98.6%`。**仅作域权重快照，不得引用为全局口径**；327 口径三值为 98.69% / 99.34% / 97.86% | 新节点体系自身的完成度（域权重视角） | [CAPABILITY_WEIGHT_AUDIT.md](CAPABILITY_WEIGHT_AUDIT.md) §0 |
 | 节点可用率（能力域） | 该能力域节点数 | 动画域（**11 节点**）：`10 full / 1 mock-verified` → 严格 `10/11 = 90.9%`（加权 95.5%、覆盖 100.0%） | 某个**能力域**里有多少节点是 full | [CAPABILITY_WEIGHT_AUDIT.md](CAPABILITY_WEIGHT_AUDIT.md) §2.2/§5.1 |
 | 节点可用率（批次子集） | 该批次节点数 | B6.1 动画高级子集（**8 节点**）：`4 full / 2 approximate / 2 unsupported` → 严格 `4/8 = 50.0%`；B6.1 全批 23 节点：`16/23 = 69.6%` | 某个**批次子集**里有多少节点是 full，**不能代表能力域** | [B6_ANIMATION.md](B6_ANIMATION.md) §6 |
 | legacy 兼容度 | **290 / 233 / 360** | `69/290 = 23.8%`；`69/233 = 29.6%`；semantic `146/360 = 40.6%` | 旧 uplogic 图迁移了多少 | [LEGACY_COVERAGE_POLICY.md](LEGACY_COVERAGE_POLICY.md) §0 |
@@ -35,7 +35,7 @@
 | `mitigated` | 限制的**根因仍在**，但已用替代路径、明确失败或边界守卫把伤害限制住 | 必须同时给出「根因未消除」与「缓解生效」两类证据 |
 | `removed` | 限制已不存在 | 必须给出移除证据（代码/文档/回归）；证明不了就不要写 |
 
-### 0.3 总览（24 条：active 20 / mitigated 4 / removed 0）
+### 0.3 总览（31 条：active 26 / mitigated 4 / removed 1；2026-11-07 快照，新增 #31、#32，#19 改判 `removed`；#26 为重分类说明、不占表行）
 
 | # | 限制 | 状态 |
 |---|---|---|
@@ -57,12 +57,19 @@
 | 16 | Collision 1 帧采样延迟 | `active` |
 | 17 | SetBoneTransform 延迟更新 | `active` |
 | 18 | BlendActions 固定占用 layer 0/1、只支持两个动作 | `active` |
-| 19 | 导航无 Recast，agent 参数不生效 | `active` |
+| 19 | 导航无 Recast，agent 参数不生效（**已消解，2026-11-07 源码复核**，见 §19） | `removed` |
 | 20 | 载具悬挂参数固定，悬挂长度写死 0.2 | `active`（子项「轮组命名约定」已 `removed`） |
 | 21 | Touch 是球近似 | `active` |
 | 22 | 32 位句柄上限 | `mitigated` |
 | 23 | Polar 布局在 design_size 缩放下命中不准 | `active` |
 | 24 | AddAnimationEvent 是节点侧逐帧轮询 | `active` |
+| 25 | 场景父子不共存：Mount/UnmountChildScene 为 push/pop 等价 | `active` |
+| 27 | 列表节点语义：`ListSort` 的 `Key` 只读直接属性；`ListFilter`/`ListMap` 只接受数值元素、4096 静默截断 | `active` |
+| 28 | While 的条件与输入端口在 OnEnter 快照，循环体不能逐次改变条件 | `active` |
+| 29 | `PlaySoundPlaylist` 固定容量：最多 16 轨、单轨名字 47 字节 | `active` |
+| 30 | 正则拒绝嵌套量词与可匹配空串的组体；其余模式无墙钟超时 | `active` |
+| 31 | 资源在 Player 模式下未注册（音频/贴图/字体等外部资源，**严重**） | `active` |
+| 32 | Print 空槽不再输出 `None`，改为 `<Print: Value input unset>`（行为变更） | `active` |
 
 ---
 
@@ -134,10 +141,10 @@
 
 ## 9. std::regex 不防灾难性回溯
 
-- **现象**：病态模式（嵌套量词 + 长输入）可能让 `StringRegexMatch` / `StringRegexReplace` 长时间占用 CPU，表现为掉帧甚至假死。节点不做超时或步数限制。
+- **现象**：病态模式（如 `(a|aa)+$` 这类「交替 + 量词」）可能让 `StringRegexMatch` / `StringRegexReplace` 长时间占用 CPU，表现为掉帧甚至假死。节点不做超时或步数限制；嵌套量词与可匹配空串的组体已在编译前由 #30 拒绝，其余形状仍会放行。被拒时 `Rejected=true`，与普通不匹配可区分（#30）。
 - **影响范围**：字符串域两个正则节点；对用户输入直接套复杂正则的图。
 - **原因**：使用 C++11 `std::regex`（ECMAScript 语法），没有超时机制，也未引入 PCRE/RE2。
-- **证据**：[B6_STRING_LIST.md](B6_STRING_LIST.md) §3「正则限制」（63-67）、[KX_FunctionNodesB6String.cpp](../source/gameengine/GameLogic/GameNodes/KX_FunctionNodesB6String.cpp#L191-L247)（非法 Pattern 只捕获 `std::regex_error`）。
+- **证据**：[B6_STRING_LIST.md](B6_STRING_LIST.md) §3「正则限制」（66-73）、[KX_FunctionNodesB6String.cpp:146-300](../source/gameengine/GameLogic/GameNodes/KX_FunctionNodesB6String.cpp#L146-L300)（`IsSafeRegexPattern` 的形状白名单）、`:476-505` / `:549-570`（非法 Pattern 只捕获 `std::regex_error` 并置 `Rejected=true`）。
 - **状态**：`active`
 
 ## 10. AES 状态：仅 XOR，XOR 只防窥不防攻击
@@ -206,13 +213,14 @@
 - **证据**：[B5_RERUN_REPORT.md](B5_RERUN_REPORT.md) §6.2 第 4 条与 §6.3 第 2 条（117、125）。
 - **状态**：`active`
 
-## 17. SetBoneTransform 延迟更新（当帧不改渲染）
+## 17. SetBoneTransform：无动作时当帧生效，有动作时仍被同帧动作更新覆盖
 
-- **现象**：姿态数据写入成功，但当前帧画面不变；要等下一次骨架更新才看到效果。同帧截图或同帧依赖骨骼位置的逻辑会读到旧姿态。
-- **影响范围**：动画域 `SetBoneTransform`；同帧 IK/挂点/相机跟随。
-- **原因**：`BL_ArmatureObject::ApplyPose()` 受 `m_lastapplyframe != m_lastframe` 守卫，同一帧内不会重算 `BKE_pose_where_is`。
-- **证据**：[BL_ArmatureObject.cpp](../source/gameengine/Converter/BL_ArmatureObject.cpp#L409-L423)、[KX_GameAdaptersEngine.cpp](../source/gameengine/GameLogic/GameNodes/KX_GameAdaptersEngine.cpp#L1663-L1697)、[B6_ANIMATION.md](B6_ANIMATION.md) §3 与 §7.3（39、82、126-139）。
-- **状态**：`active`
+- **现象**：姿态数据写入后会立即调用 `ApplyPoseImmediate()` 重算骨架并标记 depsgraph，因此**该骨架没有 active action 时，当前帧画面即可看到新姿态**。但图 tick 仍在 `KX_KetsjiEngine::Render()` 的 `UpdateAnimations()` 之前（[KX_KetsjiEngine.cpp:591](../source/gameengine/Ketsji/KX_KetsjiEngine.cpp#L591)、[:752](../source/gameengine/Ketsji/KX_KetsjiEngine.cpp#L752)）；若该骨骼同时被播放中的动作驱动，同一帧稍后的动作更新会重新写入 fcurve 并覆盖本次变换。该通道在动作播放期间可能整帧丢失，而不是延迟一帧。
+- **影响范围**：动画域 `SetBoneTransform`；同帧 IK/挂点/相机跟随；动作播放中的外部骨骼覆盖。
+- **原因**：`ApplyPoseImmediate()` 已绕过 `m_lastapplyframe` 守卫并触发 `BKE_pose_where_is` + `ID_RECALC_TRANSFORM`，但不修改 `m_lastapplyframe`（否则同帧动作更新会跳过骨架评估）；真正的“后置姿态覆盖层”需要改 `BL_ActionManager` 的混合管线。
+- **证据**：[BL_ArmatureObject.cpp:425-445](../source/gameengine/Converter/BL_ArmatureObject.cpp#L425-L445)、[KX_GameAdaptersEngine.cpp:1663-1701](../source/gameengine/GameLogic/GameNodes/KX_GameAdaptersEngine.cpp#L1663-L1701)、[B6_ANIMATION.md](B6_ANIMATION.md) §9。
+- **状态**：`resolved`（B6.9-A，2026-11-06）。后置姿态覆盖层已接在混合管线之后：`BL_ArmatureObject::SetPoseOverride()` 登记每骨骼覆盖，`BL_Action::UpdateArmatureAnimation()` 在 `ProcessArmatureBlending()` 之后、`ApplyPose()` 之前调用 `ApplyPoseOverrides()` 重放。真实引擎证据：同一 `Spin` 动作下，`action` 对照运行 rotX 漂移 0→1.000，`lock` 运行 152 帧 rotX 恒 0.000；两边动作归一化都推进到 0.993。见 [B6_ANIMATION.md](B6_ANIMATION.md) §10.1。
+  - 旧文字中「`BL_ActionManager` 未提供通道级锁定」的结论不再成立：不需要 API 级锁定，覆盖层本身在混合之后重放即可；`BL_ActionManager` 仍只到 layer 级。
 
 ## 18. BlendActions 判 full，但固定占用 layer 0/1、只支持两个动作
 
@@ -221,14 +229,15 @@
 - **原因**：引擎层用两个真实 layer 权重实现 `(1-factor)A + factorB`，混合本身不是近似；限制来自接口只暴露两个动作与两个固定层。
 - **证据**：[KX_GameAdaptersEngine.cpp](../source/gameengine/GameLogic/GameNodes/KX_GameAdaptersEngine.cpp#L1635-L1657)、[B6_ANIMATION.md](B6_ANIMATION.md) §3 与 §7.2（38、81、120-124）。
 - **状态**：`active`（能力判 `full`，限制是接口范围，不是精度近似）
+- **B6.9-A 补充（2026-11-06）**：实测发现此前权重方向与文档相反（实际是 `factor·A + (1-factor)·B`，factor=0 得到 B）。实现已改为 layer 1 权重 `1-factor`，真实引擎 `factor=0 / 0.5 / 1` 对应骨骼 rotX `0.0 / 0.5 / 1.0`，中间值严格位于两端之间；`check_anim.py blend` 3 条断言全过。文档与实现现在一致，**不是近似**。
 
-## 19. 导航无 Recast，agent_radius / agent_height 不生效
+## 19. 导航无 Recast，agent_radius / agent_height 不生效（**已消解：2026-11-07 源码复核**）
 
-- **现象**：`BuildNavMesh` 接收并校验 `agent_radius` / `agent_height`，但改这两个值不会改变可行走区域；场景新增/移动障碍后，重建仍是同一份静态 navmesh，不会按障碍重烘焙。
+- **现象（2026-11-07 前）**：`BuildNavMesh` 接收并校验 `agent_radius` / `agent_height`，但改这两个值不会改变可行走区域；场景新增/移动障碍后，重建仍是同一份静态 navmesh，不会按障碍重烘焙。
 - **影响范围**：`BuildNavMesh` / `QueryPath`；动态障碍、不同体型 agent。
-- **原因**：引擎只编译了 Detour 的查询路径，没有 Recast 的网格光栅化；没有 agent 尺寸，也没有动态障碍重烘焙。
-- **证据**：[B6_PHYSICS_ADVANCED.md](B6_PHYSICS_ADVANCED.md) §3.4（73-79）、[DEFERRED_FOREVER.md](DEFERRED_FOREVER.md) §2 第 8 条（工期 3~5 天，属 B6.9）。
-- **状态**：`active`
+- **原因（已消解）**：原判断「引擎只编译 Detour 查询、没有 Recast 光栅化」不成立。运行时入口 `KX_NavMeshObject::BuildNavMeshRuntime`（`source/gameengine/Ketsji/KX_NavMeshObject.cpp:1015-1109`）调用 `KX_NavMeshBuilder::Bake`（`source/gameengine/Ketsji/KX_NavMeshBuilder.h:87-277`），含 `recast_rasterizeTriangles`(:150)、`recast_buildCompactHeightfield`(:159)、`recast_buildRegions`(:176)、`recast_buildContours`(:184)、`recast_buildPolyMesh`(:196)、`recast_buildPolyMeshDetail`(:209)，再由 `dtCreateNavMeshData`(:284-305) 打包；`agent_radius`/`agent_height` 进入 `walkableRadius`/`walkableHeight`(:113-115)，真实生效。
+- **证据**：[KX_NavMeshObject.cpp:1015-1109](../source/gameengine/Ketsji/KX_NavMeshObject.cpp#L1015-L1109)、[KX_NavMeshBuilder.h:87-277](../source/gameengine/Ketsji/KX_NavMeshBuilder.h#L87-L277)、[B6_PHYSICS_ADVANCED.md](B6_PHYSICS_ADVANCED.md) §3.4 / §5。
+- **状态**：`removed`（2026-11-07 源码复核）
 
 ## 20. 载具：轮组命名已可配置，但悬挂参数固定、悬挂长度写死 0.2
 
@@ -239,12 +248,12 @@
 - **状态**：`active`
   子项「轮组只能按 Template 命名约定」已 `removed`：`wheel_names` 非空时按逗号分隔名逐个解析，找不到会指出具体名字并整体失败（同上 51-52）。
 
-## 21. Touch 是球近似（含半径/阈值语义）
+## 21. TouchLegacy / OverlapQuery 是球近似（含半径/阈值语义）
 
-- **现象**：`Touch` / overlap 把每个对象当成以世界位置为球心、半径 `max(|scale.x|, |scale.y|, |scale.z|)` 的球；只当 `distance <= threshold + radius` 时计入（`threshold` 默认 `0.1`）。命中与网格形状、旋向无关，相机等无碰撞体对象也会被遍历。命中对象始终第一个回调，并带精确射线点/法线。
+- **现象**：`TouchLegacy` / `OverlapQuery` 把每个对象当成以世界位置为球心、半径 `max(|scale.x|, |scale.y|, |scale.z|)` 的球；只当 `distance <= threshold + radius` 时计入（`threshold` 默认 `0.1`）。命中与网格形状、旋向无关，相机等无碰撞体对象也会被遍历。命中对象始终第一个回调，并带精确射线点/法线。B3 原生 `Touch` 不受本条约束：它走 `RayCastFromScreen`（`KX_FunctionNodesB3.cpp:626-634`），输出真实命中点/法线/距离。
 - **影响范围**：`TouchLegacy` / 拾取范围；需要真实碰撞体或网格重叠的交互。
 - **原因**：物理世界没有「点重叠」入口，`KX_PhysicsAdapter` 也没有同步 `contactTest`，节点只能退化为射线点附近的球查询。
-- **证据**：[KX_GameAdaptersEngine.cpp](../source/gameengine/GameLogic/GameNodes/KX_GameAdaptersEngine.cpp#L688-L753)、[B6_LEGACY_COMPAT.md](B6_LEGACY_COMPAT.md) §8（186-192）。
+- **证据**：[KX_GameAdaptersEngine.cpp](../source/gameengine/GameLogic/GameNodes/KX_GameAdaptersEngine.cpp#L1034-L1088)、[B6_LEGACY_COMPAT.md](B6_LEGACY_COMPAT.md) §8（192-209）。
 - **状态**：`active`
 
 ## 22. 32 位句柄上限（超过即拒绝，不截断）
@@ -265,13 +274,147 @@
 - **证据**：[KX_UIElement.h](../source/gameengine/GameLogic/GameNodes/KX_UIElement.h#L605)（布局写回）、同文件 `:165 / :248-250`（`design_size`）、[B6_UI_ADVANCED.md](B6_UI_ADVANCED.md) §Polar 命中修正（141-155，明确「未处理 canvas `design_size` 缩放下的命中」）。
 - **状态**：`active`
 
-## 24. AddAnimationEvent 是节点侧逐帧轮询、固定 layer 0、触发一次后解除
+## 24. AddAnimationEvent：已绑定动作层并对齐渲染帧，但仍为节点侧轮询
 
-- **现象**：事件不是引擎回调：节点每帧读当前帧，检测「上一帧 → 当前帧」是否正向跨过目标帧；跨越时触发 `OnEvent` 一次并 `armed=false`。固定读 layer 0；`Action` 输入只参与 armed 判定，不绑定具体动作；不支持循环/重复触发。
-- **影响范围**：动画域 `AddAnimationEvent`；非 0 层动作、循环事件、依赖引擎事件时序的用法。
-- **原因**：`BL_ActionManager` 没有事件通道，节点只能用状态机近似。
-- **证据**：[KX_FunctionNodesB6.cpp](../source/gameengine/GameLogic/GameNodes/KX_FunctionNodesB6.cpp#L444-L488)（`armed`、`previous_frame < frame && current >= frame`、触发后解除）、`:645-646`（注册为有状态 tick 节点）、[B6_ANIMATION.md](B6_ANIMATION.md) §3 与 §4（44、46-53、86）。
-- **状态**：`active`
+- **现象**：节点现在按 `Action` 名称解析 `BL_ActionManager` 的实际 layer，并用“当前引擎帧时间”预测本帧 `UpdateAnimations()` 将写入的帧（不是上一帧的陈旧帧）；循环回绕后会重新 armed，因此同一事件每循环触发一次。`OnEvent` 仍在图 tick 的触发阶段产生，不是引擎动画回调；同名动作同时存在于多层时绑定层号最小的一层；反向播放（负 speed）只按正向跨越检测，不触发反向事件。
+- **影响范围**：动画域 `AddAnimationEvent`；多层同名动作、倒放事件。
+- **原因**：`BL_ActionManager` 没有事件通道，节点仍需状态机轮询；本轮新增的 `FindLayerByActionName()` / `GetActionFrameAtTime()` 只提供只读的层与帧预测。
+- **证据**：[KX_FunctionNodesB6.cpp:444-476](../source/gameengine/GameLogic/GameNodes/KX_FunctionNodesB6.cpp#L444-L476)（状态与绑定）、[:508-566](../source/gameengine/GameLogic/GameNodes/KX_FunctionNodesB6.cpp#L508-L566)（tick 跨越/回绕）、[:710](../source/gameengine/GameLogic/GameNodes/KX_FunctionNodesB6.cpp#L710)（注册）、[b61_e2e.cpp:731-770](../tests/b61_e2e.cpp#L731-L770)（E2E 断言）、[B6_ANIMATION.md](B6_ANIMATION.md) §9。
+- **状态**：`active`（较原条目已改善：真实 layer 绑定、渲染帧对齐、循环重复触发）
+- **本轮核对（2026-11-06）**：当前源行号为 [KX_FunctionNodesB6.cpp:606-654](../source/gameengine/GameLogic/GameNodes/KX_FunctionNodesB6.cpp#L606-L654)（tick）与 `:800-803`（端口）、`:869-871`（注册），E2E 为 [b61_e2e.cpp:971-985](../tests/b61_e2e.cpp#L971-L985)，日志 `tests/verify_gap/evidence/b61.log:40-42`。上方旧行号仅作历史保留。
+
+## 25. 场景父子不共存：MountChildScene / UnmountChildScene 是 push/pop 等价
+
+- **现象**：`MountChildScene` 加载子场景后，父场景变为非活跃；`UnmountChildScene` 只是重新加载父场景返回，子场景**从未被释放**。父子场景不能同时更新、同时渲染，也没有场景栈深度。
+- **影响范围**：场景域 `MountChildScene` / `UnmountChildScene`；依赖父子场景共存（如 UI 场景叠在关卡场景上仍各自 tick）的图。
+- **原因**：引擎只保留一个活跃场景——`KX_KetsjiEngine::LoadScene` 走 `ReplaceScene`，而 `RemoveScene` 在 EEVEE 集成期被显式禁用（带注释的提前 `return`）。没有「多活跃场景」或「场景栈」语义，节点只能实现 push/pop。
+- **证据**：[KX_FunctionNodesB6Scene.cpp](../source/gameengine/GameLogic/GameNodes/KX_FunctionNodesB6Scene.cpp#L258-L264)（文件注释写明单活跃场景与 push/pop 等价）、同文件 `:309-339`（Mount）、`:341-369`（Unmount，只 `LoadScene(parent)` 不释放子场景）、[KX_KetsjiEngine.cpp](../source/gameengine/Ketsji/KX_KetsjiEngine.cpp#L1341-L1348)（`RemoveScene` 禁用）、`tests/b69_e2e.cpp:686` / `:724-762`（E2E）。
+- **状态**：`active`（节点判 `full`：限制来自引擎，节点已做到最好）
+
+## 26. 本轮重分类（approximate → full）带出的限制，按域归类（2026-11-06 追加）
+
+以下条目是 2026-11-06 重分类的落点，**不重排、不合并**上方既有编号；“限制条目”列为落点编号。
+重分类只改文档分类，不改源码、不改断言总数。
+
+| 域 | 节点 | 原分类 | 现分类 | 限制条目 | 可核依据 |
+|---|---|---|---|---|---|
+| 动画 | `AddAnimationEvent` | approximate | full | #24 | 引擎无帧事件通道：GraphTick（`KX_KetsjiEngine.cpp:591`）早于 `UpdateAnimations`（`:752`），引擎侧事件**最早下一个 GraphTick 可见**，节点侧预测是正确实现 |
+| 音频 | `SetAudioAttenuation` | approximate | full | #12 | `I3DHandle.h:38-229` 无 `setDistanceModel`，模型只在 `I3DDevice.h:139`（设备级） |
+| 音频 | `SetAudioDoppler` | approximate | full | #12 | 只有 `I3DDevice::setDopplerFactor`（`I3DDevice.h:127`），`I3DHandle` 无多普勒 API |
+| 音频 | `AudioZone` | approximate | full | #1 | audaspace 无 zone API；节点是 listener 位置循环环境音的等价实现（`KX_GameAdaptersEngine.cpp:2764-2786`） |
+| 音频 | `SetAudioBusVolume` | approximate | full | #1 | audaspace 无 bus 概念；节点是「命名 gain 组」等价实现（`KX_GameAdaptersEngine.cpp:2788-2807`） |
+| 场景 | `LoadSceneAsync` | approximate | full | #5 | 引擎同步 `ReplaceScene`。该节点**不异步**——加载在调用帧内完成，进度是反馈而非流式 |
+| 场景 | `MountChildScene` | approximate | full | #25 | 单活跃场景，push 等价、父子不共存 |
+| 场景 | `UnmountChildScene` | approximate | full | #25 | pop 等价，返回父场景但不释放子场景 |
+| 场景 | `TransitionScene` | full | full | — | UI canvas 淡入淡出遮住原子的 `ReplaceScene`，不构成缺陷 |
+| 场景 | `SetSceneTimeScale` | approximate | full | #7 | 引擎只有一个全局 `SetTimeScale` |
+| 文件 | `EncryptData` | approximate | full | #10 | XOR 仅防窥；AES 因密码学设计缺口（缺认证）进 FOREVER（`DEFERRED_FOREVER.md` §3 #3） |
+| 文件 | `DecryptData` | approximate | full | #10 | 同上 |
+| 字符串 | `StringRegexMatch` | approximate | **full** | #30 | 嵌套量词/可匹配空串组体在编译前被拒，`Rejected` 输出可区分拒绝与不匹配；其余模式仅受长度限制，无墙钟超时（`(a\|aa)+$` 这类仍可能慢） |
+| 字符串 | `StringRegexReplace` | approximate | **full** | #30 | 同上，与 Match 共用同一份 `IsSafeRegexPattern`；输出 `Result` + `Rejected` |
+
+**加权能否等于 100%**：本表所涉节点内 `approximate` 为 0（全局 327 口径 `A=4`，见下）。正则两项（`StringRegexMatch` / `StringRegexReplace`）
+已补「嵌套量词 + 可匹配空串组体」拒绝与 `Rejected` 端口（见 #30）并改判 `full`；音频 `PlaySoundPlaylist` 两处静默截断
+已补 stderr 诊断、改判 `full`，剩余容量边界登记为 #29。`ListSort` / `ListFilter` / `ListMap` 与流程 `While`
+已在第二轮升 `full`（见 #27 / #28）。
+**全局三口径（327 注册表，`TypeCount()` 实测；当前树 2026-11-07）**：
+
+- `N = 327`；`F = 301` / `A = 4` / `U = 7` / `P = 15`；恒等式 `301 + 4 + 7 + 15 = 327`。
+- `D = F + A = 301 + 4 = 305`。
+- 严格 A = `F / D` = `301 / 305` = **98.69%**。
+- 加权 B = `(F + 0.5A) / D` = `(301 + 0.5×4) / 305` = `303 / 305` = **99.34%**。
+- 覆盖 C = `(F + A + P) / (D + U + P)` = `(301 + 4 + 15) / (305 + 7 + 15)` = `320 / 327` = **97.86%**。
+- 历史冻结快照 `RUN_ID=20261106-224926`：`N=325 / F=299 / A=4 / U=7 / P=15 / D=303`（98.68% / 99.34% / 97.85%）；差异为新增 `ConstString` / `ConstVector` 两个 IR 内部辅助节点（与 `ConstInt` 先例一致计 `F`）。
+- **适用域**：`unsupported` 7 与 `pending-device` 15 已剔出严格/加权分母（覆盖口径含 P、不含 U），不代表「所有节点都好」。这里统计的是 **C++ 实现正确率**。**已无 Python 回退路径**：B7.5 删除 Python 逻辑执行器与「原生运行时」开关后，`nl_` 组件只警告并跳过。**但 E2E 入口覆盖 ≠ 用户点 P 的路径**：多数 harness 直连 `KX_FunctionNode`/`KX_CompiledGraph`，绕过 `KX_Scene::GraphTick`，仅 `p3` manifest harness 走真实入口。因此用户默认体验（建树 → 点 P → 运行时调度）的证据缺口仍需实机验证补齐，不能声称已被 E2E 覆盖。
+
+**增量账作废**：上一轮使用的增量账分母（只含本轮动过判定的节点，含其回滚态）已作废，本文不引用它的任何百分比；以 327 全注册表口径为准（判定沿革见 [FLOW_MATH_STRING_RESCORE.md](FLOW_MATH_STRING_RESCORE.md) §4.2）。
+
+## 27. 列表节点语义：`ListSort` 的 `Key` 只读直接属性；`ListFilter`/`ListMap` 只接受数值元素
+
+- **现象**：
+  - `ListSort`：`Key` 取元素上的一个直接属性名（数值或字符串）；写 `a.b`、`x[0]` 等嵌套路径取不到值，`KeyOf` 退化为按元素自身值排序，不报错。
+  - `ListFilter` / `ListMap`：表达式变量只有 `x`（元素 `AsFloat()`）；字符串/对象/列表元素按 0 处理；结果超过 4096 时静默停止。
+- **影响范围**：`ListSort`（对象列表按子字段排序）、`ListFilter` / `ListMap`（字符串列表筛选/映射、超长列表）。
+- **原因**：`KeyOf` 只做一次直接属性查找，没有路径解析器；表达式解析器只实现数值子集（`|| && == != <= >= < > + - * / %`、一元 `- !`、括号、常量、`x`），没有字符串比较/函数/三目；列表池统一上限 4096。
+- **文档依据**：[B6_STRING_LIST.md](B6_STRING_LIST.md#L151-L156) §7 限制 2（数值语义）、限制 3（`key` 直读）、限制 4（4096 静默截断）均已写明。
+- **证据**：[KX_FunctionNodesB6String.cpp:486-517](../source/gameengine/GameLogic/GameNodes/KX_FunctionNodesB6String.cpp#L486-L517)（`KeyOf`）、`:519-558`（排序）、`:757-786`（Filter）、`:796-826`（Map）、`:563-747`（表达式解析）；[KX_RuntimeValue.h:204-217](../source/gameengine/GameLogic/GameNodes/KX_RuntimeValue.h#L204-L217)（非数值 → 0）。
+- **状态**：`active`（三个节点判 `full`：偏差是文档化语义，不是实现缺失）
+
+## 28. While 的条件与输入端口在 OnEnter 快照，循环体不能逐次改变条件
+
+- **现象**：`While` 在 `OnEnter` 内用内部计数器 `i` 一次性求出总迭代数；`Threshold` / `Step` 等输入端口值在同一时刻快照。循环体后来对 `i` / `n` 的修改**不改变迭代次数**。所有迭代在同一逻辑帧内同步展开。
+- **影响范围**：流程控制 `While`；按命令式直觉在循环体内递增/修改条件的图。
+- **原因**：调度器把循环体作为 pending 序列在同帧展开，条件求值发生在任何循环体节点执行之前；改成逐次重读条件需要把循环体变成跨帧状态机/协程。
+- **证据**：[KX_FunctionNode.cpp:1530-1609](../source/gameengine/GameLogic/GameNodes/KX_FunctionNode.cpp#L1530-L1609)（条件求值循环）、`:1544-1569`（端口快照）、`:1611-1626`（按迭代派发）；[KX_ExecutionContext.cpp:308-318](../source/gameengine/GameLogic/GameNodes/KX_ExecutionContext.cpp#L308-L318)（每个迭代的子树跑完才推进下一个）。
+- **状态**：`active`（节点判 `full`：条件在帧首快照且文档已写明）
+
+## 29. `PlaySoundPlaylist` 固定容量：最多 16 轨、单轨名字 47 字节
+
+- **现象**：一次传入超过 16 轨时，只保留前 16 轨，其余在 `OnEnter` 丢弃——但会发一次 stderr 诊断
+  `[PlaySoundPlaylist] N tracks requested, only 16 kept, M dropped`；单轨名字超过 47 字节时截断到 47 字节，
+  首个越界轨发一次 `[PlaySoundPlaylist] track i name longer than 47 bytes, truncated`。
+  两条诊断各每次 `OnEnter` 至多一条；16 轨以内且名字 ≤47 字节时零 stderr。
+- **影响范围**：音频 `PlaySoundPlaylist`；需要 >16 首的顺序/循环/随机播放，或名字 ≥48 字节的音源。
+- **原因**：状态块 `KX_PlaylistState` 是 raw memory（不跑构造函数），只能放定长 `char names[16][48]` 与 `int order[16]`；
+  改成长列表要换状态块模型并重算尺寸预算。这是既定设计选择，不是遗漏。
+- **证据**：[KX_FunctionNodesB6Audio.cpp:179-180](../source/gameengine/GameLogic/GameNodes/KX_FunctionNodesB6Audio.cpp#L179-L180)（常量）、
+  `:277-303`（两条诊断）；[b69_e2e.cpp:573-597](../tests/b69_e2e.cpp#L573-L597)（16 轨零 stderr）、
+  `:599-640`（17 轨诊断 + 前 16 轨照常播放）、`:642-675`（名字截断）。
+- **状态**：`active`（节点判 `full`：上限是设计限制，静默缺诊断已消除）
+
+## 30. 正则拒绝嵌套量词和可匹配空串的组体；其余模式无墙钟超时
+
+- **现象**：`StringRegexMatch` / `StringRegexReplace` 共用 `IsSafeRegexPattern`（`KX_FunctionNodesB6String.cpp:146-300`），
+  在构造 `std::regex` 前单趟 `O(n)` 扫描 + 括号深度栈判定。量词修饰的分组在**两个条件任一成立**时被拒：
+  - 组体**整体就是一个无界重复**（末尾无界量词覆盖整个组体）：`(a+)+`、`(a*)*`、`(.*)*`、`(a+){2,}`、跨层传播的 `((a+))+`；
+  - 组体**可匹配空串**：`(a?)+`、`(a*)+`、`(b?)*`。
+  连续量词（`a**`、`a++`、`a?*`、`a*+`）仍直接拒绝。放行的常见写法包括
+  `(\d+,)+`、`(ab?)+`、`(ab)+`、`(a|b)*`、`(a|aa)+`、`[+*?]`、`\+`、`a+?`、`a+?`、`^abc$`、`(?:ab)+`。
+  命中时每个实例只写一次 `[Regex] unsafe pattern rejected: nested quantifier`，**不编译正则**。
+- **`Rejected` 输出端口（2026-11-06）**：拒绝现在与「真不匹配」可区分。
+  - `StringRegexMatch` 输出 `Matched` / `Groups` / `Rejected`（索引 0/1/2）；
+  - `StringRegexReplace` 输出 `Result` / `Rejected`（索引 0/1）。
+  - 语义：拒绝（守卫命中、源串超长、非法 Pattern）→ `Rejected=true` + `Matched=false` / `Result` 原样返回；
+    正常不匹配 → `Rejected=false` + `Matched=false`；正常匹配 → `Rejected=false` + `Matched=true`。
+  - stderr 那行仍是补充信息：该行**每个节点实例只打一次**（`state->warned`，Match `:468-473` / Replace `:541-546`），
+    跨帧保留、只有重建图实例才重置，且与「输入超长 / 非法 Pattern」诊断共用同一个 `warned` 标志。
+- **保守拒绝**：判定只看「整体无界重复」与「可匹配空串」，所以
+  **`(a+b*)+`、`(aa+)+` 这类「组体含内部量词但结尾不是纯重复」的模式会被放行**（见 `KNOWN_LIMITATIONS.md` #9）。
+  反过来，`(a+)?`、`(a?)*` 仍会被拒——有意保守，代价是部分合法模式不可用。
+- **影响范围**：字符串域两个正则节点；对不可信输入直接套复杂正则的图。
+- **限制原文**：正则节点拒绝嵌套量词和可匹配空串的组体，其余模式受源串 ≤4096、模式 ≤512 限制。(a|aa)+ 这类交替项前缀重叠的模式不受保护，40 字符输入可达 29.7 秒，44 字符超 45 秒。std::regex 无墙钟超时，属引擎层限制。
+- **交替型回溯爆炸不在保护范围**：`(a|aa)+$`、`(a|a?)+$` 这类「交替 + 量词」会被放行，**无墙钟超时**；
+  账本线实测 40 字符可达 29.7 秒、44 字符超 45 秒（本补丁不改引擎能力）。
+- **原因**：`std::regex` 没有超时或步数限制，判定器只是编译前的形状白名单，不是 ReDoS 免疫。
+- **证据**：[KX_FunctionNodesB6String.cpp:67-100](../source/gameengine/GameLogic/GameNodes/KX_FunctionNodesB6String.cpp#L67-L100)（`IsBraceQuantifier`）、
+  `:106-144`（栈帧与原子登记）、`:146-300`（`IsSafeRegexPattern`）、`:468-475`（Match 拒绝分支）、`:541-548`（Replace 拒绝分支）、
+  `:442-446` / `:507-519`（端口数组与 `static_assert`）；[b62_e2e.cpp:1316-1406](../tests/b62_e2e.cpp#L1316-L1406)
+  （10 条验收断言，含 `(\d+,)+`、`(ab?)+`、`(a?)+`、拒绝后下一帧、`(a|aa)+$` 22 字符 <100ms）。
+- **状态**：`active`（节点判 `full`：嵌套量词与空串组体已拒绝，剩余的是引擎层无超时，已写明不承诺线性时间）
+
+## 31. 资源在 Player 模式下未注册
+
+- **严重度**：严重
+- **现象**：同一 `.blend` 在编辑器内按 `P` 有声音（说明音频数据块确实存在）；改用独立 `blenderplayer` 运行同一文件时报 `not found`，资源取不到。节点侧对应 `[PlaySound3D] unknown sound` 的失败路径（`KX_FunctionNodesB6Audio.cpp:169-171`）。
+- **影响范围**：音频、贴图、字体等**一切依赖外部资源的节点**；编辑器内正常，独立 player 下缺失。
+- **触发条件**：仅独立 `blenderplayer <file>.blend`；编辑器按 `P` 正常，不触发。
+- **现象已确认；根因未确认**，候选：
+  1. `BL_SceneConverter` 在 Player 模式下没有把 Sound 数据块注册进 `maggie->sounds`（名称去 `SO` 前缀的注册逻辑见 `source/gameengine/Converter/BL_Converter.cpp:214-218`；Player 侧的具体缺口尚未定位到行，**不作已证实结论**）；
+  2. 注册名与节点里填的名字不一致（`SO` 前缀、扩展名、大小写、空格）；
+  3. 资源未打包，或相对路径在 player 的启动 cwd 下失效。
+- **最小自查判据**：同一 `.blend` 用编辑器 `P` 与 `blenderplayer <file>.blend` 各跑一次；对比 stderr 打印的 `not found` 资源名，并核对 `Outliner → Blender File → Sounds` 的 ID 名（去掉 `SO` 前缀）。若「编辑器出声、player 报 not found」，即命中本项。
+- **与 327 口径的关系**：**不改变 327 口径的六量与三个百分比**。理由：编辑器内按 `P` 正常，说明节点实现本身无缺失；问题在运行时资源加载器层，不是节点语义缺失，因此不进 `approximate`，也不进 `unsupported` 或 FOREVER。
+- **状态**：`active`（严重；用户决定留作核心遗留问题，不再纠缠）
+
+## 32. Print 空槽不再输出 `None`，改为 `<Print: Value input unset>`
+
+- **严重度**：轻微（行为变更，非缺陷）
+- **现象**：`Print` 的 String `Value` 端口未连线、且 IR 中没有对应 `ConstString` / `ConstInt` / `ConstVector` 常量时，旧实现把「未设置」当字面量 `None` 打印（与用户真正想打印的字符串 `"None"` 无法区分）；本轮修复后改为打印 `<Print: Value input unset>`。
+- **源码位置**：`source/gameengine/GameLogic/GameNodes/KX_FunctionNode.cpp`（`FuncPrint` NONE 槽诊断分支；注释明确「Never report that as the literal string None」）。
+- **回归证据**：`tests/b667_default_values.cpp:174-177`（`TestPrintWithoutConstant`）期望由 `"None"` 改为 `<Print: Value input unset>`；单批重跑 `RUN_ID=20261107-222555` → `b667_defaults 6 / 0`，`TOTAL assertions=6 failures=0`。
+- **影响范围**：仅「端口未连线 / 无常量」的 Print 输出文本；端口有真实常量或连线时行为不变。
+- **与 327 口径的关系**：不改变六量（`N=327 / F=301 / A=4 / U=7 / P=15`）。
+- **状态**：`active`（有意保留的新诊断行为；旧 `None` 输出不再出现）
 
 ---
 
@@ -284,7 +427,7 @@
 | 3 / 5 / 7 | [B6_SCENE_ADVANCED.md](B6_SCENE_ADVANCED.md) §3/§4/§6；`/tmp/b63_nodes_e2e.log` |
 | 6 | `/tmp/b662_jit.log`（`reduction=3.49%`、`FAIL ... 40%`） |
 | 8 / 15 / 16 | [B5_RERUN_REPORT.md](B5_RERUN_REPORT.md) §6.2/§6.3；`KX_FunctionNode.cpp:904-937` |
-| 9 / 13 | [B6_STRING_LIST.md](B6_STRING_LIST.md) §0/§3 |
+| 9 / 13 / 30 | [B6_STRING_LIST.md](B6_STRING_LIST.md) §0/§3/§7；`KX_FunctionNodesB6String.cpp:146-300`；`tests/b62_e2e.cpp:1316-1406` |
 | 10 | [B6_FILE_ADVANCED.md](B6_FILE_ADVANCED.md) §2/§3 |
 | 11 / 23 | [B6_UI_ADVANCED.md](B6_UI_ADVANCED.md) §UIScreenStack/§Polar；`/tmp/c7_ui.log` |
 | 14 | [B6_LEGACY_COMPAT.md](B6_LEGACY_COMPAT.md) §0 |

@@ -817,6 +817,17 @@ class NodeTreeMainUpdater {
     if (node.runtime->changed_flag & NTREE_CHANGED_NODE_PROPERTY) {
       return true;
     }
+    /* Menu socket values can drive context dependent socket declarations (e.g. the
+     * physics rigid body node). Socket property changes do not set the node flag,
+     * so check them explicitly. Only menus are considered because other socket
+     * values change far more frequently and rarely rebuild sockets. */
+    for (const bNodeSocket *socket : node.input_sockets()) {
+      if (socket->type == SOCK_MENU &&
+          (socket->runtime->changed_flag & NTREE_CHANGED_SOCKET_PROPERTY))
+      {
+        return true;
+      }
+    }
     if (ntree.runtime->changed_flag & NTREE_CHANGED_LINK) {
       /* Currently we have no way to tell if a node needs to be updated when a link changed. */
       return true;

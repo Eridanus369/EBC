@@ -14,8 +14,8 @@
 | 运行上下文 | `KX_ExecutionContext.h/.cpp` |
 | 节点规格与函数 | `KX_FunctionNodesB2.cpp` / `KX_FunctionNodesB3.cpp` |
 | 节点注册表 | `KX_NodeRegistry.cpp` |
-| 编辑器条目 | `scripts/addons_core/bge_netlogic/editor/nodes/native_b2.py` / `native_b3.py` |
-| 导出器 | `scripts/addons_core/bge_netlogic/generator/ir_export.py` |
+| 编辑器条目 | `scripts/startup/bge_gamenodes/editor/nodes/native_b2.py` / `native_b3.py` |
+| 导出器 | `scripts/startup/bge_gamenodes/generator/ir_export.py` |
 
 ## 第 1 步：适配器接口与 Mock
 

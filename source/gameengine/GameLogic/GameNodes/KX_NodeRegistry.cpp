@@ -109,7 +109,7 @@ const KX_NodeSignature *KX_NodeRegistry::GetSignature(KX_NodeTypeId type_id) con
   return &entries_[type_id - 1].signature;
 }
 
-std::unique_ptr<KX_LogicNodeRuntime> KX_NodeRegistry::Create(KX_NodeTypeId type_id) const
+std::unique_ptr<KX_GameNodeRuntime> KX_NodeRegistry::Create(KX_NodeTypeId type_id) const
 {
   if (type_id == KX_INVALID_NODE_TYPE_ID || type_id > entries_.size()) {
     return nullptr;
@@ -118,14 +118,14 @@ std::unique_ptr<KX_LogicNodeRuntime> KX_NodeRegistry::Create(KX_NodeTypeId type_
   if (!entry.factory) {
     return nullptr;
   }
-  std::unique_ptr<KX_LogicNodeRuntime> node = entry.factory();
+  std::unique_ptr<KX_GameNodeRuntime> node = entry.factory();
   if (node) {
     node->SetTypeId(type_id);
   }
   return node;
 }
 
-std::unique_ptr<KX_LogicNodeRuntime> KX_NodeRegistry::Create(const std::string &type_id) const
+std::unique_ptr<KX_GameNodeRuntime> KX_NodeRegistry::Create(const std::string &type_id) const
 {
   KX_NodeTypeId resolved = FindByEditorType(type_id);
   if (resolved == KX_INVALID_NODE_TYPE_ID) {

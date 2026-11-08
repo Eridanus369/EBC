@@ -126,6 +126,8 @@ enum ModifierType : int {
   eModifierType_GreasePencilSimplify = 85,
   eModifierType_GreasePencilTexture = 86,
   eModifierType_SimpleDeformBGE = 87,
+  /** EBC: physics node tree sink modifier (see MOD_physnodes.cc). */
+  eModifierType_PhysNodes = 88,
   NUM_MODIFIER_TYPES,
 };
 
@@ -1324,6 +1326,30 @@ typedef struct SimpleDeformModifierDataBGE {
   ModifierData modifier;
   float (*vertcoos)[3] = nullptr;
 } SimpleDeformModifierDataBGE;
+
+/**
+ * EBC physics nodes sink modifier.
+ *
+ * The modifier never owns the simulation world. A Scene level depsgraph
+ * operation (`OperationCode::PHYS_SIM`) steps the world once per frame
+ * (deduplicated by ctime); this modifier only reads the resulting frame
+ * state and writes it back to the mesh. All simulation state is runtime
+ * data and is not serialized here.
+ */
+typedef struct PhysNodesModifierData {
+  ModifierData modifier;
+  /** Name of the `PhysNodeTree` data-block that owns this simulation world. */
+  char tree_name[64] = "";
+  /** 0 = pass-through (writes nothing), 1 = sink (writes simulated offsets). */
+  int mode = 0;
+  /** Reserved for future flags; must stay zero. */
+  int flags = 0;
+} PhysNodesModifierData;
+
+enum PhysNodesModifierMode : int {
+  PHYSNODES_MODE_PASSTHROUGH = 0,
+  PHYSNODES_MODE_SINK = 1,
+};
 
 /** #SimpleDeformModifierData.flag */
 enum SimpleDeformModifierFlag : char {

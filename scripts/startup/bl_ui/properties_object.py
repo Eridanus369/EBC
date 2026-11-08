@@ -657,6 +657,75 @@ class OBJECT_PT_shadow_terminator(ObjectButtonsPanel, Panel):
             flow.prop(ob, "shadow_terminator_shading_offset", text="Shading Offset")
 
 
+class OBJECT_PT_heightfield(ObjectButtonsPanel, Panel):
+    """Per object settings of the EEVEE Next heightfield displacement.
+
+    Stored as ID custom properties (see the Render > Heightfield Displacement panel for the scene
+    wide switch and the ray marching quality settings).
+    """
+    bl_label = "Heightfield Displacement"
+    bl_context = "object"
+    bl_options = {'DEFAULT_CLOSED'}
+    COMPAT_ENGINES = {'BLENDER_EEVEE', 'BLENDER_EEVEE_NEXT'}
+
+    @staticmethod
+    def _ensure(ob):
+        defaults = (
+            ("hf_enabled", False),
+            ("hf_heightmap", ""),
+            ("hf_min_height", 0.0),
+            ("hf_max_height", 1.0),
+            ("hf_normal_strength", 1.0),
+            ("hf_shadow_strength", 0.8),
+            ("hf_ao_strength", 0.6),
+            ("hf_ao_radius", 0.25),
+            ("hf_rebuild", 0),
+        )
+        for key, value in defaults:
+            if key not in ob:
+                ob[key] = value
+
+    @classmethod
+    def poll(cls, context):
+        ob = context.object
+        return (ob is not None) and (ob.type == 'MESH') and (context.engine in cls.COMPAT_ENGINES)
+
+    def draw_header(self, context):
+        self._ensure(context.object)
+        self.layout.prop(context.object, '["hf_enabled"]', text="")
+
+    def draw(self, context):
+        ob = context.object
+        self._ensure(ob)
+        scene = context.scene
+        if "hf_enabled" not in scene:
+            scene["hf_enabled"] = False
+
+        layout = self.layout
+        layout.use_property_split = True
+        layout.use_property_decorate = False
+        layout.active = ob.get("hf_enabled", False)
+
+        if not scene.get("hf_enabled", False):
+            layout.label(text="Disabled in Render > Heightfield Displacement.", icon='INFO')
+
+        col = layout.column(align=True)
+        col.prop_search(ob, '["hf_heightmap"]', bpy.data, "images", text="Height Map")
+
+        col = layout.column(align=True)
+        col.prop(ob, '["hf_min_height"]', text="Min Height")
+        col.prop(ob, '["hf_max_height"]', text="Max Height")
+        col.prop(ob, '["hf_normal_strength"]', text="Normal Strength")
+
+        col.separator()
+        col.prop(ob, '["hf_shadow_strength"]', text="Self Shadow")
+        col.prop(ob, '["hf_ao_strength"]', text="Ambient Occlusion")
+        col.prop(ob, '["hf_ao_radius"]', text="AO Radius")
+
+        col.separator()
+        col.prop(ob, '["hf_rebuild"]', text="Rebuild Cache")
+
+
 class OBJECT_PT_animation(ObjectButtonsPanel, PropertiesAnimationMixin, PropertyPanel, Panel):
     _animated_id_context_property = "object"
 

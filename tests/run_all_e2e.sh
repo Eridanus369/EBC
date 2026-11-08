@@ -45,6 +45,9 @@ mkdir -p "$BINDIR" "$OUTDIR"
 # kind|name|source|extra sources|env|tags
 #   harness = build with the unified manifest, then run
 #   builtin = already-built binary (tests/b5_rerun Makefile)
+#   script  = orchestration script that builds/launches its own processes
+#             (cannot be a harness row: c31_udp_two_proc needs TWO processes
+#             and its own shared-dir protocol, which a single binary cannot do)
 MANIFEST=(
   "builtin|b5_p1|.build/p1_harness||BGE_GAMENODE_INLINE=0|b5 regression"
   "builtin|b5_p2|.build/p2_harness||BGE_GAMENODE_INLINE=0|b5 regression"
@@ -52,6 +55,13 @@ MANIFEST=(
   "builtin|b5_p3_input|.build/p3_input_harness||BGE_GAMENODE_INLINE=0|b5 regression"
   "harness|b2_b3_reg|tests/reg_b2_b3.cpp|||b2b3 regression"
   "harness|b4_reg|tests/reg_b4_e2e.cpp|||b4 regression"
+  "harness|c5_constraint_types|tests/c5_constraint_types.cpp|||b4 constraints"
+  "harness|c1_restitution|tests/c1_restitution.cpp|||c1 restitution"
+  "harness|c8_gravity|tests/c8_gravity_e2e.cpp|||c8 gravity"
+  "harness|c6_navmesh_bake|tests/c6_navmesh_bake.cpp|||b6.9 navmesh"
+  "harness|c6_shape_overlap|tests/c6_shape_overlap.cpp|||b6.9 sensor shape overlap"
+  "harness|c6_shape_overlap_bullet|tests/c6_shape_overlap_bullet.cpp|||b6.9 sensor shape overlap (real Bullet)"
+  "harness|c6_vehicle_wheel_guard|tests/c6_vehicle_wheel_guard.cpp|||c6 vehicle wheel guard"
   "harness|p12_core|tests/reg_core_p123_t12.cpp|||p1p2p3 regression"
   "harness|p41_rebuild|tests/p41_rebuild.cpp|||p4"
   "harness|p42_hot_reload|tests/p42_hot_reload.cpp|||p4"
@@ -69,9 +79,24 @@ MANIFEST=(
   "harness|b661_logicgate|tests/b661_logicgate.cpp|||b6.6"
   "harness|b662_jit|tests/b662_jit.cpp|||b6.6"
   "harness|b66_uncovered|tests/b66_uncovered_e2e.cpp|||b6.6 uncovered"
+  "harness|b67_input_nodes|tests/b67_input_nodes_e2e.cpp|||b6.7 input nodes"
+  "harness|b667_defaults|tests/b667_default_values.cpp|||b6.6 unconnected editor defaults"
+  "script|b68_input_engine|tests/b68_input_engine_e2e.sh|||b6.8 input engine"
   "harness|c31_udp|tests/c31_udp_e2e.cpp|||c3.1"
+  "script|c31_udp_two_proc|tests/c31_udp_two_proc.sh|||c3.1 UDP two-process"
+  "script|n1_discover_two_proc|tests/n1_discover_two_proc.sh|||b6.9-N N-1 LAN discovery two-process"
+  "script|n2_state_sync_two_proc|tests/n2_state_sync_two_proc.sh|||b6.9-N N-2 state sync two-process"
   "harness|c32_rooms|tests/c32_rooms_e2e.cpp|||c3.2"
   "harness|c32_nodes|tests/c32_nodes_e2e.cpp|||c3.2 graph"
+  "harness|c7_ui|tests/c7_ui.cpp|||c7 ui tail"
+  "harness|b69|tests/b69_e2e.cpp|||b6.9 audio playlist, multi hit ray, radar filter, scene stack"
+  "harness|b69_f_flow|tests/b69_f_flow.cpp|||b6.9 flow"
+  "harness|b69_m_math|tests/b69_m_math.cpp|||b6.9 math"
+  "harness|b69_s_list|tests/b69_s_list.cpp|||b6.9 string list"
+  "harness|b69_file|tests/b69_file_e2e.cpp|||b6.9-Fi streaming file + directory ops"
+  "harness|b69_file_engine|tests/b69_file_engine_e2e.cpp|||b6.9-Fi real-disk KX_FileAdapterEngine"
+  "harness|b69_msg|tests/b69_msg_e2e.cpp|||b6.9-Ms RPC + delayed messages"
+  "script|b69_rpc_two_proc|tests/b69_rpc_two_proc.sh|||b6.9-Ms RPC two-process envelope + requeue"
 )
 
 matches()
@@ -115,11 +140,16 @@ needs_b5=0
 for kind in "${kinds[@]}"; do
   [ "$kind" = "builtin" ] && needs_b5=1
 done
+b5_build_rc=0
 if [ "$needs_b5" -eq 1 ]; then
   echo "== building tests/b5_rerun (unified TU list) =="
   if ! make -C "$ROOT/tests/b5_rerun" -j"$JOBS" >>"$OUTDIR/b5_build.log" 2>&1; then
+    b5_build_rc=1
     echo "FAIL(build) tests/b5_rerun (see $OUTDIR/b5_build.log)" >&2
   fi
+  # Persist the group-level build evidence next to the per-batch logs; the
+  # four builtin rows share this one rc by design (no per-batch build).
+  printf '%d\n' "$b5_build_rc" >"$OUTDIR/b5_build.rc"
 fi
 
 # --- precompile the shared object set once --------------------------------
@@ -137,9 +167,19 @@ build_one()
   local kind="$1" name="$2" src="$3" extra="$4"
   local out="$BINDIR/$name"
   local log="$OUTDIR/$name.build.log"
+  local rcfile="$OUTDIR/$name.build.rc"
+  local rc=0
   if [ "$kind" = "builtin" ]; then
-    [ -x "$ROOT/tests/b5_rerun/$src" ] && return 0
-    return 1
+    [ -x "$ROOT/tests/b5_rerun/$src" ] || rc=1
+    [ "$b5_build_rc" -eq 0 ] || rc=1
+    printf '%d\n' "$rc" >"$rcfile"
+    return "$rc"
+  fi
+  if [ "$kind" = "script" ]; then
+    echo "script batch: $src (builds and launches its own processes)" >"$log"
+    [ -f "$ROOT/$src" ] || rc=1
+    printf '%d\n' "$rc" >"$rcfile"
+    return "$rc"
   fi
   local -a extra_args=()
   local item
@@ -152,12 +192,18 @@ build_one()
     /*) ;;
     *) src="$ROOT/$src" ;;
   esac
+  # Drop the previous binary first: a failed compile must never pass on a stale
+  # artifact left by an earlier run.
+  rm -f "$out"
   HARNESS_HARNESS_SRCS=("$src" "${extra_args[@]}")
   {
     harness_compile_tus &&
     harness_build "$src" "$out" "${extra_args[@]}" &&
     harness_check_required_symbols "$out"
   } >"$log" 2>&1
+  rc=$?
+  printf '%d\n' "$rc" >"$rcfile"
+  return "$rc"
 }
 
 build_fail=()
@@ -173,8 +219,26 @@ done
 wait
 for index in "${!names[@]}"; do
   name="${names[$index]}"
-  if [ "${kinds[$index]}" = "builtin" ]; then
+  kind="${kinds[$index]}"
+  log="$OUTDIR/$name.build.log"
+  [ "$kind" = "builtin" ] && log="$OUTDIR/b5_build.log"
+  # Union of three signals: the build's own return code, an "error:" line in
+  # the build log, and a missing artifact. Any one of them is a build failure.
+  # The old check used the artifact alone, so a stale binary from an earlier
+  # run made a failed compile look green.
+  build_rc="$(cat "$OUTDIR/$name.build.rc" 2>/dev/null || echo 1)"
+  if [ "$build_rc" -ne 0 ]; then
+    build_fail+=("$name")
+    continue
+  fi
+  if [ -f "$log" ] && grep -q 'error:' "$log"; then
+    build_fail+=("$name")
+    continue
+  fi
+  if [ "$kind" = "builtin" ]; then
     [ -x "$ROOT/tests/b5_rerun/${srcs[$index]}" ] || build_fail+=("$name")
+  elif [ "$kind" = "script" ]; then
+    [ -f "$ROOT/${srcs[$index]}" ] || build_fail+=("$name")
   else
     [ -x "$BINDIR/$name" ] || build_fail+=("$name")
   fi
@@ -187,6 +251,8 @@ run_one()
   local bin
   if [ "$kind" = "builtin" ]; then
     bin="$ROOT/tests/b5_rerun/$src"
+  elif [ "$kind" = "script" ]; then
+    bin="$ROOT/$src"
   else
     bin="$BINDIR/$name"
   fi
@@ -194,7 +260,13 @@ run_one()
   # The subshell keeps a signal-terminated harness from making bash print
   # "Segmentation fault (core dumped)" on the console; the rc is still recorded.
   (
-    if [ -n "$env" ]; then
+    if [ "$kind" = "script" ]; then
+      if [ -n "$env" ]; then
+        env $env timeout 300 bash "$bin" >"$log" 2>&1
+      else
+        timeout 300 bash "$bin" >"$log" 2>&1
+      fi
+    elif [ -n "$env" ]; then
       env $env timeout 300 "$bin" >"$log" 2>&1
     else
       timeout 300 "$bin" >"$log" 2>&1

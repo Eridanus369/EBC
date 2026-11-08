@@ -818,6 +818,6 @@ void RegisterB3FunctionGameNodes()
         spec.type_id,
         std::string("KX_FuncB3_") + spec.type_id,
         MakeB3Signature(*entry),
-        [entry]() { return std::unique_ptr<KX_LogicNodeRuntime>(new KX_FunctionNode(entry)); });
+        [entry]() { return std::unique_ptr<KX_GameNodeRuntime>(new KX_FunctionNode(entry)); });
   }
 }

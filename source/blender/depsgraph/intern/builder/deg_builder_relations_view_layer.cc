@@ -111,6 +111,8 @@ void DepsgraphRelationBuilder::build_view_layer(Scene *scene,
   if (scene->rigidbody_world != nullptr) {
     build_rigidbody(scene);
   }
+  /* Physics node trees (independent of the rigid body world). */
+  build_physnodes(scene);
   /* Scene's animation and drivers. */
   if (scene->adt != nullptr) {
     build_animdata(&scene->id);

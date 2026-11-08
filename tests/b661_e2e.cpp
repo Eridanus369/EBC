@@ -104,6 +104,12 @@ void TestPolar()
   ExpectRect(*renderer8, 5, 100.0f * std::cos(112.5f * 3.14159265f / 180.0f),
              100.0f * std::sin(112.5f * 3.14159265f / 180.0f),
              "polar 8 items slot 2 at 112.5 degrees");
+  ExpectRect(*renderer8, 3, 100.0f * std::cos(22.5f * 3.14159265f / 180.0f),
+             100.0f * std::sin(22.5f * 3.14159265f / 180.0f),
+             "polar 8 items slot 0 at 22.5 degrees");
+  ExpectRect(*renderer8, 10, 100.0f * std::cos(337.5f * 3.14159265f / 180.0f),
+             100.0f * std::sin(337.5f * 3.14159265f / 180.0f),
+             "polar 8 items slot 7 at 337.5 degrees");
 
   /* Single child with radius 0 must not divide by zero or crash. */
   std::vector<KX_UIElement> single;
@@ -163,6 +169,20 @@ void TestKnob()
         "one visible slider issues exactly one DrawCircleApprox",
         float(renderer->Stats().circle_calls),
         1.0f);
+  /* G.3: the knob is a 16-gon, every rim vertex sits on the same radius, and
+   * the radius is half the slider height (knob_size 1.0, height 40). */
+  check(renderer->Stats().circle_segments == 16,
+        "knob circle uses 16 segments (16-gon)",
+        float(renderer->Stats().circle_segments),
+        16.0f);
+  check(near(renderer->Stats().circle_radius, 20.0f),
+        "knob radius is half the slider height",
+        renderer->Stats().circle_radius,
+        20.0f);
+  check(renderer->Stats().circle_radius_deviation < 1e-4f,
+        "all emitted knob vertices lie on one radius",
+        renderer->Stats().circle_radius_deviation,
+        0.0f);
 
   std::vector<KX_UIElement> two;
   two.push_back(MakeCanvas(1));
@@ -204,6 +224,13 @@ bool SegmentIs(const std::vector<KX_UIRichSegment> &segments,
          near(segment.color[2], b);
 }
 
+bool SegmentSize(const std::vector<KX_UIRichSegment> &segments,
+                 size_t index,
+                 float size)
+{
+  return index < segments.size() && near(segments[index].size, size);
+}
+
 void TestRichText()
 {
   const float white[4] = {1.0f, 1.0f, 1.0f, 1.0f};
@@ -230,6 +257,48 @@ void TestRichText()
         "hex green colors only B",
         float(hex.size()),
         3.0f);
+
+  /* A.1.3: the exact `{color:#FF0000}` form, not only a named color. */
+  std::vector<KX_UIRichSegment> hex_red =
+      KX_UIRenderer::ParseRichText("{color:#FF0000}R{/color}", white);
+  check(hex_red.size() == 1 && SegmentIs(hex_red, 0, "R", 1.0f, 0.0f, 0.0f),
+        "{color:#FF0000} parses to pure red",
+        hex_red.size() > 0 ? hex_red[0].color[1] : -1.0f,
+        0.0f);
+
+  /* G.3 multi-attribute: color and size on the same run. */
+  std::vector<KX_UIRichSegment> multi =
+      KX_UIRenderer::ParseRichText("{color:red}{size:24}Big{/size}{/color}", white);
+  check(multi.size() == 1 && SegmentIs(multi, 0, "Big", 1.0f, 0.0f, 0.0f) &&
+            SegmentSize(multi, 0, 24.0f),
+        "a run can carry both color and size",
+        multi.size() > 0 ? multi[0].size : -1.0f,
+        24.0f);
+
+  /* G.3 nested size: `{/size}` restores the enclosing size, then the base. */
+  std::vector<KX_UIRichSegment> nested_size =
+      KX_UIRenderer::ParseRichText("{size:20}a{size:40}b{/size}c{/size}", white);
+  check(nested_size.size() == 3 && SegmentSize(nested_size, 0, 20.0f) &&
+            SegmentSize(nested_size, 1, 40.0f) && SegmentSize(nested_size, 2, 20.0f),
+        "nested size markup restores the outer size",
+        nested_size.size() > 2 ? nested_size[2].size : -1.0f,
+        20.0f);
+
+  /* G.3: text outside any size tag inherits the element size (zero). */
+  std::vector<KX_UIRichSegment> size_after =
+      KX_UIRenderer::ParseRichText("{size:20}a{/size}b", white);
+  check(size_after.size() == 2 && SegmentSize(size_after, 1, 0.0f),
+        "text after {/size} inherits the element font size",
+        size_after.size() > 1 ? size_after[1].size : -1.0f,
+        0.0f);
+
+  /* Bold/italic/underline are not BLF features and must stay literal text. */
+  std::vector<KX_UIRichSegment> unsupported =
+      KX_UIRenderer::ParseRichText("{italic}x{/italic}", white);
+  check(unsupported.size() == 1 && unsupported[0].text == "{italic}x{/italic}",
+        "unsupported style markup stays literal",
+        float(unsupported.size()),
+        1.0f);
 
   std::vector<KX_UIRichSegment> nested =
       KX_UIRenderer::ParseRichText("x {color:red}a{color:blue}b{/color}c{/color}", white);

@@ -14,7 +14,7 @@
 | 构建 | `source/gameengine/GameLogic/CMakeLists.txt` | B3 之后追加 197 |
 | 适配器接口 | `.../KX_GameAdapters.h` | `SetWorldPosition` 434、`SetWorldOrientation` 441、`SetMaterial` 451（均追加在 `SetLocalScale` 之后） |
 | 引擎适配器 | `.../KX_GameAdaptersEngine.cpp` | 930-944 / 985-1003 / 1065-1090 |
-| 编辑器表 | `scripts/addons_core/bge_netlogic/editor/nodes/native_b5.py` | `NATIVE_B5` 25-45；动态端口类 89-135 |
+| 编辑器表 | `scripts/startup/bge_gamenodes/editor/nodes/native_b5.py` | `NATIVE_B5` 25-45；动态端口类 89-135 |
 | 编辑器加载 | `.../editor/nodes/__init__.py` | `from . import native_b5` 379 |
 | 调色板 | `.../ui/node_palette.py` | MouseLook 43、RotateTo 67、MoveTo 68、AlignAxis 69、SetMaterial 70、PropertyOperator 140 |
 | 端口契约 | `.../generator/port_contract.py` | 46 / 55 |

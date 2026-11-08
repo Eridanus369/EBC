@@ -79,7 +79,6 @@ _modules = [
     "space_graph",
     "space_image",
     "space_info",
-    "space_logic",
     "space_nla",
     "space_node",
     "space_outliner",

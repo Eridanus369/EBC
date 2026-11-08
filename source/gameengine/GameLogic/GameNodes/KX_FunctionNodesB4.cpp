@@ -28,7 +28,7 @@
  *  painter order and the generic attribute get/set pair.
  *
  *  Port order follows the legacy editor declarations in
- *  `scripts/addons_core/bge_netlogic/editor/nodes/ui/*.py`; the editor table in
+ *  `scripts/startup/bge_gamenodes/editor/nodes/ui/*.py`; the editor table in
  *  `native_b4.py` repeats the same order, and `port_contract.py` compares
  *  both sides.
  *
@@ -788,6 +788,6 @@ void RegisterB4UIFunctionGameNodes()
         spec.type_id,
         std::string("KX_FuncB4UI_") + spec.type_id,
         MakeB4Signature(*entry),
-        [entry]() { return std::unique_ptr<KX_LogicNodeRuntime>(new KX_FunctionNode(entry)); });
+        [entry]() { return std::unique_ptr<KX_GameNodeRuntime>(new KX_FunctionNode(entry)); });
   }
 }

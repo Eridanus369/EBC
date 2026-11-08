@@ -226,7 +226,7 @@ void KX_CompiledGraph::RefreshUIHandlesFromState()
   }
   KX_NodeRegistry &registry = KX_NodeRegistry::Get();
   for (uint32_t index = 0; index < plan_->nodes.size(); ++index) {
-    const KX_LogicNodeRuntime *node = plan_->nodes[index].get();
+    const KX_GameNodeRuntime *node = plan_->nodes[index].get();
     const char *runtime_id = registry.RuntimeTypeId(node->TypeId());
     if (runtime_id == nullptr) {
       continue;
@@ -290,7 +290,7 @@ void KX_CompiledGraph::MigrateStateFrom(const KX_CompiledGraph &previous)
   }
 
   for (uint32_t index = 0; index < plan_->nodes.size(); ++index) {
-    const KX_LogicNodeRuntime *node = plan_->nodes[index].get();
+    const KX_GameNodeRuntime *node = plan_->nodes[index].get();
     const char *runtime_id = registry.RuntimeTypeId(node->TypeId());
     if (runtime_id == nullptr) {
       continue;
@@ -307,7 +307,7 @@ void KX_CompiledGraph::MigrateStateFrom(const KX_CompiledGraph &previous)
     const uint32_t previous_index = range.first->second;
     previous_nodes.erase(range.first);
 
-    const KX_LogicNodeRuntime *previous_node = previous_plan->nodes[previous_index].get();
+    const KX_GameNodeRuntime *previous_node = previous_plan->nodes[previous_index].get();
     const uint32_t from_offset = previous_node->StateOffset();
     const uint32_t to_offset = node->StateOffset();
     if (from_offset == KX_INVALID_OFFSET || to_offset == KX_INVALID_OFFSET) {

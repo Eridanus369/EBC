@@ -16,7 +16,7 @@
 
 1. **P0-1｜`PROJECT_STATUS.md` §1 把「82–84%」说成可用 14 域等权口径复现。** 事实是该口径的实测点是 **81.5%（主口径）/ 86.3%（上界）**，82–84 不是任何实测点；`CAPABILITY_WEIGHT_AUDIT.md` §7 已明说它只是「两端之间的插值印象」。这是对外能力陈述，必须改。
 2. **P0-2｜`KNOWN_LIMITATIONS.md` §0.2 用「动画 4/8 = 50.0%」代表整个动画能力域。** 4/8 是 **B6.1 动画高级子集**；当前**动画域是 11 节点、10/11 = 90.9%**。两个分母混在同一行「按能力域」下，会把动画能力对外说低 40 个百分点。
-3. **P0-3｜`B6_LEGACY_COMPAT.md` §6 仍把 `native_nodes=196`、`checked_pairs=71` 写成「本轮输出」。** 当前权威值是 **223 / 108**（`A2_TASK345_STATUS.md` §215–§216），196/71 只是 B6.5a 当时的快照，且没有时间戳。223 正是四个不可互换分母之一，引用错会连带算错覆盖率。
+3. **P0-3｜`B6_LEGACY_COMPAT.md` §6 仍把 `native_nodes=196`、`checked_pairs=71` 写成「本轮输出」。** 当时权威值是 **223 / 108**（`A2_TASK345_STATUS.md` §215–§216），196/71 只是 B6.5a 当时的快照，且没有时间戳。223 正是四个不可互换分母之一，引用错会连带算错覆盖率。**K 冻结（`RUN_ID=20261106-224926`）后为 `native_nodes=244` / `checked_pairs=125`（见 B.5）。**
 
 **特别检查结论（性能节）：**
 
@@ -52,9 +52,9 @@
 | 1 | 运行时已注册节点 | **286** | `PROJECT_STATUS` §1；`CAPABILITY_WEIGHT_AUDIT` §1/§4 合计；`KNOWN_LIMITATIONS` §0.1；`LEGACY_COVERAGE_POLICY` §1.4 | 14 内建 + 270 表驱动 + 2 特例 |
 | 2 | 286 的分解 | **14 / 270 / 2** | `PROJECT_STATUS` §1；`CAPABILITY_WEIGHT_AUDIT` §1 | `KX_RuntimeNodes.cpp:201-250` |
 | 3 | 编辑器可见节点 | **226** | `PROJECT_STATUS` §1；`CAPABILITY_WEIGHT_AUDIT` §1；`LEGACY_COVERAGE_POLICY` §1.5 | 编辑器 catalog 计数 |
-| 4 | `port_contract` native 表节点（当前） | **223** | `PROJECT_STATUS` §1；`CAPABILITY_WEIGHT_AUDIT` §1；`LEGACY_COVERAGE_POLICY` §1.5；`A2_TASK345_STATUS` §215 | `port_contract.py` 输出 |
+| 4 | `port_contract` native 表节点（B6.5a 后、K 冻结前快照） | **223**（K 冻结后 **244**） | `PROJECT_STATUS` §1；`CAPABILITY_WEIGHT_AUDIT` §1；`LEGACY_COVERAGE_POLICY` §1.5；`A2_TASK345_STATUS` §215 | `port_contract.py` 输出 |
 | 5 | `port_contract` native 表节点（B6.5a 快照） | **196** | `B6_LEGACY_COMPAT` §6 | `/tmp/b65a_port.log` |
-| 6 | 枚举一致 `checked_pairs`（当前） | **108** | `A2_TASK345_STATUS` §216 | `enum_consistency.py` 输出 |
+| 6 | 枚举一致 `checked_pairs`（B6.5a 后、K 冻结前快照） | **108**（K 冻结后 **125**） | `A2_TASK345_STATUS` §216 | `enum_consistency.py` 输出 |
 | 7 | 枚举一致 `checked_pairs`（B6.5a 快照） | **71** | `B6_LEGACY_COMPAT` §6 | B6.5a 本轮 stdout |
 | 8 | legacy 全量 | **290** | `LEGACY_COVERAGE_POLICY` §0；`PROJECT_STATUS` §2；`KNOWN_LIMITATIONS` §0.2；`DEFERRED_FOREVER` §5 | `deferred_matrix.json` |
 | 9 | 用户可感知 | **233** | 同上 + `DEFERRED_FOREVER` §5 | `290 − 57` |
@@ -62,8 +62,8 @@
 | 11 | legacy 已迁移 | **69** | `LEGACY_COVERAGE_POLICY` §0；`B6_LEGACY_COMPAT` §1/§5 | `55 + 14` |
 | 12 | legacy 起点基线 | **55 / 290 = 19.0%** | `B6_LEGACY_COMPAT` §1 | 委派给定，本轮复核 |
 | 13 | FOREVER 基线 | **57** | `DEFERRED_FOREVER` §0；`KNOWN_LIMITATIONS` §0.1；`LEGACY_COVERAGE_POLICY` §1.2 | 渲染内件 40 + 废弃/VR/FMod 17 |
-| 14 | FOREVER 本轮新增 | **9**（7 组） | `DEFERRED_FOREVER` §2；`KNOWN_LIMITATIONS` §0.1 | 逐条评估 |
-| 15 | FOREVER 合计 | **66** | `DEFERRED_FOREVER` §0；`PROJECT_STATUS` §7；`KNOWN_LIMITATIONS` §0.1 | `57 + 9` |
+| 14 | FOREVER 本轮新增 | **8**（6 组） | `DEFERRED_FOREVER` §2；`KNOWN_LIMITATIONS` §0.1 | 逐条评估（#8 已实现移出） |
+| 15 | FOREVER 合计 | **65** | `DEFERRED_FOREVER` §0；`PROJECT_STATUS` §7；`KNOWN_LIMITATIONS` §0.1 | `57 + 8` |
 | 16 | 已知限制条数 | **24** | `KNOWN_LIMITATIONS` §0.3；`PROJECT_STATUS` §6 | 逐条编号 |
 | 17 | 限制状态分布 | **20 active / 4 mitigated / 0 removed** | `KNOWN_LIMITATIONS` §0.3；`PROJECT_STATUS` §6 | 逐条统计 |
 | 18 | 疑似 mock-only | **90（A 41 + B 49）** | `CAPABILITY_WEIGHT_AUDIT` §12.2；`PROJECT_STATUS` §4 | A：7+4+5+14+5+6；B：9+7+9+8+16 |
@@ -185,7 +185,9 @@
 | 102 | inspector 面板审计 | **284（§4）vs 287（§11.1/当前日志）** | `A1_BUILD_AUDIT` §4:81/§11.1:269 | `/tmp/b45_inspector.log` 当前 287 |
 | 103 | palette 面板审计 | **150** | `A1_BUILD_AUDIT` §4:81/§11.1:269 | `/tmp/b45_palette.log` |
 
-### 2.7 E2E 断言数（17 个 harness）
+### 2.7 E2E 断言数（17 个 harness；下表为当时审计快照）
+
+> **状态同步（2026-11-06，K 冻结）**：本节表格保留当时审计现场，不作覆盖。**K 冻结（`RUN_ID=20261106-224926`）：46 批、`TOTAL assertions=1456` / 0 失败 / 0 崩溃**。历史口径：`RUN_ID=20261106-101536` 为 957/29 行、J 块为 851/26 批，均已被冻结值覆盖。权威来源 `A1_BUILD_AUDIT.md` §11 与 `NUMBER_CONSISTENCY_AUDIT.md` B.5。
 
 计数规则：**扣除尾行汇总**。A1 表头写「断言（PASS+FAIL）」，但实际把 `PASS total failures=0` 计入；A2 明确「PASS 行 − 1 汇总」。
 
@@ -363,7 +365,7 @@
 |---|---|---|---|
 | A | legacy 全量 / 可感知 / semantic | 290 / 233 / 360 | LCP、PROJECT、KNOWN、FOREVER |
 | B | legacy 三比例 | 23.8% / 29.6% / 40.6% | LCP、PROJECT、KNOWN、B6_LEGACY |
-| C | legacy 已迁 / 起点 / FOREVER | 69 / 55 / 57 / 9 / 66 | LCP、B6_LEGACY、FOREVER、KNOWN、PROJECT |
+| C | legacy 已迁 / 起点 / FOREVER | 69 / 55 / 57 / 8 / 65 | LCP、B6_LEGACY、FOREVER、KNOWN、PROJECT |
 | D | 70% 上限链 | 203 / 134 / 158 / 54.5% | LCP（§3 算式逐步可复算） |
 | E | 286 分档合计 | 252 / 8 / 22 / 4 / 0 | CAP、LCP |
 | F | 节点三口径 | 88.1% / 93.4% / 98.6% | CAP、LCP、KNOWN、PROJECT |
@@ -438,3 +440,250 @@
 「再剔除未覆盖」这一档（该档已作废，数值不再引用）**；**58.4% / 56.6% 仅作含重复扣减的
 保守下界，不得当实测值呈现**。
 
+## 附录 B：唯一编号登记表（K3 收口，`RUN_ID=20261107-221756`）
+
+> **定位**：本附录是**附录 B 的唯一登记处**，本轮起由单一写者维护；**其它线不得再自行追加编号**。
+> **编号规则**：`B-1` → `B-40` 连续，一条一行，不允许跨批次各自编号；同号重复已在上轮合并（见 B.2），合并项不再单独计数。派生类另用 `D-1`～`D-3`（见 B.4），不占 B 编号、不单独计数总量。
+> **两类权威值**（断言类 **1481 / 48 批**（含 1 条陈旧期望失败，见 B.5）；节点类 `TypeCount()` **327**，历史冻结快照 `325` 见 B.0；逐条见 B.5）：
+> - **断言类**：最终值一律以 `tests/run_all_e2e.sh` 逐批 `assertions=` 为准（禁用 `grep -c '^PASS'`）；
+> - **节点类**：最终值一律以运行时 `KX_NodeRegistry::TypeCount()` 为准。
+> **历史快照依据（已被 B.5 覆盖）**：clean rebuild（HEAD `325d3071`，`build_linux` 从零重建，`NINJA_EXIT=0`，8442 步）
+> + 全量 E2E `TOTAL assertions=957 failures=0 build_failures=0 crashes=0`（29 行 = 4 `builtin` + 24 `harness` + 1 `script`；
+> 不含 `b66_uncovered` = 28 行 / 937），日志 `/tmp/k_full_regression_20261106-101536.log`。
+> **时点**：快照 E2E 跑于 12:58；13:21 MANIFEST 增至 36 行（4/29/3）；B-9 起各线自测晚于快照，只作线索。
+> **构建补充证据（不含任何断言）**：2026-11-06 14:19–14:56 另一次 clean rebuild（`RUN_ID=20261106-141851`，
+> `NINJA_EXIT=0`，8442/8442，日志 `/tmp/k_full_regression_20261106-141851.log`）仅证明「无 shim 树可干净编过」，
+> **未跑 E2E**，不作为任何权威值来源。
+
+### B.0 当前口径（注册表 `TypeCount()` 全量口径）
+
+**六个量**（当前树实测，2026-11-07；`gdb` 与 `gen_metadata` 双侧 327）：
+
+```text
+F = full（实现完整）                 = 301
+A = approximate（实现本身不完整）     = 4（Radar / Collision / EvaluatePropertyLegacy / TouchLegacy）
+U = unsupported（明确不做）          = 7（触摸注入 ×3 / 骨骼权重 / 动作时标 / 场景卸载）
+P = pending-device（仅缺设备验证）    = 15（音频 8 + 输入 7）
+D = F + A（进分母的已定集合）         = 305
+N = KX_NodeRegistry::TypeCount()     = 327
+```
+
+**历史冻结快照（保留一行，不参与当前算式）**：`RUN_ID=20261106-224926`（2026-11-06）：`N=325`、`F=299 / A=4 / U=7 / P=15`、`D=303`（严格 98.68% / 加权 99.34% / 覆盖 97.85%）。差异原因：常量物化修复新增两个 **IR 内部辅助节点** `ConstString`、`ConstVector`（无 `bl_idname`、不进 Add 菜单，只由 `ir_export` 注入），`TypeCount()` +2、二者均计 `F`，故 `F` 299→301、`D` 303→305、`N` 325→327。**为什么计 F 而不是剔除**：与 `ConstInt` 先例一致（纯辅助值节点计 `F`）；剔除等于为了分母好看而把真实注册类型排除在口径外，违反 `N = TypeCount()` 的冻结门槛。
+
+**三个算式与结果**（每个都必须能从各域 `*_RESCORE.md` 的逐节点表加和复算）：
+
+- 严格 `= F / D = 301 / 305 = 98.69%`
+- 加权 `= (F + 0.5·A) / D = (301 + 0.5×4) / 305 = 303 / 305 = 99.34%`
+- 覆盖 `= (F + A + P) / (D + U + P) = (301 + 4 + 15) / (305 + 7 + 15) = 320 / 327 = 97.86%`
+
+**`U` 的定义边界**：`U` 只放**真正的 unsupported 清单**（7 条）。327 个类型已逐名分类，不再把「尚未分类的类型」计入 `U`；旧口径的未分类残差已作废，报覆盖必须用这 7 条真实清单。
+
+**闭合校验**：`F + A + U + P = 301 + 4 + 7 + 15 = 327 = N` ✅。若四项再变动，仍以 `F + A + U + P == N` 为冻结门槛。
+
+**作废口径**：上一轮按「本轮动过的节点」做增量账的三量口径（`F` / `A` / `D` 小集合）作废——
+`docs/` 无登记、成员名单无法从仓库复现，**不进附录 B、不对外使用、不参与任何算式**。
+
+**适用范围（两条，必须与数字同页出现）**：
+
+1. `unsupported`（7）与 `pending-device`（15）都剔出分子，报告只描述**代码侧已定节点**；
+2. 这是 **C++ 实现正确率**。**已无 Python 回退路径**：B7.5 删除 Python 逻辑执行器与 `use_native_graph_runtime` 开关，`nl_` 组件只警告并跳过。**但 E2E 入口覆盖 ≠ 用户点 P 的路径**：多数 harness 直连 `KX_FunctionNode`/`KX_CompiledGraph`，绕过 `KX_Scene::GraphTick`，仅 `p3` manifest harness 走真实入口；用户默认体验（建树 → 点 P → 运行时调度）的证据缺口仍需实机验证补齐，**不能声称 E2E 已覆盖用户默认路径**。
+
+### B.1 登记表（唯一编号，一条一行）
+
+```text
+编号 | 登记值（历史快照，非当前权威） | 冻结值索引（K 最终权威见 B.5）
+B-1 | K 块批 1（`RUN_ID=20261106-101536`）· 运行时已注册节点 = **321**（14 内建 + 296 表驱动 + 11 特例；旧 286 有两种写法） | 已冻结（见 B.5）；`KX_NodeRegistry::TypeCount()`（`RegisterBuiltinGameNodes()` 后）；冻结值见 B.5
+B-2 | K 块批 1 · `native_metadata` 节点 = **301**（生成字典；`gen_metadata.py --check` 当时报 stale，未收敛） | 已冻结（见 B.5）；`gen_metadata.py` 重生成后的节点计数；冻结值见 B.5
+B-3 | K 块批 1 · `b62` 断言 = **77** | 已冻结（见 B.5）；`run_all_e2e.sh` 批 `b62` 的 `assertions=`；冻结值见 B.5
+B-4 | K 块批 1 · 全量断言总数 = **957**（29 行；`76+40+23+53+15+55+10+9+23+9+9+35+31+29+77+17+36+61+29+29+41+22+18+20+14+14+32+70+60`；不含 `b66` = 28 行 / 937） | 已冻结（见 B.5）；`run_all_e2e.sh` 的 `TOTAL assertions=`；冻结值见 B.5
+B-5 | K 块批 1 · 分档百分比分母 = **321**（`252/321=78.5%`、`267/321=83.2%`、`282/321=87.9%`；分子未重审，只作下界） | 已冻结（见 B.5）；`TypeCount()` 分母 + 各域重打分分子；冻结值见 B.5
+B-6 | K 块批 1 · `KNOWN_LIMITATIONS.md` §0.1 分母 286 → **321** | 已冻结（见 B.5）；同上（分母 `TypeCount()`）；冻结值见 B.5
+B-7 | UI 线（`/tmp/e2e_a1g/b661.log`）· `b661` 断言 = **29** | 已冻结（见 B.5）；`run_all_e2e.sh` 批 `b661` 的 `assertions=`；冻结值见 B.5
+B-8 | UI 线（`/tmp/e2e_c7/c7_ui.log`）· `c7_ui` 断言 = **60** | 已冻结（见 B.5）；批 `c7_ui` 的 `assertions=`；冻结值见 B.5
+B-9 | B6.9-F 线（流程控制）· 运行时已注册节点 = **295**（+`While` / `Switch` / `ConstInt`；`Sequence` 原地重写不增数） | 已冻结（见 B.5）；`TypeCount()`；冻结值见 B.5
+B-10 | B6.9-F 线（`/tmp/b69_f_flow`）· `b69_f_flow` 断言 = **25** | 已冻结（见 B.5）；批 `b69_f_flow` 的 `assertions=`；冻结值见 B.5
+B-11 | B6.9-U 线（`/tmp/e2e_u3/b64.log`）· `b64` 断言 = **78**。**并入（原同号条目）**：运行时已注册节点 = **299（暂计）**（`PlaySoundPlaylist` / `RaycastAll` / `MountChildScene` / `UnmountChildScene`），**已合并自 B6.9-Au/Se/Sc 线 13:16 后自测轮，不再单独计数** | 已冻结（见 B.5）；批 `b64` 的 `assertions=`（主）+ `TypeCount()`（并入项）；冻结值见 B.5
+B-12 | P 线 P-2（`.e2e_out/run_20261106-131608`）· `c5_constraint_types` 断言 = **14**。**并入（原同号条目）**：`b69` 三块断言 = **35（暂计）**（音频 12 + 传感器 6 + Radar 4 + 场景 13），**已合并自 B6.9-Au/Se/Sc 线，不再单独计数** | 已冻结（见 B.5）；批 `c5` / `b69*` 的 `assertions=`；冻结值见 B.5
+B-13 | P 线 P-1（`.e2e_out/run_20261106-131628`）· `c6_navmesh_bake` 断言 = **12**。**并入（原同号条目）**：新增适配器契约 = **1**（`KX_PhysicsAdapter::RaycastAll`，近→远顺序契约），**已合并自 B6.9-Se 线同轮，不再单独计数** | 已冻结（见 B.5）；批 `c6_navmesh_bake` 的 `assertions=`；冻结值见 B.5
+B-14 | 复核轮（`.e2e_out/run_20261106-131620`）· `b61` 断言 = **31**（含 `wheel_names` 四轮顺序 / 去空格 / 空配置回退） | 已冻结（见 B.5）；批 `b61` 的 `assertions=`；冻结值见 B.5
+B-15 | P 线 P-1 · `DEFERRED_FOREVER` 条目 = **−1**（#8 Recast 已实现；未改 §0 合计） | 已冻结（见 B.5）；`DEFERRED_FOREVER.md` §0 合计重算（口径外：文档计数）；冻结值见 B.5
+B-16 | B6.9-N 线 · 网络域已注册节点 = **14**（+`DiscoverRooms` / `SyncPlayerState` / `GetPlayerState`） | 已冻结（见 B.5）；`TypeCount()`；冻结值见 B.5
+B-17 | B6.9-N 线 · 新增网络 E2E 断言 = **28**（`n1_discover_two_proc` 14 + `n2_state_sync_two_proc` 14） | 已冻结（见 B.5）；两批次各自 `assertions=`；冻结值见 B.5
+B-18 | B6.9-N 线 · 网络重评分 = 实现 **14/14 = 100%**；真机 / 跨机 **0/14 = 0%** | 已冻结（见 B.5）；`TypeCount()` 分母 + 跨机证据（真机单列）；冻结值见 B.5
+B-19 | B6.9-N 线（`.e2e_out/run_20261106-131904`）· 既有网络回归 = **183 断言 / 0 失败**（17+36+14+14+32+70） | 已冻结（见 B.5）；批 `b63*` / `c31*` / `c32*` 的 `assertions=` 之和；冻结值见 B.5
+B-20 | B6.9-Fi 线 · 运行时已注册节点 = **+5**（`FileReadChunk` / `FileWriteChunk` / `ListDirectory` / `CreateDirectory` / `RemoveDirectory`；新表 `kB6FileStreamSpecs[]`） | 已冻结（见 B.5）；`TypeCount()`；冻结值见 B.5
+B-21 | B6.9-Fi 线（`/tmp/b69_file_e2e.log`）· `b69_file` 断言 = **19** | 已冻结（见 B.5）；批 `b69_file` 的 `assertions=`；冻结值见 B.5
+B-22 | B6.9-Ms 线 · 运行时已注册节点 = **+3**（`SendRPC` / `OnRPC` / `SendDelayedMessage`；新表 `kB6MsgSpecs[]`） | 已冻结（见 B.5）；`TypeCount()`；冻结值见 B.5
+B-23 | B6.9-Ms 线（`/tmp/b69_msg_e2e.log`）· `b69_msg` 断言 = **20** | 已冻结（见 B.5）；批 `b69_msg` 的 `assertions=`；冻结值见 B.5
+B-24 | B6.9-Fi/Ms 线 · 新增适配器契约 = **+9**（File 5 虚函数 + 1 自由函数；Message 2；Network 1） | 已冻结（见 B.5）；`KX_GameAdapters.h` 槽位静态计数（口径外：头文件计数）；冻结值见 B.5
+B-25 | B6.9-Fi/Ms 线（`/tmp/e2e_b69_fi_ms`）· 回归面 = **39 断言 / 0 失败**（19+20） | 已冻结（见 B.5）；批 `b69_file` + `b69_msg` 的 `assertions=` 之和；冻结值见 B.5
+B-26 | B6.9-Fi/Ms 线 · 编辑器元数据 / 端口 = **321**（`native_nodes=241 errors=0 warnings=4`；`checked_pairs=117 inconsistencies=0`；`checked=321 missing=0 unknown=0`） | 已冻结（见 B.5）；`port_contract.py` / `enum_consistency.py` / `gen_metadata.py` 输出；冻结值见 B.5
+B-27 | B6.9-A 线 · 运行时已注册节点 = **322**（`SetActionTimeScale` / `GetActionNormalizedTime` / `GetBoneTransform`） | 已冻结（见 B.5）；`TypeCount()`；冻结值见 B.5
+B-28 | B6.9-A 线（`.e2e_out/run_20261106-134937`）· `b61` 断言 = **32** | 已冻结（见 B.5）；批 `b61` 的 `assertions=`；冻结值见 B.5
+B-29 | B6.9-A 线（`tests/verify_gap/check_anim.py`）· 真实引擎动画断言 = **9** | 已冻结（见 B.5）；`check_anim.py` 的 PASS 计数（口径外：脚本断言；若并入 MANIFEST 则改取 `assertions=`）；冻结值见 B.5
+B-30 | B6.9-A 线 · `DEFERRED_FOREVER` 条目 = **+1 候选**（`SetActionTimeScale`） | 已冻结（见 B.5）；`DEFERRED_FOREVER.md` §0 合计重算；冻结值见 B.5
+B-31 | B6.9-A 线（C 块复核）· `BlendActions` 权重方向 = **已修**（layer 1 权重 `factor` → `1-factor`；不增节点 / 断言） | 已冻结（见 B.5）；真实引擎 factor 0 / 0.5 / 1 的 rotX 0.0 / 0.5 / 1.0 断言；冻结值见 B.5
+B-32 | B6.9-I 线 · 运行时已注册节点 = **325**（+`GamepadCount` / `TouchGesture` / `TouchGet`；`gen_metadata.py --check` → `up to date (325 nodes)`） | 已冻结（见 B.5）；`TypeCount()`；冻结值见 B.5
+B-33 | B6.9-I 线（`tests/.e2e_out/run_20261106-141602`）· `b62` 断言 = **99** | 已冻结（见 B.5）；批 `b62` 的 `assertions=`；冻结值见 B.5
+B-34 | B6.9-I 线 · 新增适配器契约 = **+3 虚函数 + 1 语法扩展**（`GetGamepadButtonValue` / `GetGamepadCount` / `GetTouchPressure`；`SetInputMap` 可选 `priority`；绑定可选 `:<deadzone>`） | 已冻结（见 B.5）；`KX_GameAdapters.h` 槽位静态计数；冻结值见 B.5
+B-35 | B6.9-I 线 · `DEFERRED_FOREVER` 条目 = **+1**（真机触摸 / 压力 / 多点手势；`EngineInputAdapter::GetTouch` 返回全 0、`GetTouchCount` 返回 0，`KX_GameAdaptersEngine.cpp:425-437`） | 已冻结（见 B.5）；`DEFERRED_FOREVER.md` §0 合计重算；冻结值见 B.5
+B-36 | B6.9-I 线 · 输入域三口径（26 节点：23 full / 1 mock / 0 approx / 2 unsup）= 严格 **88.5%**、加权 **90.4%**、覆盖 **92.3%** | 已冻结（见 B.5）；`TypeCount()` 分母 + 输入域重打分；冻结值见 B.5
+B-37 | B6.9-M 线（登记早于第 11–13 号，编号后移以保其主条目不变）· 运行时已注册节点 = **306**（6 向量高级 + 5 数学补全；Formula 另增 10 函数，非节点） | 已冻结（见 B.5）；`TypeCount()`；冻结值见 B.5
+B-38 | B6.9-M 线（`/tmp/b69_m_math`）· `b69_m_math` 断言 = **43**（Formula 12 + Vector 15 + Math 16） | 已冻结（见 B.5）；批 `b69_m_math` 的 `assertions=`；冻结值见 B.5
+B-39 | B6.9-S 线（`/tmp/b69_s_run.log`）· `b69_s_list` 断言 = **7**（`ListSlice` 1 编译 + 6 负索引切片） | 已冻结（见 B.5）；批 `b69_s_list` 的 `assertions=`；冻结值见 B.5
+B-40 | B6.9-S 线（`/tmp/b69_s_run.log`）· `b62` 断言 = **79**（`StringRegexReplace` 替换全部匹配 / 无匹配保持源串） | 已冻结（见 B.5）；批 `b62` 的 `assertions=`；冻结值见 B.5
+```
+
+### B.2 撞号与合并清单（本轮扫描结果）
+
+| 类型 | 冲突 | 涉及条目 | 处理 |
+|---|---|---|---|
+| 同号双登记（不同指标） | 原第 11 号被占两次：`b64` 断言 vs 运行时节点 | 表内第 11 条（`b64`） | `b64` 为主条目，节点值并入其「登记来源」并标「已合并自 B6.9-Au/Se/Sc 线」，不再单独计数 |
+| 同号双登记（不同指标） | 原第 12 号被占两次：`c5_constraint_types` vs `b69` 三块 | 表内第 12 条（`c5_constraint_types`） | `c5` 为主条目，`b69` 并入同上 |
+| 同号双登记（不同指标） | 原第 13 号被占两次：`c6_navmesh_bake` vs 适配器契约 | 表内第 13 条（`c6_navmesh_bake`） | `c6_navmesh_bake` 为主条目，契约并入同上 |
+| 非数字编号 | `B-M-1` / `B-M-2` / `B-S-1` / `B-S-2` 破坏连续数字规则 | B-37 / B-38 / B-39 / B-40 | 重编为连续数字，原前缀作废；登记时间早于第 11 号，编号后移 |
+| 同指标多来源 | 运行时节点 **321 / 295 / 299 / 306 / 322 / 325** 六处 | B-1 / B-9 / 表内第 11 条（并入值）/ B-37 / B-27 / B-32 | 以上均为历史值；K2 快照统一为 `TypeCount() = 325`（B.5 历史表），当前树为 **327**（B.0） |
+| 同指标多来源 | `b62` 断言 **77 / 79 / 99** 三处 | B-3 / B-40 / B-33 | 时间序；最终只认末次 `assertions=` = **134**（B.5） |
+| 同指标多来源 | `b61` 断言 **31 / 32** 两处 | B-14 / B-28 | 同上；最终 `b61 = **44**`（B.5） |
+| 同指标多来源 | 节点 / 元数据 **301 / 321 / 322 / 325** | B-2 / B-26 / B-27 / B-32 | `301` 已收敛到 **325**（B.5 历史快照）；当前树为 **327**（B.0） |
+| 同指标多来源 | `FOREVER` 合计三条独立增减（−1 / +1 / +1），均「未改 §0 合计」 | B-15 / B-30 / B-35 | K 冻结：`FOREVER_IDS = 57`（B.5）；§0 的 `65 = 57` 机器 id `+ 8` 正文项 |
+| 口径冲突 | 输入域分母 26 vs `CAPABILITY_WEIGHT_AUDIT.md` 旧分母 286 | B-36 | 两个分母不可混算，待重审 |
+| 快照内不一致 | B-4 的 29 批求和里 `b61=29` / `b62=77` / `b64=61` / `c5=10`，但逐批条目已是 31 / 79 / 78 / 14 | B-4 与 B-14 / B-40 / 原第 11 号 / 原第 12 号 | **957 相对本附录自身条目已陈旧**，已被 **1481（48 批，B.5）**覆盖 |
+| 批次未入总数 | B-4 的 29 行不含 `b69_f_flow`(25) / `b69_m_math`(43) / `b69_s_list`(7) / `b69_file`(19) / `b69_msg`(20) / `c6_navmesh_bake`(12) / `n1`+`n2`(28) | B-10 / B-38 / B-39 / B-21 / B-23 / 原第 13 号 / B-17 | 均为新增批次，已计入冻结总数 **1481（48 批）**（B.5） |
+| 权威类缺失 | `FOREVER` 计数、适配器契约计数、域百分比不在「断言 / 节点」两类覆盖内 | B-15 / B-24 / B-30 / B-34 / B-35 / B-5 / B-18 / B-36 | 需你裁定第三类（文档计数 / 头文件静态计数 / 域打分） |
+
+### B.3 派生值与口径声明
+
+**派生值声明（已作废）**：B-5 / B-6 的 321 分母下界已被 B.5 冻结值取代——当前树严格 **98.69%**（301/305）、加权 **99.34%**（303/305）、覆盖 **97.86%**（320/327），`N=327`；历史快照 `RUN_ID=20261106-224926` 为 `N=325`（98.68% / 99.34% / 97.85%）。本附录不再给出任何下界百分比。
+
+**不要混淆**：legacy 四口径（290 全量 / 233 可感知 / 360 semantic / 69 已迁移）与 `native_metadata` 的 **327** 无关。快照复核：`docs/deferred_matrix.json` 的 `rows=221`、`migrated_b65a=16`，`221 + 69 = 290` 未变；`233 / 360 / 69` 本轮未重算。`FOREVER_IDS` 仍为 57（§0 的 65 = 57 机器 id + 8 正文项，两套口径别混）。
+
+**最终 K 前置检查（防 shim 污染）**：开跑前 `grep -rn "fadapter[-_]shim\|shim[.]h" tests/ docs/ source/` 必须零命中；`b64` 必须在无 shim 干净树重拿最终值。本轮快照声明：**未使用任何 shim / 仓库外补丁头文件**。
+
+**端口附注**：`ListIndexOf` 的 `Value` 端口为 `Float`，已在 `B6_STRING_LIST.md` §4 补写「绝对值超过 `2^24` 的整数不再精确、相邻大整数可能误判相等」；`Index` 输出为 `Int` 不受影响。
+
+**K 冻结锚点算式：本轮新增批次项（可入权威口径）**：下列两批均在 `build_one()` 修复后自测（构建前先删旧产物，`.build.rc=0`、`.build.log` 无 `error:`），断言数取自 `run_all_e2e.sh` 的 `TOTAL`/逐批汇总，可直接进权威口径：`b67_input_nodes` assertions=49（`tests/b67_input_nodes_e2e.cpp`，harness）、`b68_input_engine` assertions=12（脚本 `tests/b68_input_engine_e2e.sh`，断言源 `tests/b68_input_engine_e2e.cpp` 编译进同一二进制）。二者均产自 `RUN_ID=20261106-162958`。记账形式只增项、不改总数：`1456（46 批，K 冻结 `RUN_ID=20261106-224926`）`，上列 49 / 12 等新增批次均已包含在内；逐项以 K 的 `TOTAL` 行为准（B.5）。其中 `b68_input_engine`（`tests/b68_input_engine_e2e.sh`，`-DKX_INPUT_TEST_HOOKS`）：该批二进制以仓库内 `#ifdef` 钩子构建，虚拟手柄经 `KX_CreateEngineInputAdapterForTest` 注入；被测类为生产 `EngineInputAdapter`（生产对象无该钩子工厂，`nm` 已核）。设备来源为虚拟手柄，故输入节点档位为 `pending-device`。`c6_shape_overlap`（`tests/c6_shape_overlap.cpp`，18 断言）：节点契约层以等价参考后端（精确 box/sphere）验证；`harness_config.sh` 排除 `KX_GameAdaptersEngine.cpp`，故 Bullet `contactPairTest` 路径在本次运行中**仅编译验证 + 代码审查**，未经真实 Bullet 执行验证。**已由 `c6_shape_overlap_bullet` 覆盖真实 Bullet 路径**（10 断言，`contactPairTest` 在栈上探针对象、无 broadphase handle、不检查激活状态、无残留 manifold）。
+
+### B.4 派生类条目（D）— 派生物，由上游类派生，不单独计数总量
+
+```text
+编号 | 派生项（上游条目） | 权威值来源（机器可核命令 / 可复算表）
+D-1 | FOREVER 计数（上游：B-15 / B-30 / B-35） | **57**（最终 K 实测，`FOREVER_IDS_COUNT=57`）；`native_audit.py` 的 `_forever_ids()`（`native_audit.py:96-108`）区间扫描输出；扫描区间 `docs/DEFERRED_FOREVER.md` L187 起点标记 → L245 结束标记，机器区间 L188–L244；解释器为外部 UPBGE 构建（`/mnt/Eridanus/Blender/upbge-0.53-alpha-linux-x86_64-2026-09-13/build/bin/blender`，Blender 5.3.0 Alpha，hash `71d86278b6a3`），审计逻辑取自本仓库 `scripts/startup`；本仓库 `build_linux/bin/blender` 缺 `scripts/modules` 无法初始化 Python，故不以其为解释器
+D-2 | 适配器契约计数（上游：B-24 / B-34、原第 13 号并入项） | `port_contract` 最终输出 **`native_nodes=244` / `errors=0`**（`warnings=4`；`catalog_nodes=68`），同轮 `enum_consistency checked_pairs=125 / inconsistencies=0`（`python3 scripts/startup/bge_gamenodes/generator/port_contract.py`）
+D-3 | 域百分比（上游：B-5 / B-18 / B-36 及各域条目） | 各域 `*_RESCORE.md` 逐节点表合计 → **`F=301 / A=4 / U=7 / P=15`，`N=327`**，恒等式 `301+4+7+15=327` 闭合；严格 `301/305=98.69%`、加权 `303/305=99.34%`、覆盖 `320/327=97.86%`（`FLOW_MATH_STRING_RESCORE.md` §4.2、`KNOWN_LIMITATIONS.md` §4）
+```
+
+**派生规则**：D-1 / D-2 / D-3 **不占 B 编号**、不计入 `grep -c '^B-'` 的编号数，也**不单独计数总量**；它们只是把 B 组对应上游条目换算成一条可核命令（或可复算表）的输出。
+
+### B.5 最终权威值（K3 收口回归，`RUN_ID=20261107-221756`，2026-11-07）
+
+**K3 结论**：本轮源码修复（载具 `ownsMotionState` / `CcdPhysicsEnvironment` 释放语义 / `CreateVehicle` 准入与真实轮径、
+Player 音频归一化查找与路径兜底、`FuncPrint` NONE 槽诊断、Debug Trace `poll`、端口标签）与新增 IR 辅助节点
+（`ConstString` / `ConstVector`）后的干净重建全量回归。六量 `N=327 / F=301 / A=4 / U=7 / P=15`
+（`301+4+7+15=327` 闭合）；E2E **48 批 / 1481 断言 / 1 失败 / 0 构建失败 / 0 崩溃**，唯一失败为陈旧期望（见下）。
+
+**构建**：`rm -rf build_linux` 后从零 configure。首轮 `-j6` 到 `6689/8513` 时主机重启（非构建报错）；
+重启后按 A1 已验证的 clean 配置补 `-DWITH_HYDRA=OFF -DWITH_USD=OFF` 重配（默认开 Hydra 时
+`source/blender/render/hydra/engine.cc` 无法编译捆绑 USD 25.02，与本轮改动无关），末次
+`NINJA_EXIT=0`，**2674/2674**、`error:`=0、`FAILED`=0、`ELAPSED=1787s`；`ninja install` `INSTALL_RC=0`
+（`bin/5.3/scripts`、`bin/5.3/python` 已装）。三产物（install 后实测）：
+`bin/blender` `0568b532ead891627dda5b168fe4cdc99b3e76fac5369353f8224c0cc5caa395`（233,544,424 B）、
+`bin/blenderplayer` `97a7cf80c747e7b963656d63e464105c4c5ed5e6922be931b9fed67fae6e0b79`（262,475,496 B）、
+`lib/libge_logic_bricks.a` `1c42d445615b86da1eacdf08ffd6a48727e37fe93a058070482bc11c070207a6`（6,743,498 B）。
+**哈希口径**：与 K2 相同——`buildinfo.h` 为无输入 `CUSTOM_COMMAND`，每次 ninja 调用重写 `BUILD_TIME`；
+install 前后两二进制字节数不变、哈希改变（install 前 `d56963d1…` / `ef837f95…`），交付以 install 后这组为准；
+sha256 不可复现，可复现的是源码指纹、三产物字节数、`buildinfo` 字段与 E2E 的 `RUN_ID`/`TOTAL`。
+
+**校验**（K3 实测，各一次）：`port_contract native_nodes=244 catalog_nodes=68 errors=0 warnings=4`；
+`enum_consistency checked_pairs=125 inconsistencies=0`；`gen_metadata --check` → `up to date (327 nodes)`；
+`TypeCount()` **实测 327**（`/var/tmp/k2_typecount.cpp` 经 `tests/harness_config.sh` 链接后直跑，输出 `TYPECOUNT=327`）。
+
+**E2E**：**48 批**，`TOTAL assertions=1481 failures=1 build_failures=0 crashes=0`（`E2E_EXIT=1`）；
+逐批 `.build.rc` 48/48 为 0、`error:` 命中 0（自动汇总）；`builtin` 4 行按整组例外
+（`b5_build.rc=0`、`b5_build.log` 无 `error:`）。唯一失败 `b667_defaults`（6 断言 / 1 失败）：
+该 untracked harness 原断言 `Print` 空槽输出 `"None"`，而本轮 `FuncPrint` 按修复要求输出
+`<Print: Value input unset>`（`KX_FunctionNode.cpp` 注释明确不得再报 `"None"`）。
+**这是测试期望落后于本轮修复，不是运行时回归。** 已按 `KNOWN_LIMITATIONS.md` #32 把该断言期望改为
+`<Print: Value input unset>`，单批重跑 `RUN_ID=20261107-222555` → `b667_defaults 6 / 0`、
+`TOTAL assertions=6 failures=0`；其余 47 批未重跑（全量 K3 快照仍记 `1481 / 1`，重跑后该索引为 0）。
+
+**与 K2 快照的差异**（`RUN_ID=20261107-112207` → `20261107-221756`）：
+
+| 指标 | K2 原生化后 | K3 收口回归 | 差异 |
+|---|---:|---:|---|
+| 断言总数 | 1456 | 1481 | +25（新增批 `c6_vehicle_wheel_guard` 19 + `b667_defaults` 6；后者含 1 陈旧期望失败） |
+| 批次数 | 46 | 48 | +2 |
+| 注册表节点 `TypeCount()` | 325 | 327 | +2 |
+| 元数据节点 | 325 | 327 | +2 |
+| `native_nodes` | 244 | 244 | 0 |
+| `checked_pairs` | 125 | 125 | 0 |
+| 失败/崩溃/构建失败 | 0/0/0 | 1/0/0 | +1（`b667_defaults` 陈旧期望，非运行时回归） |
+| 三产物 sha256 | 见 K2 记录 | 见上方 | 全部改变（`ninja install` 重链接所致；**sha256 不可复现**） |
+
+> **历史快照**：K2（`RUN_ID=20261107-112207`）为 `N=325 / F=299 / A=4 / U=7 / P=15`、`D=303`、46 批 / 1456 断言 / 0 失败；
+> 插件模式基线（`RUN_ID=20261106-224926`）与其逐项一致。凡 `325 / 299 / 303 / 98.68% / 97.85%` 只作追溯，不得作为当前主口径。
+
+**非 MANIFEST 证据**：`tests/b73_component_skip.cpp`（B7.3 专项）未登记进 MANIFEST，单独构建成功
+（`error:`=0），但直跑 `SIGSEGV`（rc=139，`Py_Initialize`/`KX_GameObject` 段），**不作为通过证据**；
+组件跳过行为另有源码路径（`KX_GameObject::Update` 内 `nl_` 前缀跳过）复核，未计入六量。
+
+> 本表是**K3 冻结值**（`RUN_ID=20261107-221756`，2026-11-07 实测）；**当前口径（`N=327`）见 B.0**。K2/插件快照的 `325 / 299 / 303 / 98.68% / 97.85%` 只作追溯，不得作为当前主口径。
+
+| 编号 | 冻结快照值（覆盖 B.1 的登记值） | 来源 |
+|---|---|---|
+| B-1 | 注册表节点 **327**（覆盖 321） | `TypeCount()` |
+| B-2 | `native_metadata` **327**（覆盖 301） | `gen_metadata.py --check` |
+| B-3 | `b62` **134**（覆盖 77） | 批 `b62` `assertions=` |
+| B-4 | 全量 **1481**（覆盖 957；48 批，1 失败见 B.5） | `TOTAL assertions=` |
+| B-5 | `D=305`；严格 **98.69%** / 加权 **99.34%** / 覆盖 **97.86%** | `*_RESCORE.md` 合计 + `TypeCount()` |
+| B-6 | 分母 **327**（覆盖 286→321） | `TypeCount()` |
+| B-7 | `b661` **29**（不变） | 批 `b661` |
+| B-8 | `c7_ui` **60**（不变） | 批 `c7_ui` |
+| B-9 | 注册表 **327**（覆盖 295 时点值） | `TypeCount()` |
+| B-10 | `b69_f_flow` **36**（覆盖 25） | 批 `b69_f_flow` |
+| B-11 | `b64` **94**（覆盖 78）；节点并入项以 **327** 为准（覆盖 299） | 批 `b64` + `TypeCount()` |
+| B-12 | `c5_constraint_types` **16**（覆盖 14）；并入 `b69` **48**（覆盖 35） | 批 `c5` / `b69` |
+| B-13 | `c6_navmesh_bake` **12**（不变）；适配器契约 **1** | 批 `c6_navmesh_bake` |
+| B-14 | `b61` **44**（覆盖 31/32） | 批 `b61` |
+| B-15 | `FOREVER` **57** | D-1 机器计数 |
+| B-16 | 网络域 **14**（域内不变；总注册 **327**） | `TypeCount()` + `NETWORK_RESCORE.md` |
+| B-17 | `n1` **14** + `n2` **14** = **28** | 两批 `assertions=` |
+| B-18 | 实现 **14/14**；跨机 **0/14**（真机单列） | `NETWORK_RESCORE.md` |
+| B-19 | 网络回归 **183**（17+36+14+14+32+70） | 六批 `assertions=` |
+| B-20 | 文件域增量并入总量 **327**（覆盖 +5 时点值） | `TypeCount()` |
+| B-21 | `b69_file` **19**（不变） | 批 `b69_file` |
+| B-22 | 消息域增量并入总量 **327**（覆盖 +3 时点值） | `TypeCount()` |
+| B-23 | `b69_msg` **20**（不变） | 批 `b69_msg` |
+| B-24 | 适配器契约 **+9**（头文件静态计数，不变） | `KX_GameAdapters.h` |
+| B-25 | 回归面 **39**（19+20） | 两批 `assertions=` |
+| B-26 | 元数据 **327**；`native_nodes=244`；`checked_pairs=125`（覆盖 321/241/117） | 三条命令 |
+| B-27 | 注册表 **327**（覆盖 322） | `TypeCount()` |
+| B-28 | `b61` **44**（与 B-14 同指标，取末次） | 批 `b61` |
+| B-29 | 脚本断言 **9**（`check_anim.py`，未入 MANIFEST） | 脚本口径 |
+| B-30 | `FOREVER` **57** | D-1 机器计数 |
+| B-31 | `BlendActions` 权重方向 **已修**（不增断言/节点） | 代码复核 |
+| B-32 | 注册表 **327**（不变） | `TypeCount()` |
+| B-33 | `b62` **134**（与 B-3/B-40 同指标，取末次） | 批 `b62` |
+| B-34 | 契约 **+3 虚函数 + 1 语法扩展**（头文件静态计数，不变） | `KX_GameAdapters.h` |
+| B-35 | `FOREVER` **57** | D-1 机器计数 |
+| B-36 | 输入域 **26 节点 / D=23**（三口径以 `INPUT_RESCORE.md` 合计为准） | `INPUT_RESCORE.md` |
+| B-37 | 注册表 **327**（覆盖 306） | `TypeCount()` |
+| B-38 | `b69_m_math` **43**（不变） | 批 `b69_m_math` |
+| B-39 | `b69_s_list` **7**（不变） | 批 `b69_s_list` |
+| B-40 | `b62` **134**（覆盖 79） | 批 `b62` |
+
+**六量与闭合（当前树，2026-11-07）**：`N=327`（`TypeCount()` 实测）；`F=301 / A=4 / U=7 / P=15`、`D=F+A=305`；
+恒等式 `301 + 4 + 7 + 15 = 327` **闭合成立**。历史快照 `RUN_ID=20261106-224926` 为 `325 / 299 / 4 / 7 / 15 / 303`，
+差异为新增 `ConstString` / `ConstVector` 两个 IR 内部辅助节点（与 `ConstInt` 先例一致计 `F`）。
+
+**三口径（当前树复算）**：
+
+- 严格 `= F/D = 301/305 = 98.69%`
+- 加权 `= (F + 0.5·A)/D = (301+2)/305 = 99.34%`
+- 覆盖 `= (F+A+P)/(D+U+P) = (301+4+15)/(305+7+15) = 320/327 = 97.86%`
+
+- **适用范围**：`unsupported` 7 与 `pending-device` 15 剔出分子，只描述代码侧已定节点；
+  这是 **C++ 实现正确率**。已无 Python 回退路径（B7.5 删除执行器与开关，`nl_` 组件只警告并跳过）；**但 E2E 入口覆盖 ≠ 用户点 P 的路径**——多数 harness 直连节点类/编译图、绕过 `KX_Scene::GraphTick`，仅 `p3` manifest harness 走真实入口，用户默认体验仍需实机验证补齐。
+- **无「证据不足」批次**（K3 48/48 有 `.build.rc` 且全为 0、`error:` 命中 0；builtin 4 行按整组例外汇总）。
+  唯一失败为 `b667_defaults` 的 1 条陈旧期望（见 B.5），不影响批次证据完整性。
+- legacy 三口径同轮复核：`290 / 69 / 233 / 360`，`233 = 290 − 57`，semantic `146/360 = 40.6%`（D-1 同一次运行）。

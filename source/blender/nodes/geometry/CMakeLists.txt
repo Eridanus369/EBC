@@ -231,6 +231,12 @@ set(SRC
   nodes/node_geo_points_to_vertices.cc
   nodes/node_geo_points_to_volume.cc
   nodes/node_geo_proximity.cc
+  nodes/node_phys_rigid_body.cc
+  nodes/node_phys_collection_input.cc
+  nodes/node_phys_collider.cc
+  nodes/node_phys_time.cc
+  nodes/node_phys_output.cc
+  nodes/node_phys_outputs.cc
   nodes/node_geo_rasterize_points.cc
   nodes/node_geo_raycast.cc
   nodes/node_geo_realize_instances.cc
@@ -331,6 +337,7 @@ set(SRC
 
   node_geometry_tree.cc
   node_geometry_util.cc
+  node_phys_tree.cc
 
   node_geometry_util.hh
 )

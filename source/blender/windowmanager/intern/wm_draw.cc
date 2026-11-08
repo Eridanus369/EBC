@@ -1233,6 +1233,10 @@ static void wm_draw_window_onscreen(bContext *C, wmWindow *win, int view)
   wm_draw_callbacks(win);
   wmWindowViewport(win);
 
+  /* Stage C: the floating panel glass needs the composited window as backdrop. It must run here,
+   * after areas were composited and before the screen-level regions are blended. */
+  ui::ED_screen_floating_panel_overlay_draw(win);
+
   /* Blend in floating regions (menus). */
   for (ARegion &region : screen->regionbase) {
     if (!region.runtime->visible) {
@@ -1274,6 +1278,12 @@ static void wm_draw_window(bContext *C, wmWindow *win)
   GPU_context_begin_frame(static_cast<GPUContext *>(win->runtime->gpuctx));
 
   bScreen *screen = WM_window_get_active_screen(win);
+
+  /* Stage A floating UI: ensure the static (non-interactive) floating panel region exists.
+   * Screen-level regions are runtime only, so this also recreates the panel after workspace
+   * (screen) switches. */
+  ui::ED_screen_floating_panel_ensure(C, win, screen);
+
   bool stereo = WM_stereo3d_enabled(win, false);
 
 #ifdef WITH_GHOST_CSD

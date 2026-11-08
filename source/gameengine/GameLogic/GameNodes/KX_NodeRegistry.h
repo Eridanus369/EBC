@@ -46,7 +46,7 @@
 #include <vector>
 
 #include "KX_GraphIR.h"
-#include "KX_LogicNodeRuntime.h"
+#include "KX_GameNodeRuntime.h"
 
 /** Declared port of a runtime node, used to validate an #IRNode. */
 struct KX_NodePortSignature {
@@ -78,7 +78,7 @@ struct KX_NodeSignature {
    * Table driven node families use this to avoid repeating a port signature
    * per editor node. The compiler still validates count, kind and value type
    * against the IR, and the runtime node resolves ports by name through
-   * #KX_LogicNodeRuntime::ConfigurePorts.
+   * #KX_GameNodeRuntime::ConfigurePorts.
    */
   bool ports_from_ir = false;
   /**
@@ -94,7 +94,7 @@ struct KX_NodeSignature {
 
 class KX_NodeRegistry {
  public:
-  using Factory = std::function<std::unique_ptr<KX_LogicNodeRuntime>()>;
+  using Factory = std::function<std::unique_ptr<KX_GameNodeRuntime>()>;
 
   static KX_NodeRegistry &Get();
 
@@ -119,9 +119,9 @@ class KX_NodeRegistry {
   const KX_NodeSignature *GetSignature(KX_NodeTypeId type_id) const;
 
   /** Create the runtime instance of a registered type, nullptr when unknown. */
-  std::unique_ptr<KX_LogicNodeRuntime> Create(KX_NodeTypeId type_id) const;
+  std::unique_ptr<KX_GameNodeRuntime> Create(KX_NodeTypeId type_id) const;
   /** Create from either the editor or the runtime identifier. */
-  std::unique_ptr<KX_LogicNodeRuntime> Create(const std::string &type_id) const;
+  std::unique_ptr<KX_GameNodeRuntime> Create(const std::string &type_id) const;
 
   size_t TypeCount() const;
 
@@ -153,5 +153,5 @@ KX_NodeTypeId RegisterGameNodeType(const std::string &editor_type_id,
       editor_type_id,
       runtime_type_id,
       signature,
-      []() { return std::unique_ptr<KX_LogicNodeRuntime>(new T()); });
+      []() { return std::unique_ptr<KX_GameNodeRuntime>(new T()); });
 }

@@ -224,6 +224,7 @@ class DepsgraphRelationBuilder : public DepsgraphBuilder {
   virtual void build_dimensions(Object *object);
   virtual void build_world(World *world);
   virtual void build_rigidbody(Scene *scene);
+  virtual void build_physnodes(Scene *scene);
   virtual void build_particle_systems(Object *object);
   virtual void build_particle_settings(ParticleSettings *part);
   virtual void build_particle_system_visualization_object(Object *object,

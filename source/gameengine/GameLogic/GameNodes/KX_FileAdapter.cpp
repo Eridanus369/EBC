@@ -31,8 +31,9 @@
 
 #include "KX_FileAdapter.h"
 
-#include <utility>
 #include <algorithm>
+#include <cctype>
+#include <utility>
 
 namespace {
 
@@ -46,6 +47,60 @@ NullFileAdapter &NullFileInstance()
 }
 
 }  // namespace
+
+bool KX_FileAdapterDirectoryPathIsSafe(const std::string &path,
+                                       bool allow_root,
+                                       std::string *sanitized,
+                                       std::string *error)
+{
+  auto fail = [error](const std::string &message) {
+    if (error != nullptr) {
+      *error = message;
+    }
+    return false;
+  };
+
+  if (path.empty()) {
+    if (!allow_root) {
+      return fail("directory path is empty");
+    }
+    if (sanitized != nullptr) {
+      sanitized->clear();
+    }
+    return true;
+  }
+  if (path.front() == '/' || path.back() == '/') {
+    return fail("directory path must be relative and must not end with '/': '" + path + "'");
+  }
+  for (char c : path) {
+    if (static_cast<unsigned char>(c) < 0x20 || c == 0x7f) {
+      return fail("directory path contains control characters");
+    }
+    if (c == '\\' || c == ':') {
+      return fail("directory path must not contain '\\' or ':': '" + path + "'");
+    }
+  }
+  size_t cursor = 0;
+  while (cursor <= path.size()) {
+    const size_t slash = path.find('/', cursor);
+    const std::string part = path.substr(cursor, slash == std::string::npos ? std::string::npos :
+                                                                           slash - cursor);
+    if (part.empty()) {
+      return fail("directory path contains an empty component: '" + path + "'");
+    }
+    if (part == "." || part == "..") {
+      return fail("directory path must not contain '.' or '..': '" + path + "'");
+    }
+    if (slash == std::string::npos) {
+      break;
+    }
+    cursor = slash + 1;
+  }
+  if (sanitized != nullptr) {
+    *sanitized = path;
+  }
+  return true;
+}
 
 std::string KX_MockFileKey(const std::string &slot)
 {
@@ -180,9 +235,211 @@ bool KX_MockFileAdapter::DeleteFile(const std::string &path)
   return files.erase(path) > 0;
 }
 
+/* ------------------------------------------------------------------------- */
+/* B6.9 Fi-1/Fi-2: mock streaming IO and directory operations (appended).    */
+
+bool KX_MockFileAdapter::ReadFileRange(const std::string &path,
+                                       size_t offset,
+                                       size_t length,
+                                       std::string *out,
+                                       bool *eof)
+{
+  ++read_range_calls;
+  if (!result || out == nullptr) {
+    return false;
+  }
+  const auto found = files.find(path);
+  if (found == files.end() || offset > found->second.size()) {
+    return false;
+  }
+  const size_t available = found->second.size() - offset;
+  const size_t take = std::min(length, available);
+  *out = found->second.substr(offset, take);
+  if (eof != nullptr) {
+    *eof = offset + take >= found->second.size();
+  }
+  return true;
+}
+
+bool KX_MockFileAdapter::WriteFileRange(const std::string &path,
+                                        const std::string &data,
+                                        bool truncate)
+{
+  ++write_range_calls;
+  if (!result) {
+    return false;
+  }
+  if (truncate) {
+    files[path] = data;
+  }
+  else {
+    files[path] += data;
+  }
+  return true;
+}
+
+bool KX_MockFileAdapter::ListDirectory(const std::string &path,
+                                       std::vector<KX_DirectoryEntry> *entries,
+                                       std::string *error)
+{
+  ++list_directory_calls;
+  std::string validated;
+  if (!KX_FileAdapterDirectoryPathIsSafe(path, true, &validated)) {
+    return false;
+  }
+  if (!result || entries == nullptr) {
+    return false;
+  }
+  if (!path.empty() && directories.find(path) == directories.end()) {
+    if (error != nullptr) {
+      *error = "not a directory: '" + path + "'";
+    }
+    return false;
+  }
+
+  const std::string prefix = path.empty() ? std::string() : path + "/";
+  std::vector<KX_DirectoryEntry> collected;
+  for (const auto &entry : files) {
+    if (entry.first.compare(0, prefix.size(), prefix) != 0) {
+      continue;
+    }
+    const std::string rest = entry.first.substr(prefix.size());
+    const size_t slash = rest.find('/');
+    KX_DirectoryEntry child;
+    child.name = rest.substr(0, slash);
+    child.directory = slash != std::string::npos;
+    if (!child.name.empty()) {
+      collected.push_back(child);
+    }
+  }
+  for (const std::string &directory : directories) {
+    if (directory.compare(0, prefix.size(), prefix) != 0) {
+      continue;
+    }
+    const std::string rest = directory.substr(prefix.size());
+    if (rest.empty() || rest.find('/') != std::string::npos) {
+      continue;
+    }
+    KX_DirectoryEntry child;
+    child.name = rest;
+    child.directory = true;
+    collected.push_back(child);
+  }
+  std::sort(collected.begin(), collected.end(), [](const KX_DirectoryEntry &a, const KX_DirectoryEntry &b) {
+    return a.name < b.name;
+  });
+  collected.erase(std::unique(collected.begin(),
+                              collected.end(),
+                              [](const KX_DirectoryEntry &a, const KX_DirectoryEntry &b) {
+                                return a.name == b.name;
+                              }),
+                  collected.end());
+  *entries = std::move(collected);
+  return true;
+}
+
+bool KX_MockFileAdapter::CreateDirectory(const std::string &path,
+                                         bool parents,
+                                         std::string *error)
+{
+  ++create_directory_calls;
+  std::string validated;
+  if (!KX_FileAdapterDirectoryPathIsSafe(path, false, &validated)) {
+    return false;
+  }
+  if (!result) {
+    return false;
+  }
+  if (parents) {
+    size_t cursor = 0;
+    while (cursor != std::string::npos && cursor < validated.size()) {
+      const size_t slash = validated.find('/', cursor);
+      const std::string part = validated.substr(0, slash);
+      if (!part.empty()) {
+        directories.insert(part);
+      }
+      cursor = slash == std::string::npos ? std::string::npos : slash + 1;
+    }
+    directories.insert(validated);
+    return true;
+  }
+  const size_t slash = validated.rfind('/');
+  if (slash != std::string::npos && directories.find(validated.substr(0, slash)) == directories.end()) {
+    if (error != nullptr) {
+      *error = "parent directory does not exist";
+    }
+    return false;
+  }
+  directories.insert(validated);
+  return true;
+}
+
+bool KX_MockFileAdapter::RemoveDirectory(const std::string &path,
+                                         bool recursive,
+                                         std::string *error)
+{
+  ++remove_directory_calls;
+  std::string validated;
+  if (!KX_FileAdapterDirectoryPathIsSafe(path, false, &validated)) {
+    return false;
+  }
+  if (!result) {
+    return false;
+  }
+  if (directories.find(validated) == directories.end()) {
+    if (error != nullptr) {
+      *error = "not a directory: '" + validated + "'";
+    }
+    return false;
+  }
+  const std::string prefix = validated + "/";
+  bool non_empty = false;
+  for (const auto &entry : files) {
+    if (entry.first.compare(0, prefix.size(), prefix) == 0) {
+      non_empty = true;
+      break;
+    }
+  }
+  if (!non_empty) {
+    for (const std::string &directory : directories) {
+      if (directory.compare(0, prefix.size(), prefix) == 0) {
+        non_empty = true;
+        break;
+      }
+    }
+  }
+  if (non_empty && !recursive) {
+    if (error != nullptr) {
+      *error = "directory is not empty: '" + validated + "' (recursive=false)";
+    }
+    return false;
+  }
+  if (recursive) {
+    for (auto it = files.begin(); it != files.end();) {
+      if (it->first.compare(0, prefix.size(), prefix) == 0) {
+        it = files.erase(it);
+      }
+      else {
+        ++it;
+      }
+    }
+    for (auto it = directories.begin(); it != directories.end();) {
+      if ((*it).compare(0, prefix.size(), prefix) == 0) {
+        it = directories.erase(it);
+      }
+      else {
+        ++it;
+      }
+    }
+  }
+  directories.erase(validated);
+  return true;
+}
+
 void KX_MockFileAdapter::Reset()
 {
   files.clear();
+  directories.clear();
   result = true;
   save_calls = 0;
   load_calls = 0;
@@ -193,6 +450,11 @@ void KX_MockFileAdapter::Reset()
   write_calls = 0;
   exists_calls = 0;
   delete_calls = 0;
+  read_range_calls = 0;
+  write_range_calls = 0;
+  list_directory_calls = 0;
+  create_directory_calls = 0;
+  remove_directory_calls = 0;
 }
 
 std::unique_ptr<KX_FileAdapter> KX_CreateNullFileAdapter()

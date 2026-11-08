@@ -96,6 +96,19 @@ static bool wm_check_area_exists(const wmWindow *win, const bScreen *screen, con
   return false;
 }
 
+static bScreen *wm_screen_from_area(const Main *bmain, const ScrArea *area)
+{
+  if (area == nullptr) {
+    return nullptr;
+  }
+  for (bScreen &screen : bmain->screens) {
+    if (BLI_findindex(&screen.areabase, area) != -1) {
+      return &screen;
+    }
+  }
+  return nullptr;
+}
+
 static bool wm_check_region_exists(const bScreen *screen,
                                    const ScrArea *area,
                                    const ARegion *region)
@@ -318,6 +331,24 @@ static PyObject *bpy_rna_context_temp_override_enter(BPyContextTempOverride *sel
    * *not* set, only the window, restoring the window will also restore its screen, see #116297. */
   if ((self->ctx_temp.win_is_set == true) && (self->ctx_temp.screen_is_set == false)) {
     screen = win ? WM_window_get_active_screen(win) : nullptr;
+  }
+
+  /* When the screen isn't passed but an area is, resolve the screen that owns the area.
+   * Without this, passing an area from another screen is rejected because it's not part of the
+   * currently active screen, even though the area (and its region) are perfectly valid. Setting
+   * the screen also keeps the window/screen/area hierarchy consistent while the override is
+   * active (the window's screen is restored on exit). */
+  if ((self->ctx_temp.screen_is_set == false) && self->ctx_temp.area_is_set && (area != nullptr) &&
+      (win != nullptr))
+  {
+    if (bScreen *area_screen = wm_screen_from_area(bmain, area)) {
+      if (area_screen != screen) {
+        screen = area_screen;
+        self->ctx_temp.screen = area_screen;
+        self->ctx_temp.screen_is_set = true;
+        self->ctx_init.screen_is_set = (self->ctx_init.screen != screen);
+      }
+    }
   }
 
   if (!bpy_rna_context_temp_override_enter_ok_or_error(self, bmain, win, screen, area, region)) {

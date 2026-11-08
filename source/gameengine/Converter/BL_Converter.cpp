@@ -35,6 +35,9 @@
 
 #include "BL_Converter.h"
 
+#include <cstdio>
+#include <cstdlib>
+
 #include "BKE_context.hh"
 #include "BKE_idtype.hh"
 #include "BKE_lib_id.hh"
@@ -213,7 +216,20 @@ void BL_Converter::ConvertScene(KX_Scene *destinationscene,
 
   /* Expose the blend's sound datablocks so nodes can play a sound by its
    * datablock name. The name stored here is the bpy name (ID prefix stripped). */
+  if (std::getenv("KX_AUDIO_TRACE") != nullptr) {
+    std::fprintf(stderr,
+                 "[SOUND-REG] main=%p count=%d\n",
+                 (void *)m_maggie,
+                 BLI_listbase_count(&m_maggie->sounds));
+  }
   for (blender::bSound &sound : m_maggie->sounds) {
+    if (std::getenv("KX_AUDIO_TRACE") != nullptr) {
+      std::fprintf(stderr,
+                   "[SOUND-REG] key='%s' filepath='%s' users=%d\n",
+                   sound.id.name + 2,
+                   sound.filepath,
+                   sound.id.us);
+    }
     sceneConverter->RegisterSound(std::string(sound.id.name + 2), &sound);
   }
 

@@ -131,7 +131,7 @@ void RegisterIntLiteral()
   signature.outputs.push_back(port);
   KX_NodeRegistry::Get().RegisterType(
       "IntLiteral", "KX_Func_IntLiteral", signature, []() {
-        return std::unique_ptr<KX_LogicNodeRuntime>(new KX_FunctionNode(&kIntLiteralSpec));
+        return std::unique_ptr<KX_GameNodeRuntime>(new KX_FunctionNode(&kIntLiteralSpec));
       });
 }
 

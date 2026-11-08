@@ -123,6 +123,7 @@ ShaderGroups ShaderModule::static_shaders_load(const ShaderGroups request_bits,
                                        DEFERRED_LIGHT_DOUBLE,
                                        DEFERRED_COMBINE,
                                        DEFERRED_AOV_CLEAR,
+                                       HEIGHTFIELD_TRACE,
                                        DEFERRED_TILE_CLASSIFY};
     request(DEFERRED_LIGHTING_SHADERS, AS_SPAN(shader_list));
   }
@@ -412,6 +413,8 @@ const char *ShaderModule::static_shader_create_info_name_get(eShaderType shader_
       return "eevee_deferred_thickness_amend";
     case DEFERRED_TILE_CLASSIFY:
       return "eevee_deferred_tile_classify";
+    case HEIGHTFIELD_TRACE:
+      return "eevee_heightfield_trace";
     case HIZ_DEBUG:
       return "eevee_hiz_debug";
     case HIZ_UPDATE:

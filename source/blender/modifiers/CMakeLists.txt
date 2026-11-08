@@ -83,6 +83,7 @@ set(SRC
   intern/MOD_ocean.cc
   intern/MOD_particleinstance.cc
   intern/MOD_particlesystem.cc
+  intern/MOD_physnodes.cc
   intern/MOD_remesh.cc
   intern/MOD_screw.cc
   intern/MOD_shapekey.cc

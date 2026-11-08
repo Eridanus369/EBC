@@ -281,6 +281,14 @@ class CcdPhysicsEnvironment : public PHY_IPhysicsEnvironment {
                                       blender::bRigidBodyJointConstraint *dat,
                                       bool replicate_dupli);
 
+  bool TestShapeContact(const PHY_ShapeDesc &shape,
+                        const MT_Vector3 &position,
+                        const MT_Matrix3x3 &orientation,
+                        PHY_IPhysicsController *other) override;
+
+  bool TestControllerContact(PHY_IPhysicsController *first,
+                             PHY_IPhysicsController *second) override;
+
  protected:
   std::set<CcdPhysicsController *> m_controllers;
 

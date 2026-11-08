@@ -78,7 +78,7 @@ cd /home/eridanusepsilon/Code/EBC/EBC5.3
 
 **P3**（[p3_harness.cpp](file:///home/eridanusepsilon/Code/EBC/EBC5.3/tests/b5_rerun/p3_harness.cpp) + [p3_export.py](file:///home/eridanusepsilon/Code/EBC/EBC5.3/tests/b5_rerun/p3_export.py)）
 
-- 编辑器导出：不修改地加载真实 `scripts/addons_core/bge_netlogic/generator/ir_export.py` 的 `export_scene_manifest`，用 mock bpy 数据构造 `B5E2EGraph`（OnUpdate / Keyboard / Branch / Sink / MouseWheel / AssetSet，4 个挂载对象 RunnerA(10)、RunnerB(0)、RunnerC(5)、RunnerD(0)）。
+- 编辑器导出：不修改地加载真实 `scripts/startup/bge_gamenodes/generator/ir_export.py` 的 `export_scene_manifest`，用 mock bpy 数据构造 `B5E2EGraph`（OnUpdate / Keyboard / Branch / Sink / MouseWheel / AssetSet，4 个挂载对象 RunnerA(10)、RunnerB(0)、RunnerC(5)、RunnerD(0)）。
 - 导出结果：1 个 graph、4 个 mount、无 warning；7 个节点、6 条连线（`AssetSet.Value` 未连线时 `materialize_constants` 自动补 `ConstFloat 0.0`，故比手写图多 1 节点/1 连线）。
 - 编译执行：导出 IR → 编译 → 同 IR 二次编译，`runtime_data_size`/`port_offsets`/`execution_order` 完全一致；无输入设备时 Keyboard=false、OnUpdate 每帧触发，3 帧 Sink=3，Sink 携带 MouseWheel 值 0。
 - priority：`stable_sort`（priority 升序，同值按对象名）得到 `RunnerB, RunnerD, RunnerC, RunnerA`；重复解析 manifest 3 次排序不变。

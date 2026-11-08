@@ -197,4 +197,39 @@ class PHY_IPhysicsController : public PHY_IController {
     (void)restitution;
     return false;
   }
+
+  /**
+   * Bounding radius of the collision shape in local units (max half extent).
+   * Geometric queries (e.g. raycast vehicle wheels) use this instead of
+   * GetRadius(), which is the Blender "radius/inertia" property and defaults
+   * to 1.0 regardless of the actual shape. Returns 0 when no shape is known,
+   * so callers can reject the body instead of inventing a size.
+   */
+  virtual float GetShapeBoundingRadius() const
+  {
+    return 0.0f;
+  }
+
+  /**
+   * Rebuild the collision shape of this body from explicit local half extents.
+   * This exists for nodes that have to override the engine's shape fallback
+   * for a body whose setup they own (the raycast vehicle chassis/wheels),
+   * without changing the scene converter or the global defaults.
+   *
+   * @param shape PHY_SHAPE_BOX or PHY_SHAPE_CYLINDER.
+   * @param half_extents local half extents. For a cylinder the OB_BOUND_CYLINDER
+   *        convention applies: radius in x/y, half height in z.
+   * @return false when the body cannot be rebuilt in place (sensor, soft body,
+   *         character, compound, unknown shape or unusable extents). Callers
+   *         must not assume the shape changed when false is returned.
+   *
+   * Appended after the existing virtuals on purpose: new slots at the end keep
+   * the vtable indices of all previously declared methods unchanged.
+   */
+  virtual bool SetAnalyticCollisionShape(PHY_ShapeType shape, const float half_extents[3])
+  {
+    (void)shape;
+    (void)half_extents;
+    return false;
+  }
 };

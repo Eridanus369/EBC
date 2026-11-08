@@ -1,9 +1,8 @@
-"""Headless check of bpy.ops.netlogic.hot_reload()."""
+"""Headless check of bpy.ops.gamenodes.hot_reload()."""
 import json
 import os
 import sys
 
-import addon_utils
 import bpy
 
 DIR = '/tmp/p4_editor'
@@ -20,20 +19,17 @@ def ok(message):
     print('PASS', message)
 
 
-addon_utils.enable('bge_netlogic')
-from bge_netlogic.editor.nodetree import LogicNodeTree  # noqa: E402
-from bge_netlogic.utilities import preferences  # noqa: E402
+from bge_gamenodes.editor.nodetree import GameNodeTree  # noqa: E402
+from bge_gamenodes.utilities import preferences  # noqa: E402
 
-prefs = preferences()
-if prefs is None:
-    fail('bge_netlogic preferences are missing')
-prefs.use_native_graph_runtime = True
+if preferences() is None:
+    fail('bge_gamenodes preferences are missing')
 
 for obj in list(bpy.data.objects):
     bpy.data.objects.remove(obj, do_unlink=True)
 
 try:
-    tree = bpy.data.node_groups.new('TestGraph', LogicNodeTree.bl_idname)
+    tree = bpy.data.node_groups.new('TestGraph', GameNodeTree.bl_idname)
 except Exception as error:  # noqa: BLE001
     fail('node tree could not be created: %r' % (error,))
 
@@ -48,10 +44,10 @@ for path in (FLAG, MANIFEST):
     if os.path.exists(path):
         os.remove(path)
 
-result = bpy.ops.netlogic.hot_reload()
+result = bpy.ops.gamenodes.hot_reload()
 if 'FINISHED' not in result:
     fail('operator returned %r' % (result,))
-ok('netlogic.hot_reload finished')
+ok('gamenodes.hot_reload finished')
 
 if not os.path.exists(MANIFEST):
     fail('manifest file was not written')

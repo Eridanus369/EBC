@@ -396,6 +396,217 @@ void FuncFileReadLines(KX_FunctionNode &node, KX_ExecutionContext &ctx)
 }
 
 /* ------------------------------------------------------------------------- */
+/* B6.9 Fi-1: streaming read/write (appended)                                 */
+
+const uint32_t kB6FileMaxChunkSize = 1024 * 1024;
+
+bool B6FileValidateChunkSize(const char *name, int configured, uint32_t *out)
+{
+  if (configured <= 0 || static_cast<uint32_t>(configured) > kB6FileMaxChunkSize) {
+    B6FileWarn(name,
+               "chunk_size must be in [1, 1048576] bytes, got " + std::to_string(configured));
+    return false;
+  }
+  *out = static_cast<uint32_t>(configured);
+  return true;
+}
+
+const KX_FuncPort kFileReadChunkInputs[] = {
+    TP("OnEnter"),
+    FP("Path", KX_VALUE_STRING),
+    FP("Offset", KX_VALUE_INT),
+};
+const KX_FuncPort kFileReadChunkOutputs[] = {
+    TP("OnSuccess"),
+    TP("OnFail"),
+    FP("Content", KX_VALUE_STRING),
+    FP("Size", KX_VALUE_INT),
+    FP("Eof", KX_VALUE_BOOL),
+};
+
+void FuncFileReadChunk(KX_FunctionNode &node, KX_ExecutionContext &ctx)
+{
+  if (!node.InTrigger(ctx, 0)) {
+    return;
+  }
+  uint32_t chunk_size = 0;
+  if (!B6FileValidateChunkSize("FileReadChunk", node.ConfigInt("chunk_size", 65536), &chunk_size)) {
+    node.OutTrigger(ctx, 1, true);
+    return;
+  }
+  const std::string path = B6FileInString(node, ctx, 1);
+  const int offset = node.InInt(ctx, 2);
+  if (path.empty()) {
+    B6FileWarn("FileReadChunk", "path must not be empty");
+    node.OutTrigger(ctx, 1, true);
+    return;
+  }
+  if (offset < 0) {
+    B6FileWarn("FileReadChunk", "offset must be >= 0, got " + std::to_string(offset));
+    node.OutTrigger(ctx, 1, true);
+    return;
+  }
+  std::string content;
+  bool eof = false;
+  if (!ctx.File().ReadFileRange(path, static_cast<size_t>(offset), chunk_size, &content, &eof)) {
+    B6FileWarn("FileReadChunk", "cannot read a chunk of '" + path + "' at offset " +
+                                   std::to_string(offset));
+    node.OutTrigger(ctx, 1, true);
+    return;
+  }
+  node.OutString(ctx, 2, content);
+  node.OutInt(ctx, 3, static_cast<int>(content.size()));
+  node.OutBool(ctx, 4, eof);
+  node.OutTrigger(ctx, 0, true);
+}
+
+const KX_FuncPort kFileWriteChunkInputs[] = {
+    TP("OnEnter"),
+    FP("Path", KX_VALUE_STRING),
+    FP("Content", KX_VALUE_STRING),
+};
+const KX_FuncPort kFileWriteChunkOutputs[] = {
+    TP("OnSuccess"),
+    TP("OnFail"),
+};
+
+void FuncFileWriteChunk(KX_FunctionNode &node, KX_ExecutionContext &ctx)
+{
+  if (!node.InTrigger(ctx, 0)) {
+    return;
+  }
+  uint32_t chunk_size = 0;
+  if (!B6FileValidateChunkSize("FileWriteChunk", node.ConfigInt("chunk_size", 65536),
+                               &chunk_size)) {
+    node.OutTrigger(ctx, 1, true);
+    return;
+  }
+  const std::string path = B6FileInString(node, ctx, 1);
+  const std::string content = B6FileInString(node, ctx, 2);
+  if (path.empty()) {
+    B6FileWarn("FileWriteChunk", "path must not be empty");
+    node.OutTrigger(ctx, 1, true);
+    return;
+  }
+  const bool append = node.ConfigBool("append", false);
+  size_t cursor = 0;
+  bool first = true;
+  while (cursor < content.size() || first) {
+    const size_t take = std::min<size_t>(chunk_size, content.size() - cursor);
+    const bool truncate = !append && first;
+    if (!ctx.File().WriteFileRange(path,
+                                   content.substr(cursor, take),
+                                   truncate)) {
+      B6FileWarn("FileWriteChunk", "cannot write a chunk of '" + path + "' at offset " +
+                                      std::to_string(cursor));
+      node.OutTrigger(ctx, 1, true);
+      return;
+    }
+    first = false;
+    if (take == 0) {
+      break;
+    }
+    cursor += take;
+  }
+  node.OutTrigger(ctx, 0, true);
+}
+
+/* ------------------------------------------------------------------------- */
+/* B6.9 Fi-2: directory operations (appended)                                */
+
+const KX_FuncPort kListDirectoryInputs[] = {
+    TP("OnEnter"),
+    FP("Path", KX_VALUE_STRING),
+};
+const KX_FuncPort kListDirectoryOutputs[] = {
+    TP("OnSuccess"),
+    TP("OnFail"),
+    FP("Entries", KX_VALUE_LIST),
+    FP("Directories", KX_VALUE_LIST),
+    FP("Count", KX_VALUE_INT),
+};
+
+void FuncListDirectory(KX_FunctionNode &node, KX_ExecutionContext &ctx)
+{
+  if (!node.InTrigger(ctx, 0)) {
+    return;
+  }
+  const std::string path = B6FileInString(node, ctx, 1);
+  std::vector<KX_DirectoryEntry> entries;
+  std::string error;
+  if (!ctx.File().ListDirectory(path, &entries, &error)) {
+    B6FileWarn("ListDirectory",
+               error.empty() ? "cannot list directory '" + path + "'" : error);
+    node.OutTrigger(ctx, 1, true);
+    return;
+  }
+  KX_ValueList &names = ctx.Pool().AllocList();
+  KX_ValueList &directories = ctx.Pool().AllocList();
+  for (const KX_DirectoryEntry &entry : entries) {
+    names.push_back(KX_RuntimeValue::String(ctx.Pool().Intern(entry.name)));
+    if (entry.directory) {
+      directories.push_back(KX_RuntimeValue::String(ctx.Pool().Intern(entry.name)));
+    }
+  }
+  node.Out(ctx, 2, KX_RuntimeValue::List(&names));
+  node.Out(ctx, 3, KX_RuntimeValue::List(&directories));
+  node.OutInt(ctx, 4, static_cast<int>(entries.size()));
+  node.OutTrigger(ctx, 0, true);
+}
+
+const KX_FuncPort kCreateDirectoryInputs[] = {
+    TP("OnEnter"),
+    FP("Path", KX_VALUE_STRING),
+};
+const KX_FuncPort kCreateDirectoryOutputs[] = {
+    TP("OnSuccess"),
+    TP("OnFail"),
+};
+
+void FuncCreateDirectory(KX_FunctionNode &node, KX_ExecutionContext &ctx)
+{
+  if (!node.InTrigger(ctx, 0)) {
+    return;
+  }
+  const std::string path = B6FileInString(node, ctx, 1);
+  const bool parents = node.ConfigBool("parents", true);
+  std::string error;
+  if (!ctx.File().CreateDirectory(path, parents, &error)) {
+    B6FileWarn("CreateDirectory",
+               error.empty() ? "cannot create directory '" + path + "'" : error);
+    node.OutTrigger(ctx, 1, true);
+    return;
+  }
+  node.OutTrigger(ctx, 0, true);
+}
+
+const KX_FuncPort kRemoveDirectoryInputs[] = {
+    TP("OnEnter"),
+    FP("Path", KX_VALUE_STRING),
+};
+const KX_FuncPort kRemoveDirectoryOutputs[] = {
+    TP("OnSuccess"),
+    TP("OnFail"),
+};
+
+void FuncRemoveDirectory(KX_FunctionNode &node, KX_ExecutionContext &ctx)
+{
+  if (!node.InTrigger(ctx, 0)) {
+    return;
+  }
+  const std::string path = B6FileInString(node, ctx, 1);
+  const bool recursive = node.ConfigBool("recursive", false);
+  std::string error;
+  if (!ctx.File().RemoveDirectory(path, recursive, &error)) {
+    B6FileWarn("RemoveDirectory",
+               error.empty() ? "cannot remove directory '" + path + "'" : error);
+    node.OutTrigger(ctx, 1, true);
+    return;
+  }
+  node.OutTrigger(ctx, 0, true);
+}
+
+/* ------------------------------------------------------------------------- */
 
 const KX_FunctionSpec kB6FileSpecs[] = {
     B6FILE_ACTION("SaveGameBinary",
@@ -406,6 +617,22 @@ const KX_FunctionSpec kB6FileSpecs[] = {
     B6FILE_ACTION("EncryptData", kEncryptDataInputs, kEncryptDataOutputs, FuncEncryptData),
     B6FILE_ACTION("DecryptData", kDecryptDataInputs, kDecryptDataOutputs, FuncDecryptData),
     B6FILE_ACTION("FileReadLines", kFileReadLinesInputs, kFileReadLinesOutputs, FuncFileReadLines),
+};
+
+/* B6.9 Fi-1/Fi-2 specs are registered separately so the B6.4 table above stays
+ * untouched for other in-flight branches. */
+const KX_FunctionSpec kB6FileStreamSpecs[] = {
+    B6FILE_ACTION("FileReadChunk", kFileReadChunkInputs, kFileReadChunkOutputs, FuncFileReadChunk),
+    B6FILE_ACTION("FileWriteChunk", kFileWriteChunkInputs, kFileWriteChunkOutputs, FuncFileWriteChunk),
+    B6FILE_ACTION("ListDirectory", kListDirectoryInputs, kListDirectoryOutputs, FuncListDirectory),
+    B6FILE_ACTION("CreateDirectory",
+                  kCreateDirectoryInputs,
+                  kCreateDirectoryOutputs,
+                  FuncCreateDirectory),
+    B6FILE_ACTION("RemoveDirectory",
+                  kRemoveDirectoryInputs,
+                  kRemoveDirectoryOutputs,
+                  FuncRemoveDirectory),
 };
 
 KX_NodeSignature MakeB6FileSignature(const KX_FunctionSpec &spec)
@@ -443,6 +670,14 @@ void RegisterB6FileFunctionGameNodes()
         spec.type_id,
         std::string("KX_FuncB6File_") + spec.type_id,
         MakeB6FileSignature(*entry),
-        [entry]() { return std::unique_ptr<KX_LogicNodeRuntime>(new KX_FunctionNode(entry)); });
+        [entry]() { return std::unique_ptr<KX_GameNodeRuntime>(new KX_FunctionNode(entry)); });
+  }
+  for (const KX_FunctionSpec &spec : kB6FileStreamSpecs) {
+    const KX_FunctionSpec *entry = &spec;
+    KX_NodeRegistry::Get().RegisterType(
+        spec.type_id,
+        std::string("KX_FuncB6File_") + spec.type_id,
+        MakeB6FileSignature(*entry),
+        [entry]() { return std::unique_ptr<KX_GameNodeRuntime>(new KX_FunctionNode(entry)); });
   }
 }

@@ -143,6 +143,16 @@ void TestLabelFontBinding()
             element_a->handle != element_b->handle,
         "the two labels are distinct elements");
 
+  /* G.1: the two Font port values must resolve to two independent BLF slots,
+   * so each label is drawn with its own face instead of silently sharing
+   * the default font. */
+  check(element_a != nullptr && element_b != nullptr &&
+            KX_UIRenderer::ResolveFont(element_a->font) == 7 &&
+            KX_UIRenderer::ResolveFont(element_b->font) == 9 &&
+            KX_UIRenderer::ResolveFont(element_a->font) !=
+                KX_UIRenderer::ResolveFont(element_b->font),
+        "the two labels resolve to distinct BLF font ids");
+
   /* A label carrying an unknown (legacy datablock) name still reaches the
    * fallback branch instead of crashing. */
   const int label_c = adapter.CreateLabel(canvas, "Legacy");
@@ -207,6 +217,8 @@ void TestVerticalText()
   elements.push_back(MakeLabel(2, 1, text, 16.0f, true));
   /* Same text without vertical, used as the horizontal control. */
   elements.push_back(MakeLabel(3, 1, text, 16.0f, false));
+  /* G.2: more than four characters still break one character per row. */
+  elements.push_back(MakeLabel(4, 1, "你好ABC", 16.0f, true));
 
   KX_UIRenderer *renderer = new KX_UIRenderer();
   renderer->Draw(elements, 640, 480, false);
@@ -249,6 +261,18 @@ void TestVerticalText()
   check(lines.size() == 1, "horizontal label keeps one row");
   check(heights.size() == 1 && near(heights[0], 16.0f * 1.5f),
         "horizontal row height keeps the line spacing");
+
+  /* G.2: five-character vertical label -> five rows, same row height. */
+  check(renderer->LaidOutLines(4, &lines, &heights), "five-character vertical label laid out");
+  check(lines.size() == 5, "five-character vertical label has five rows");
+  check_text(lines.size() == 5 && lines[4] == "C",
+             "the fifth row is the fifth UTF-8 character",
+             lines.size() < 5 ? std::string() : lines[4], "C");
+  bool five_heights_ok = heights.size() == 5;
+  for (float height : heights) {
+    five_heights_ok = five_heights_ok && near(height, 16.0f);
+  }
+  check(five_heights_ok, "five-character vertical rows keep the font-size height");
 }
 
 /* --- Polar hit-test write-back -------------------------------------------- */

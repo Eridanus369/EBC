@@ -15,7 +15,7 @@
 | 适配器接口 | `.../KX_GameAdapters.h` | `KX_AudioAdapter` 追加 5 个虚函数（1145-1230）；归属登记 978-1060 与 `PlaySoundByNameFor` / `PlaySound3DFor` 1203-1225 |
 | Mock 记录 | `.../KX_GameAdapters.h` / `.cpp` | 记录结构 1284-1308；`HandleSettings` 1296-1308；实现 545-615 / 1022-1094 |
 | 引擎实现 | `.../KX_GameAdaptersEngine.cpp` | 1835-2100 |
-| 编辑器表 | `scripts/addons_core/bge_netlogic/editor/nodes/native_b6b.py` | `NATIVE_B6B` 中 5 条 |
+| 编辑器表 | `scripts/startup/bge_gamenodes/editor/nodes/native_b6b.py` | `NATIVE_B6B` 中 5 条 |
 | 调色板 | `.../ui/node_palette.py` | 5 条音频条目 |
 
 ## 2. 节点与端口
@@ -104,6 +104,36 @@ audaspace 有 3D 设备/句柄，但**没有原生 bus（总线）与 zone（音
 - `bus_gain_[bus]` 命名增益表 + `handle_bus_[handle]` 归属表，新句柄默认 `"master"`（2304 / 2340 / 2438 / 2456-2457）。
 - `SetAudioBus` 只写增益表并对该 bus 下所有句柄重算 `setVolume(base_volume * gain)`，增益钳在 0..1（2309-2330）。
 - 因此语义是“**按名字的增益组**”，播放时与改增益时各应用一次；没有独立的混音/路由/总线树。
+
+等价与差异（F.1 明确对照）：
+
+| 能力 | 等价实现能做到 | 原生总线才有 |
+|---|---|---|
+| 独立改单路增益 | **可以**：`SetAudioBus` 调用时立即对该 bus 下所有句柄重算 `setVolume(base_volume * gain)`，**不需要重启播放**，增益钳在 0..1 | 总线树/父子总线增益叠加 |
+| 多总线叠加 | **不行**：一个句柄只归一个 bus（`handle_bus_`），且新句柄默认 `"master"`，节点侧没有 bus 归属入口 | 同一音源同时受多条总线影响 |
+| 总线级 solo/mute | **不支持**：没有 solo/mute 端口或 API，只有音量增益 | 总线级 solo/mute |
+| 区域（zone） | 只做 listener 处的循环环境音，同名再次进入先停旧句柄 | 空间区域衰减与进出区域事件 |
+
+结论：F.1 **不接真 mixer**（audaspace 没有可接入的命名总线），现有实现保留为“等价实现，非原生总线”；3D 音效的设备级限制见 §7。
+
+### 4.6 定案：音频 bus 保持 `approximate`（2026-11-06）
+
+`SetAudioBusVolume` 的档位定案为 **`approximate`**，不接 `PlaybackManager`，不改档位。
+
+> audaspace 无 bus 概念（`Mixer` 只是格式/重采样混音器，`extern/audaspace/include/respec/Mixer.h:36-37`；
+> `SoftwareDevice` 全设备单 `m_mixer`，`extern/audaspace/include/devices/SoftwareDevice.h:230`），
+> 当前「命名 gain 组」是等价实现，**不是原生总线**。总线树/父子增益/solo/mute 全部不支持。
+>
+> （原文写作 `respec::Mixer`，那是头文件目录名；类本身在 `aud` 命名空间下，即 `aud::Mixer`。）
+
+- `PlaybackManager` / `PlaybackCategory` 只有命名分类与 per-category 音量
+  （`extern/audaspace/include/fx/PlaybackManager.h:65/72/79/87/122`、
+  `PlaybackCategory.h:74-104`），且播放节点没有 bus 归属端口
+  （`KX_GameAdaptersEngine.cpp:2783/2819/2942` 全部写死 `master`；`SetAudioBus` 在 2788-2807）。
+- 即使接入，语义仍是「分类增益」而非总线树/父子增益/solo/mute，**接完仍是 `approximate`，档位不变**。
+- 因此不为了 **+0.23pp** 去接 `PlaybackManager`。理由已同步登记到
+  [DEFERRED_FOREVER.md](DEFERRED_FOREVER.md) §B6.9。
+
 
 ## 5. Mock 侧记录
 
@@ -222,3 +252,65 @@ legacy `StartSound` / `StopSound` 的迁移评估见 `docs/SOUND_BRIDGE_EVAL.md`
 
 只有 7 项真机验证通过、`mock-verified` → `full` 后，严格才会升到 66.7%、加权到 83.3%。
 当前状态**不得**表述为「音频已实现/已验证」。
+
+## 13. B6.9-Au：播放列表与 3D 完整化（2026-11-06）
+
+### 13.1 Au-1 距离模型与多监听器
+
+- **距离模型（代码侧）不是本轮新增**：全局/对象局部的 `setDistanceModel`、
+  `setDistanceReference`、`setDistanceMaximum`、`setAttenuation` 已在适配器和
+  `SetAttenuation` 节点里接通；本轮只做复核，没有改参数语义。
+- **多监听器判 FOREVER（单监听器），不是近似**：audaspace 的设备接口
+  `extern/audaspace/include/devices/I3DDevice.h` 只有一组
+  `get/setListenerLocation`、`get/setListenerVelocity`、`get/setListenerOrientation`，
+  没有按索引新增/切换 listener 的 API；`SoftwareDevice` 也只保存一份
+  location/velocity/orientation。设备级 3D 模型就是「一个设备一个听者」，
+  无法在同一输出上为多玩家分别衰减。
+- 因此 3D 能力按**单监听器**交付：参数链完整，多监听器不做，理由写入
+  [DEFERRED_FOREVER.md](DEFERRED_FOREVER.md)。
+
+### 13.2 Au-2 播放列表节点 `PlaySoundPlaylist`
+
+- 输入：`OnEnter` / `Sounds`(List) / `Mode`(Int) / `Seed`(Int) / `Volume` / `Pitch`；
+  输出：`OnDone` / `Current` / `Index` / `Handle`。
+- `Mode`：`0=顺序`、`1=循环`、`2=固定种子随机`。随机使用自实现的
+  xorshift32 + Fisher-Yates（不用 `std::shuffle`/`uniform_int_distribution`，
+  因为它们的分布实现跨标准库不保证一致），同一 `Seed` 在任何平台得到同一排列。
+- 播放由 Tick 推进：当前句柄 `IsFinished` 后释放所有权并切换下一首；
+  顺序模式在最后一首结束后停住，循环模式从最后一首回到第一首，
+  随机模式在整轮结束后用同一 RNG 继续洗牌。`OnDone` 只在**整轮边界**发一次
+  （顺序=最后一首结束、循环=最后一首→第一首的切换点、随机=一轮结束）。
+- 状态是固定长度裸内存（16×48 字节名 + 顺序表），不依赖 `std::string` 生命周期。
+
+### 13.3 E2E 证据
+
+[tests/b69_e2e.cpp](file:///home/eridanusepsilon/Code/EBC/EBC5.3/tests/b69_e2e.cpp)，本轮音频段 12 条断言全 PASS：
+
+- `sequential playlist starts with the first sound`
+- `sequential playlist advances to the second sound`
+- `sequential playlist advances to the third sound`
+- `sequential playlist stops after the last sound (no fourth request)`
+- `sequential playlist fired OnDone exactly once at the end`
+- `loop playlist requested four tracks`
+- `loop playlist wraps from the last sound back to the first`
+- `shuffle playlist produced three starts`
+- `shuffle playlist is reproducible under a fixed seed`
+- `shuffle playlist is a permutation of the source list`
+- `second seed still produced a full pass`
+- `sequential playlist graph compiles`
+
+边界：以上是 **Mock 适配器层**证据，不含真实声卡输出、真实 Loop 听感与
+真实资源名解析；这些仍属 `pending real device`。
+
+### 13.4 音频口径重打分（分子/分母可核）
+
+音频节点从 12 增到 **13**（`kB6AudioSpecs` 8 + B3 音频动作 5）：`full` 仍为 1，
+`mock-verified` 7→**8**（新增 `PlaySoundPlaylist`），`approximate` 4，
+`unclassified` 0。
+
+- 严格（Mock 计 0）：**1/13 = 7.7%**（原 8.3% 的分母 12，因新增节点略降）
+- 加权（`mock-verified` 计 0.5、`approximate` 计 0.5）：
+  `(1 + 8×0.5 + 4×0.5)/13 = 7/13 = 53.8%`
+- 覆盖（`full`+`mock-verified`+`approximate` 计 1）：**13/13 = 100%**
+
+真机听感不计入以上任何一档。

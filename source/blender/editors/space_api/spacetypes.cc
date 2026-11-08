@@ -81,7 +81,6 @@ void ED_spacetypes_init()
   ED_spacetype_script();
   ED_spacetype_text();
   vse::ED_spacetype_sequencer();
-  ED_spacetype_logic();
   ED_spacetype_console();
   ED_spacetype_userpref();
   ED_spacetype_clip();

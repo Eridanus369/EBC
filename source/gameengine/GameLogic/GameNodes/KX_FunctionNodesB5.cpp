@@ -941,6 +941,6 @@ void RegisterB5FunctionGameNodes()
         spec.type_id,
         std::string("KX_FuncB5_") + spec.type_id,
         MakeB5Signature(*entry),
-        [entry]() { return std::unique_ptr<KX_LogicNodeRuntime>(new KX_FunctionNode(entry)); });
+        [entry]() { return std::unique_ptr<KX_GameNodeRuntime>(new KX_FunctionNode(entry)); });
   }
 }

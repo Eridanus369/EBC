@@ -90,6 +90,10 @@ enum class OperationCode {
   /* Copy results to object */
   RIGIDBODY_TRANSFORM_COPY,
 
+  /* Physics node trees. -------------------------------------------------- */
+  /* Step the C++ physics node worlds once per frame (ctime deduplicated). */
+  PHYS_SIM,
+
   /* Geometry. ------------------------------------------------------------ */
 
   /* Initialize evaluation of the geometry. Is an entry operation of geometry

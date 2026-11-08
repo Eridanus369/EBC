@@ -51,7 +51,7 @@ void Check(bool ok, const char *what, double actual = 0.0, double expected = 0.0
 
 /* ------------------------------------------------------------------ test nodes */
 
-class TriggerOnceNode : public KX_LogicNodeRuntime {
+class TriggerOnceNode : public KX_GameNodeRuntime {
  public:
   KX_ExecResult Execute(KX_ExecutionContext &ctx) override
   {
@@ -66,7 +66,7 @@ class TriggerOnceNode : public KX_LogicNodeRuntime {
   bool fired_ = false;
 };
 
-class StringNode : public KX_LogicNodeRuntime {
+class StringNode : public KX_GameNodeRuntime {
  public:
   explicit StringNode(std::string value) : value_(std::move(value)) {}
   KX_ExecResult Execute(KX_ExecutionContext &ctx) override
@@ -79,7 +79,7 @@ class StringNode : public KX_LogicNodeRuntime {
   std::string value_;
 };
 
-class FloatNode : public KX_LogicNodeRuntime {
+class FloatNode : public KX_GameNodeRuntime {
  public:
   explicit FloatNode(float value) : value_(value) {}
   KX_ExecResult Execute(KX_ExecutionContext &ctx) override
@@ -92,7 +92,7 @@ class FloatNode : public KX_LogicNodeRuntime {
   float value_;
 };
 
-class IntNode : public KX_LogicNodeRuntime {
+class IntNode : public KX_GameNodeRuntime {
  public:
   explicit IntNode(int value) : value_(value) {}
   KX_ExecResult Execute(KX_ExecutionContext &ctx) override
@@ -105,7 +105,7 @@ class IntNode : public KX_LogicNodeRuntime {
   int value_;
 };
 
-class BoolNode : public KX_LogicNodeRuntime {
+class BoolNode : public KX_GameNodeRuntime {
  public:
   explicit BoolNode(bool value) : value_(value) {}
   KX_ExecResult Execute(KX_ExecutionContext &ctx) override
@@ -118,7 +118,7 @@ class BoolNode : public KX_LogicNodeRuntime {
   bool value_;
 };
 
-class ObjectNode : public KX_LogicNodeRuntime {
+class ObjectNode : public KX_GameNodeRuntime {
  public:
   explicit ObjectNode(KX_GameObject *object) : object_(object) {}
   KX_ExecResult Execute(KX_ExecutionContext &ctx) override
@@ -131,7 +131,7 @@ class ObjectNode : public KX_LogicNodeRuntime {
   KX_GameObject *object_;
 };
 
-class VectorNode : public KX_LogicNodeRuntime {
+class VectorNode : public KX_GameNodeRuntime {
  public:
   VectorNode(float x, float y, float z) : x_(x), y_(y), z_(z) {}
   KX_ExecResult Execute(KX_ExecutionContext &ctx) override
@@ -147,7 +147,7 @@ class VectorNode : public KX_LogicNodeRuntime {
 /* Counts triggers that reach it; one slot per harness assertion. */
 int g_hits[8] = {0, 0, 0, 0, 0, 0, 0, 0};
 
-class SinkNode : public KX_LogicNodeRuntime {
+class SinkNode : public KX_GameNodeRuntime {
  public:
   explicit SinkNode(int slot) : slot_(slot) {}
   KX_ExecResult Execute(KX_ExecutionContext &ctx) override
@@ -205,41 +205,41 @@ void RegisterTestType(const std::string &type_id,
 void RegisterTestNodes()
 {
   RegisterTestType("B3TriggerOnce", TriggerOutSignature(),
-                   []() { return std::unique_ptr<KX_LogicNodeRuntime>(new TriggerOnceNode()); });
+                   []() { return std::unique_ptr<KX_GameNodeRuntime>(new TriggerOnceNode()); });
   RegisterTestType("B3String", OneOutput("Value", KX_VALUE_STRING),
-                   []() { return std::unique_ptr<KX_LogicNodeRuntime>(new StringNode("")); });
+                   []() { return std::unique_ptr<KX_GameNodeRuntime>(new StringNode("")); });
   RegisterTestType("B3StringFile", OneOutput("Value", KX_VALUE_STRING),
-                   []() { return std::unique_ptr<KX_LogicNodeRuntime>(new StringNode("test.wav")); });
+                   []() { return std::unique_ptr<KX_GameNodeRuntime>(new StringNode("test.wav")); });
   RegisterTestType("B3StringName", OneOutput("Value", KX_VALUE_STRING),
-                   []() { return std::unique_ptr<KX_LogicNodeRuntime>(new StringNode("explosion")); });
+                   []() { return std::unique_ptr<KX_GameNodeRuntime>(new StringNode("explosion")); });
   RegisterTestType("B3Float07", OneOutput("Value", KX_VALUE_FLOAT),
-                   []() { return std::unique_ptr<KX_LogicNodeRuntime>(new FloatNode(0.7f)); });
+                   []() { return std::unique_ptr<KX_GameNodeRuntime>(new FloatNode(0.7f)); });
   RegisterTestType("B3Float06", OneOutput("Value", KX_VALUE_FLOAT),
-                   []() { return std::unique_ptr<KX_LogicNodeRuntime>(new FloatNode(0.6f)); });
+                   []() { return std::unique_ptr<KX_GameNodeRuntime>(new FloatNode(0.6f)); });
   RegisterTestType("B3Float12", OneOutput("Value", KX_VALUE_FLOAT),
-                   []() { return std::unique_ptr<KX_LogicNodeRuntime>(new FloatNode(1.2f)); });
+                   []() { return std::unique_ptr<KX_GameNodeRuntime>(new FloatNode(1.2f)); });
   RegisterTestType("B3Float15", OneOutput("Value", KX_VALUE_FLOAT),
-                   []() { return std::unique_ptr<KX_LogicNodeRuntime>(new FloatNode(1.5f)); });
+                   []() { return std::unique_ptr<KX_GameNodeRuntime>(new FloatNode(1.5f)); });
   RegisterTestType("B3FloatOne", OneOutput("Value", KX_VALUE_FLOAT),
-                   []() { return std::unique_ptr<KX_LogicNodeRuntime>(new FloatNode(1.0f)); });
+                   []() { return std::unique_ptr<KX_GameNodeRuntime>(new FloatNode(1.0f)); });
   RegisterTestType("B3BoolTrue", OneOutput("Value", KX_VALUE_BOOL),
-                   []() { return std::unique_ptr<KX_LogicNodeRuntime>(new BoolNode(true)); });
+                   []() { return std::unique_ptr<KX_GameNodeRuntime>(new BoolNode(true)); });
   RegisterTestType("B3BoolFalse", OneOutput("Value", KX_VALUE_BOOL),
-                   []() { return std::unique_ptr<KX_LogicNodeRuntime>(new BoolNode(false)); });
+                   []() { return std::unique_ptr<KX_GameNodeRuntime>(new BoolNode(false)); });
   RegisterTestType("B3Int0", OneOutput("Value", KX_VALUE_INT),
-                   []() { return std::unique_ptr<KX_LogicNodeRuntime>(new IntNode(0)); });
+                   []() { return std::unique_ptr<KX_GameNodeRuntime>(new IntNode(0)); });
   RegisterTestType("B3Int1", OneOutput("Value", KX_VALUE_INT),
-                   []() { return std::unique_ptr<KX_LogicNodeRuntime>(new IntNode(1)); });
+                   []() { return std::unique_ptr<KX_GameNodeRuntime>(new IntNode(1)); });
   RegisterTestType("B3Object", OneOutput("Value", KX_VALUE_OBJECT),
-                   []() { return std::unique_ptr<KX_LogicNodeRuntime>(new ObjectNode(nullptr)); });
+                   []() { return std::unique_ptr<KX_GameNodeRuntime>(new ObjectNode(nullptr)); });
   RegisterTestType("B3VectorPos", OneOutput("Value", KX_VALUE_VECTOR),
-                   []() { return std::unique_ptr<KX_LogicNodeRuntime>(new VectorNode(1.0f, 2.0f, 3.0f)); });
+                   []() { return std::unique_ptr<KX_GameNodeRuntime>(new VectorNode(1.0f, 2.0f, 3.0f)); });
   RegisterTestType("B3VectorOrient", OneOutput("Value", KX_VALUE_VECTOR),
-                   []() { return std::unique_ptr<KX_LogicNodeRuntime>(new VectorNode(0.0f, 1.0f, 0.0f)); });
+                   []() { return std::unique_ptr<KX_GameNodeRuntime>(new VectorNode(0.0f, 1.0f, 0.0f)); });
   for (int slot = 0; slot < 8; ++slot) {
     const int captured = slot;
     RegisterTestType("B3Sink" + std::to_string(slot), TriggerInSignature(),
-                     [captured]() { return std::unique_ptr<KX_LogicNodeRuntime>(new SinkNode(captured)); });
+                     [captured]() { return std::unique_ptr<KX_GameNodeRuntime>(new SinkNode(captured)); });
   }
 }
 

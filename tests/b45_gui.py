@@ -15,8 +15,8 @@ state = {'step': 0, 'tree': None, 'area': None, 'win': None, 'added': 0}
 
 
 def setup():
-    from bge_netlogic.utilities import preferences
-    from bge_netlogic.editor.nodes.node import fit_enum_width, _enum_needed_width
+    from bge_gamenodes.utilities import preferences
+    from bge_gamenodes.editor.nodes.node import fit_enum_width, _enum_needed_width
 
     win = bpy.context.window_manager.windows[0]
     state['win'] = win
@@ -98,7 +98,7 @@ def setup():
 
 
 def write_inspector_log(node_name):
-    from bge_netlogic.ui.native_inspector import _tree_ir, audit_metadata
+    from bge_gamenodes.ui.native_inspector import _tree_ir, audit_metadata
 
     tree = state['tree']
     ir, warnings = _tree_ir(tree)

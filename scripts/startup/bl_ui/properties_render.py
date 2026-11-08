@@ -463,7 +463,6 @@ class RENDER_PT_eevee_spectral_caustics(RenderButtonsPanel, Panel):
     bl_label = "Spectral Caustics"
     bl_options = {'DEFAULT_CLOSED'}
     COMPAT_ENGINES = {'BLENDER_EEVEE', 'BLENDER_EEVEE_NEXT'}
-
     def draw_header(self, context):
         eevee = context.scene.eevee
         self.layout.prop(eevee.caustics, "use_spectral_caustics", text="")
@@ -498,6 +497,65 @@ class RENDER_PT_eevee_spectral_caustics(RenderButtonsPanel, Panel):
 
         col.separator()
         col.prop(caustics, "caustic_volume_gain")
+
+
+class RENDER_PT_eevee_heightfield(RenderButtonsPanel, Panel):
+    """Heightfield displacement (EEVEE Next).
+
+    The settings are stored as ID custom properties so that no DNA / RNA change is required. An
+    object opts in by setting its own `hf_enabled` custom property and a `hf_heightmap` image name
+    (see the Object > Heightfield Displacement panel).
+    """
+    bl_label = "Heightfield Displacement"
+    bl_options = {'DEFAULT_CLOSED'}
+    COMPAT_ENGINES = {'BLENDER_EEVEE', 'BLENDER_EEVEE_NEXT'}
+
+    @staticmethod
+    def _ensure(scene):
+        defaults = (
+            ("hf_enabled", False),
+            ("hf_steps", 12),
+            ("hf_binary_steps", 5),
+            ("hf_shadow", True),
+            ("hf_ao", True),
+            ("hf_shadow_jitter", 0.02),
+        )
+        for key, value in defaults:
+            if key not in scene:
+                scene[key] = value
+
+    @classmethod
+    def poll(cls, context):
+        return (context.engine in cls.COMPAT_ENGINES)
+
+    def draw_header(self, context):
+        self._ensure(context.scene)
+        self.layout.prop(context.scene, '["hf_enabled"]', text="")
+
+    def draw(self, context):
+        scene = context.scene
+        self._ensure(scene)
+
+        layout = self.layout
+        layout.use_property_split = True
+        layout.use_property_decorate = False
+        layout.active = scene.get("hf_enabled", False)
+
+        col = layout.column(align=True)
+        col.label(text="Ray Marching:")
+        col.prop(scene, '["hf_steps"]', text="Max Steps")
+        col.prop(scene, '["hf_binary_steps"]', text="Binary Steps")
+
+        col.separator()
+        col.label(text="Shading:")
+        col.prop(scene, '["hf_shadow"]', text="Ray Marched Shadows")
+        col.prop(scene, '["hf_shadow_jitter"]', text="Shadow Jitter")
+        col.prop(scene, '["hf_ao"]', text="Ray Marched AO")
+
+        col.separator()
+        col.label(text="Per Object:")
+        col.label(text="Enable in Object Properties > Heightfield Displacement.")
+
 
 class RENDER_PT_eevee_raytracing_presets(PresetPanel, Panel):
     bl_label = "Raytracing Presets"

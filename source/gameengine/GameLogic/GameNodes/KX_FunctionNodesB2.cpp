@@ -880,6 +880,17 @@ enum class B2FormulaOp : uint8_t {
   Not,
   Neg,
   Select,
+  /* B6.9-M1 unary/binary math functions (appended, existing ids unchanged). */
+  Sin,
+  Cos,
+  Tan,
+  Sqrt,
+  Abs,
+  Floor,
+  Ceil,
+  Round,
+  Min,
+  Max,
 };
 
 struct B2FormulaToken {
@@ -894,12 +905,58 @@ uint32_t B2FormulaArity(B2FormulaOp op)
   switch (op) {
     case B2FormulaOp::Not:
     case B2FormulaOp::Neg:
+    case B2FormulaOp::Sin:
+    case B2FormulaOp::Cos:
+    case B2FormulaOp::Tan:
+    case B2FormulaOp::Sqrt:
+    case B2FormulaOp::Abs:
+    case B2FormulaOp::Floor:
+    case B2FormulaOp::Ceil:
+    case B2FormulaOp::Round:
       return 1;
     case B2FormulaOp::Select:
       return 3;
     default:
       return 2;
   }
+}
+
+bool B2FormulaFunctionName(const std::string &name, B2FormulaOp *op)
+{
+  if (name == "sin") {
+    *op = B2FormulaOp::Sin;
+  }
+  else if (name == "cos") {
+    *op = B2FormulaOp::Cos;
+  }
+  else if (name == "tan") {
+    *op = B2FormulaOp::Tan;
+  }
+  else if (name == "sqrt") {
+    *op = B2FormulaOp::Sqrt;
+  }
+  else if (name == "abs") {
+    *op = B2FormulaOp::Abs;
+  }
+  else if (name == "floor") {
+    *op = B2FormulaOp::Floor;
+  }
+  else if (name == "ceil") {
+    *op = B2FormulaOp::Ceil;
+  }
+  else if (name == "round") {
+    *op = B2FormulaOp::Round;
+  }
+  else if (name == "min") {
+    *op = B2FormulaOp::Min;
+  }
+  else if (name == "max") {
+    *op = B2FormulaOp::Max;
+  }
+  else {
+    return false;
+  }
+  return true;
 }
 
 class B2FormulaParser {
@@ -1181,7 +1238,42 @@ class B2FormulaParser {
         }
         break;
       }
-      EmitVariable(text_.substr(start, index_ - start));
+      const std::string name = text_.substr(start, index_ - start);
+      SkipSpace();
+      if (index_ < text_.size() && text_[index_] == '(') {
+        B2FormulaOp function = B2FormulaOp::Abs;
+        if (!B2FormulaFunctionName(name, &function)) {
+          failed_ = true;
+          index_ = text_.size();
+          return;
+        }
+        const uint32_t arity = B2FormulaArity(function);
+        ++index_; /* '(' */
+        for (uint32_t argument = 0; argument < arity; ++argument) {
+          SkipSpace();
+          if (argument > 0) {
+            if (!Match(",")) {
+              failed_ = true;
+              index_ = text_.size();
+              return;
+            }
+          }
+          ParseTernary();
+          if (failed_) {
+            return;
+          }
+        }
+        SkipSpace();
+        if (index_ >= text_.size() || text_[index_] != ')') {
+          failed_ = true;
+          index_ = text_.size();
+          return;
+        }
+        ++index_;
+        EmitOp(function);
+        return;
+      }
+      EmitVariable(name);
       return;
     }
     failed_ = true;
@@ -1195,7 +1287,7 @@ class B2FormulaParser {
   bool failed_ = false;
 };
 
-class KX_FormulaNode final : public KX_LogicNodeRuntime {
+class KX_FormulaNode final : public KX_GameNodeRuntime {
  public:
   KX_ExecResult Execute(KX_ExecutionContext &ctx) override
   {
@@ -1336,6 +1428,53 @@ class KX_FormulaNode final : public KX_LogicNodeRuntime {
       return;
     }
 
+    switch (op) {
+      case B2FormulaOp::Sin:
+      case B2FormulaOp::Cos:
+      case B2FormulaOp::Tan:
+      case B2FormulaOp::Sqrt:
+      case B2FormulaOp::Abs:
+      case B2FormulaOp::Floor:
+      case B2FormulaOp::Ceil:
+      case B2FormulaOp::Round: {
+        float a = 0.0f;
+        pop(a);
+        float result = 0.0f;
+        switch (op) {
+          case B2FormulaOp::Sin:
+            result = std::sin(a);
+            break;
+          case B2FormulaOp::Cos:
+            result = std::cos(a);
+            break;
+          case B2FormulaOp::Tan:
+            result = std::tan(a);
+            break;
+          case B2FormulaOp::Sqrt:
+            /* Domain guard: sqrt(-1) is defined here as 0 so a negative value
+             * cannot spread as NaN through the graph. */
+            result = a >= 0.0f ? std::sqrt(a) : 0.0f;
+            break;
+          case B2FormulaOp::Abs:
+            result = std::fabs(a);
+            break;
+          case B2FormulaOp::Floor:
+            result = std::floor(a);
+            break;
+          case B2FormulaOp::Ceil:
+            result = std::ceil(a);
+            break;
+          default:
+            result = std::round(a);
+            break;
+        }
+        stack[top++] = std::isfinite(result) ? result : 0.0f;
+        return;
+      }
+      default:
+        break;
+    }
+
     float b = 0.0f;
     float a = 0.0f;
     pop(b);
@@ -1384,11 +1523,17 @@ class KX_FormulaNode final : public KX_LogicNodeRuntime {
       case B2FormulaOp::Or:
         result = (a != 0.0f || b != 0.0f) ? 1.0f : 0.0f;
         break;
+      case B2FormulaOp::Min:
+        result = std::min(a, b);
+        break;
+      case B2FormulaOp::Max:
+        result = std::max(a, b);
+        break;
       default:
         result = 0.0f;
         break;
     }
-    stack[top++] = result;
+    stack[top++] = std::isfinite(result) ? result : 0.0f;
   }
 
   std::vector<B2FormulaToken> rpn_;
@@ -1399,7 +1544,7 @@ class KX_FormulaNode final : public KX_LogicNodeRuntime {
 /* StringFormat node                                                         */
 /* ------------------------------------------------------------------------- */
 
-class KX_StringFormatNode final : public KX_LogicNodeRuntime {
+class KX_StringFormatNode final : public KX_GameNodeRuntime {
  public:
   KX_ExecResult Execute(KX_ExecutionContext &ctx) override
   {
@@ -1493,6 +1638,284 @@ class KX_StringFormatNode final : public KX_LogicNodeRuntime {
 };
 
 /* ------------------------------------------------------------------------- */
+/* B6.9-M2 vector advanced                                                   */
+/* ------------------------------------------------------------------------- */
+
+const KX_FuncPort kVectorLerpInputs[] = {
+    FP("A", KX_VALUE_VECTOR),
+    FP("B", KX_VALUE_VECTOR),
+    FP("T", KX_VALUE_FLOAT),
+};
+
+void FuncVectorLerp(KX_FunctionNode &node, KX_ExecutionContext &ctx)
+{
+  float a[3];
+  float b[3];
+  node.InVector(ctx, 0, a);
+  node.InVector(ctx, 1, b);
+  const float t = node.InFloat(ctx, 2);
+  /* Endpoints are exact copies, no rounding through the interpolation. */
+  if (t <= 0.0f) {
+    node.OutVector(ctx, 0, a[0], a[1], a[2]);
+    return;
+  }
+  if (t >= 1.0f) {
+    node.OutVector(ctx, 0, b[0], b[1], b[2]);
+    return;
+  }
+  node.OutVector(ctx,
+                 0,
+                 a[0] + (b[0] - a[0]) * t,
+                 a[1] + (b[1] - a[1]) * t,
+                 a[2] + (b[2] - a[2]) * t);
+}
+
+const KX_FuncPort kVectorRotateInputs[] = {
+    FP("Vector", KX_VALUE_VECTOR),
+    FP("Axis", KX_VALUE_VECTOR),
+    FP("Angle", KX_VALUE_FLOAT),
+};
+
+void FuncVectorRotate(KX_FunctionNode &node, KX_ExecutionContext &ctx)
+{
+  float v[3];
+  float axis[3];
+  node.InVector(ctx, 0, v);
+  node.InVector(ctx, 1, axis);
+  const float angle = node.InFloat(ctx, 2);
+  const float axis_length = Length3(axis);
+  if (axis_length <= 1e-8f) {
+    /* Degenerate axis: deterministic no-op instead of NaN. */
+    node.OutVector(ctx, 0, v[0], v[1], v[2]);
+    return;
+  }
+  const float k[3] = {axis[0] / axis_length, axis[1] / axis_length, axis[2] / axis_length};
+  float cross[3];
+  Cross3(k, v, cross);
+  const float cosine = std::cos(angle);
+  const float sine = std::sin(angle);
+  const float projection = Dot3(k, v) * (1.0f - cosine);
+  node.OutVector(ctx,
+                 0,
+                 v[0] * cosine + cross[0] * sine + k[0] * projection,
+                 v[1] * cosine + cross[1] * sine + k[1] * projection,
+                 v[2] * cosine + cross[2] * sine + k[2] * projection);
+}
+
+const KX_FuncPort kVectorSlerpInputs[] = {
+    FP("A", KX_VALUE_VECTOR),
+    FP("B", KX_VALUE_VECTOR),
+    FP("T", KX_VALUE_FLOAT),
+};
+
+void FuncVectorSlerp(KX_FunctionNode &node, KX_ExecutionContext &ctx)
+{
+  float a[3];
+  float b[3];
+  node.InVector(ctx, 0, a);
+  node.InVector(ctx, 1, b);
+  const float t = node.InFloat(ctx, 2);
+  if (t <= 0.0f) {
+    node.OutVector(ctx, 0, a[0], a[1], a[2]);
+    return;
+  }
+  if (t >= 1.0f) {
+    node.OutVector(ctx, 0, b[0], b[1], b[2]);
+    return;
+  }
+  const float length_a = Length3(a);
+  const float length_b = Length3(b);
+  if (length_a <= 1e-8f || length_b <= 1e-8f) {
+    /* A zero-length endpoint has no direction; fall back to a plain lerp so the
+     * node still returns a deterministic vector. */
+    node.OutVector(ctx,
+                   0,
+                   a[0] + (b[0] - a[0]) * t,
+                   a[1] + (b[1] - a[1]) * t,
+                   a[2] + (b[2] - a[2]) * t);
+    return;
+  }
+  const float dir_a[3] = {a[0] / length_a, a[1] / length_a, a[2] / length_a};
+  const float dir_b[3] = {b[0] / length_b, b[1] / length_b, b[2] / length_b};
+  const float dot = std::max(-1.0f, std::min(1.0f, Dot3(dir_a, dir_b)));
+  const float angle = std::acos(dot);
+  float weight_a = 0.0f;
+  float weight_b = 0.0f;
+  if (std::fabs(angle) <= 1e-5f) {
+    weight_a = 1.0f - t;
+    weight_b = t;
+  }
+  else {
+    const float sine = std::sin(angle);
+    weight_a = std::sin((1.0f - t) * angle) / sine;
+    weight_b = std::sin(t * angle) / sine;
+  }
+  const float length = length_a + (length_b - length_a) * t;
+  node.OutVector(ctx,
+                 0,
+                 (dir_a[0] * weight_a + dir_b[0] * weight_b) * length,
+                 (dir_a[1] * weight_a + dir_b[1] * weight_b) * length,
+                 (dir_a[2] * weight_a + dir_b[2] * weight_b) * length);
+}
+
+const KX_FuncPort kVectorClampInputs[] = {
+    FP("Value", KX_VALUE_VECTOR),
+    FP("Min", KX_VALUE_VECTOR),
+    FP("Max", KX_VALUE_VECTOR),
+};
+
+void FuncVectorClamp(KX_FunctionNode &node, KX_ExecutionContext &ctx)
+{
+  float value[3];
+  float minimum[3];
+  float maximum[3];
+  node.InVector(ctx, 0, value);
+  node.InVector(ctx, 1, minimum);
+  node.InVector(ctx, 2, maximum);
+  node.OutVector(ctx,
+                 0,
+                 std::max(minimum[0], std::min(maximum[0], value[0])),
+                 std::max(minimum[1], std::min(maximum[1], value[1])),
+                 std::max(minimum[2], std::min(maximum[2], value[2])));
+}
+
+const KX_FuncPort kVectorNormalizeInput[] = {FP("Value", KX_VALUE_VECTOR)};
+
+void FuncVectorNormalizeSafe(KX_FunctionNode &node, KX_ExecutionContext &ctx)
+{
+  float value[3];
+  node.InVector(ctx, 0, value);
+  const float length = Length3(value);
+  if (length <= 1e-8f) {
+    /* Zero vector stays zero; never divide by zero into NaN. */
+    node.OutVector(ctx, 0, 0.0f, 0.0f, 0.0f);
+    return;
+  }
+  node.OutVector(ctx, 0, value[0] / length, value[1] / length, value[2] / length);
+}
+
+const KX_FuncPort kVectorAngleSignedInputs[] = {
+    FP("A", KX_VALUE_VECTOR),
+    FP("B", KX_VALUE_VECTOR),
+    FP("Axis", KX_VALUE_VECTOR),
+};
+
+void FuncVectorAngleSigned(KX_FunctionNode &node, KX_ExecutionContext &ctx)
+{
+  float a[3];
+  float b[3];
+  float axis[3];
+  node.InVector(ctx, 0, a);
+  node.InVector(ctx, 1, b);
+  node.InVector(ctx, 2, axis);
+  if (Length3(a) <= 1e-8f || Length3(b) <= 1e-8f) {
+    node.OutFloat(ctx, 0, 0.0f);
+    return;
+  }
+  float cross[3];
+  Cross3(a, b, cross);
+  const float axis_length = Length3(axis);
+  if (axis_length <= 1e-8f) {
+    /* No reference axis: unsigned angle in [0, pi], still deterministic. */
+    node.OutFloat(ctx, 0, std::atan2(Length3(cross), Dot3(a, b)));
+    return;
+  }
+  const float k[3] = {axis[0] / axis_length, axis[1] / axis_length, axis[2] / axis_length};
+  node.OutFloat(ctx, 0, std::atan2(Dot3(cross, k), Dot3(a, b)));
+}
+
+/* ------------------------------------------------------------------------- */
+/* B6.9-M3 math completion                                                   */
+/* ------------------------------------------------------------------------- */
+
+const KX_FuncPort kMathLerpInputs[] = {
+    FP("A", KX_VALUE_FLOAT),
+    FP("B", KX_VALUE_FLOAT),
+    FP("T", KX_VALUE_FLOAT),
+};
+
+void FuncMathLerp(KX_FunctionNode &node, KX_ExecutionContext &ctx)
+{
+  const float a = node.InFloat(ctx, 0);
+  const float b = node.InFloat(ctx, 1);
+  const float t = node.InFloat(ctx, 2);
+  node.OutFloat(ctx, 0, a + (b - a) * t);
+}
+
+const KX_FuncPort kSmoothStepInputs[] = {
+    FP("Edge0", KX_VALUE_FLOAT),
+    FP("Edge1", KX_VALUE_FLOAT),
+    FP("X", KX_VALUE_FLOAT),
+};
+
+void FuncSmoothStep(KX_FunctionNode &node, KX_ExecutionContext &ctx)
+{
+  const float edge0 = node.InFloat(ctx, 0);
+  const float edge1 = node.InFloat(ctx, 1);
+  const float x = node.InFloat(ctx, 2);
+  if (std::fabs(edge1 - edge0) <= 1e-8f) {
+    node.OutFloat(ctx, 0, x >= edge1 ? 1.0f : 0.0f);
+    return;
+  }
+  const float t = std::max(0.0f, std::min(1.0f, (x - edge0) / (edge1 - edge0)));
+  node.OutFloat(ctx, 0, t * t * (3.0f - 2.0f * t));
+}
+
+const KX_FuncPort kStepInputs[] = {
+    FP("Edge", KX_VALUE_FLOAT),
+    FP("X", KX_VALUE_FLOAT),
+};
+
+void FuncStep(KX_FunctionNode &node, KX_ExecutionContext &ctx)
+{
+  const float edge = node.InFloat(ctx, 0);
+  const float x = node.InFloat(ctx, 1);
+  /* Exactly on the edge returns 1 (x >= edge), per the documented contract. */
+  node.OutFloat(ctx, 0, x >= edge ? 1.0f : 0.0f);
+}
+
+const KX_FuncPort kPingPongInputs[] = {
+    FP("Value", KX_VALUE_FLOAT),
+    FP("Length", KX_VALUE_FLOAT),
+};
+
+void FuncPingPong(KX_FunctionNode &node, KX_ExecutionContext &ctx)
+{
+  const float value = node.InFloat(ctx, 0);
+  const float length = node.InFloat(ctx, 1);
+  if (length <= 0.0f) {
+    node.OutFloat(ctx, 0, 0.0f);
+    return;
+  }
+  const float span = 2.0f * length;
+  float wrapped = std::fmod(value, span);
+  if (wrapped < 0.0f) {
+    wrapped += span;
+  }
+  node.OutFloat(ctx, 0, wrapped <= length ? wrapped : span - wrapped);
+}
+
+const KX_FuncPort kRepeatInputs[] = {
+    FP("Value", KX_VALUE_FLOAT),
+    FP("Length", KX_VALUE_FLOAT),
+};
+
+void FuncRepeat(KX_FunctionNode &node, KX_ExecutionContext &ctx)
+{
+  const float value = node.InFloat(ctx, 0);
+  const float length = node.InFloat(ctx, 1);
+  if (length <= 0.0f) {
+    node.OutFloat(ctx, 0, 0.0f);
+    return;
+  }
+  float wrapped = std::fmod(value, length);
+  if (wrapped < 0.0f) {
+    wrapped += length;
+  }
+  node.OutFloat(ctx, 0, wrapped);
+}
+
+/* ------------------------------------------------------------------------- */
 /* Table                                                                     */
 /* ------------------------------------------------------------------------- */
 
@@ -1528,6 +1951,21 @@ const KX_FunctionSpec kB2Specs[] = {
     B2_VALUE("VectorRotateToward", kRotateTowardInputs, kVectorResultOutput, FuncVectorRotateToward),
     B2_VALUE("VectorAngle", kVectorPairInputs, kFloatResultOutput, FuncVectorAngle),
     B2_VALUE("VectorDistance", kVectorPairInputs, kFloatResultOutput, FuncVectorDistance),
+
+    /* B6.9-M2 vector advanced */
+    B2_VALUE("VectorLerp", kVectorLerpInputs, kVectorResultOutput, FuncVectorLerp),
+    B2_VALUE("VectorRotate", kVectorRotateInputs, kVectorResultOutput, FuncVectorRotate),
+    B2_VALUE("VectorSlerp", kVectorSlerpInputs, kVectorResultOutput, FuncVectorSlerp),
+    B2_VALUE("VectorClamp", kVectorClampInputs, kVectorResultOutput, FuncVectorClamp),
+    B2_VALUE("VectorNormalizeSafe", kVectorNormalizeInput, kVectorResultOutput, FuncVectorNormalizeSafe),
+    B2_VALUE("VectorAngleSigned", kVectorAngleSignedInputs, kFloatResultOutput, FuncVectorAngleSigned),
+
+    /* B6.9-M3 math completion */
+    B2_VALUE("Lerp", kMathLerpInputs, kFloatResultOutput, FuncMathLerp),
+    B2_VALUE("SmoothStep", kSmoothStepInputs, kFloatResultOutput, FuncSmoothStep),
+    B2_VALUE("Step", kStepInputs, kFloatResultOutput, FuncStep),
+    B2_VALUE("PingPong", kPingPongInputs, kFloatResultOutput, FuncPingPong),
+    B2_VALUE("Repeat", kRepeatInputs, kFloatResultOutput, FuncRepeat),
 
     /* B2.2 colour */
     B2_VALUE("ColorMix", kColorMixInputs, kColorResultOutput, FuncColorMix),
@@ -1616,7 +2054,7 @@ void RegisterB2FunctionGameNodes()
         spec.type_id,
         std::string("KX_FuncB2_") + spec.type_id,
         signature,
-        [entry]() { return std::unique_ptr<KX_LogicNodeRuntime>(new KX_FunctionNode(entry)); });
+        [entry]() { return std::unique_ptr<KX_GameNodeRuntime>(new KX_FunctionNode(entry)); });
   }
 
   {
@@ -1626,7 +2064,7 @@ void RegisterB2FunctionGameNodes()
         "Formula",
         "KX_FuncB2_Formula",
         signature,
-        []() { return std::unique_ptr<KX_LogicNodeRuntime>(new KX_FormulaNode()); });
+        []() { return std::unique_ptr<KX_GameNodeRuntime>(new KX_FormulaNode()); });
   }
 
   {
@@ -1636,7 +2074,7 @@ void RegisterB2FunctionGameNodes()
         "StringFormat",
         "KX_FuncB2_StringFormat",
         signature,
-        []() { return std::unique_ptr<KX_LogicNodeRuntime>(new KX_StringFormatNode()); });
+        []() { return std::unique_ptr<KX_GameNodeRuntime>(new KX_StringFormatNode()); });
   }
 }
 

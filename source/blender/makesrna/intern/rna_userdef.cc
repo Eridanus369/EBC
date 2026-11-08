@@ -1068,6 +1068,12 @@ static PointerRNA rna_UserDef_apps_get(PointerRNA *ptr)
   return RNA_pointer_create_with_parent(*ptr, RNA_PreferencesApps, ptr->data);
 }
 
+static PointerRNA rna_UserDef_game_nodes_get(PointerRNA *ptr)
+{
+  UserDef *userdef = static_cast<UserDef *>(ptr->data);
+  return RNA_pointer_create_with_parent(*ptr, RNA_PreferencesGameNodes, &userdef->game_nodes);
+}
+
 /* Reevaluate objects with a subsurf modifier as the last in their modifiers stacks. */
 static void rna_UserDef_subdivision_update(Main *bmain, Scene *scene, PointerRNA *ptr)
 {
@@ -4527,7 +4533,6 @@ static void rna_def_userdef_themes(BlenderRNA *brna)
       {5, "NLA_EDITOR", ICON_NLA, "Nonlinear Animation", ""},
       {12, "OUTLINER", ICON_OUTLINER, "Outliner", ""},
       {14, "PREFERENCES", ICON_PREFERENCES, "Preferences", ""},
-      {10, "LOGIC_EDITOR", ICON_LOGIC, "Logic Bricks Editor", ""},
       {11, "PROPERTIES", ICON_PROPERTIES, "Properties", ""},
       {17, "CONSOLE", ICON_CONSOLE, "Python Console", ""},
       {23, "SPREADSHEET", ICON_SPREADSHEET, "Spreadsheet"},
@@ -5068,6 +5073,174 @@ static void rna_def_userdef_xr_navigation(BlenderRNA *brna)
   prop = RNA_def_property(srna, "invert_rotation", PROP_BOOLEAN, PROP_NONE);
   RNA_def_property_boolean_sdna(prop, nullptr, "flag", USER_XR_NAV_INVERT_ROTATION);
   RNA_def_property_ui_text(prop, "Invert Rotation", "Reverses the direction of rotation input");
+}
+
+static void rna_def_userdef_game_nodes(BlenderRNA *brna)
+{
+  static const EnumPropertyItem uplogic_versions[] = {
+      {GAME_NODES_UPLOGIC_LATEST, "latest", 0, "Latest", "Download the latest version"},
+      {GAME_NODES_UPLOGIC_195, "1.9.5", 0, "1.9.5", "Suitable for Game Nodes 2.4"},
+      {GAME_NODES_UPLOGIC_201, "2.0.1", 0, "2.0.1", "Suitable for Game Nodes 3.0"},
+      {GAME_NODES_UPLOGIC_32, "3.2", 0, "3.2", "Suitable for Game Nodes 3.2"},
+      {GAME_NODES_UPLOGIC_321, "3.2.1", 0, "3.2.1", "Suitable for Game Nodes 3.2.1"},
+      {GAME_NODES_UPLOGIC_45, "4.5", 0, "4.5", "Suitable for Game Nodes 4.5"},
+      {GAME_NODES_UPLOGIC_452, "4.5.2", 0, "4.5.2", "Suitable for Game Nodes 4.5.2"},
+      {GAME_NODES_UPLOGIC_511, "5.1.1", 0, "5.1.1", "Suitable for Game Nodes 5.0.1"},
+      {0, nullptr, 0, nullptr, nullptr},
+  };
+
+  static const EnumPropertyItem filter_types[] = {
+      {GAME_NODES_FILTER_TREES, "TREES", 0, "Logic Trees", "Show only applied Logic Trees"},
+      {GAME_NODES_FILTER_FLOAT, "FLOAT", 0, "Floats", "Show only Float Properties"},
+      {GAME_NODES_FILTER_INT, "INT", 0, "Integers", "Show only Int Properties"},
+      {GAME_NODES_FILTER_BOOL, "BOOL", 0, "Booleans", "Show only Boolean Properties"},
+      {GAME_NODES_FILTER_STRING, "STRING", 0, "Strings", "Show only String Properties"},
+      {GAME_NODES_FILTER_TIMER, "TIMER", 0, "Timers", "Show only Timer Properties"},
+      {GAME_NODES_FILTER_NAME, "NAME", 0, "Filter By Name", "Search for a Property"},
+      {0, nullptr, 0, nullptr, nullptr},
+  };
+
+  StructRNA *srna = RNA_def_struct(brna, "PreferencesGameNodes", nullptr);
+  RNA_def_struct_sdna(srna, "GameNodesPrefs");
+  RNA_def_struct_nested(brna, srna, "Preferences");
+  RNA_def_struct_ui_text(srna, "Game Nodes", "Game Nodes editor preferences");
+
+  PropertyRNA *prop;
+
+  prop = RNA_def_property(srna, "project_path", PROP_STRING, PROP_FILEPATH);
+  RNA_def_property_string_sdna(prop, nullptr, "project_path");
+  RNA_def_property_ui_text(prop, "Project Path", "Path used when building or copying the engine");
+  RNA_def_property_update(prop, 0, "rna_userdef_update");
+
+  prop = RNA_def_property(srna, "copy_engine", PROP_BOOLEAN, PROP_NONE);
+  RNA_def_property_boolean_sdna(prop, nullptr, "copy_engine", 1);
+  RNA_def_property_ui_text(prop, "Copy Engine", "Copy the engine into the project path");
+  RNA_def_property_update(prop, 0, "rna_userdef_update");
+
+  prop = RNA_def_property(srna, "use_symlink", PROP_BOOLEAN, PROP_NONE);
+  RNA_def_property_boolean_sdna(prop, nullptr, "use_symlink", 1);
+  RNA_def_property_ui_text(
+      prop,
+      "As Symlink",
+      "Engine will not actually be copied, but a symlink will be created to have the engine "
+      "available from the project path");
+  RNA_def_property_update(prop, 0, "rna_userdef_update");
+
+  prop = RNA_def_property(srna, "use_reload_text", PROP_BOOLEAN, PROP_NONE);
+  RNA_def_property_boolean_sdna(prop, nullptr, "use_reload_text", 1);
+  RNA_def_property_ui_text(prop, "Reload Scripts", "Reload scripts on game start");
+  RNA_def_property_update(prop, 0, "rna_userdef_update");
+
+  prop = RNA_def_property(srna, "auto_switch_trees", PROP_BOOLEAN, PROP_NONE);
+  RNA_def_property_boolean_sdna(prop, nullptr, "auto_switch_trees", 1);
+  RNA_def_property_ui_text(
+      prop, "Auto-switch Trees", "Automatically switch to relevant node trees on selection");
+  RNA_def_property_update(prop, 0, "rna_userdef_update");
+
+  prop = RNA_def_property(srna, "uplogic_version", PROP_ENUM, PROP_NONE);
+  RNA_def_property_enum_sdna(prop, nullptr, "uplogic_version");
+  RNA_def_property_enum_items(prop, uplogic_versions);
+  RNA_def_property_ui_text(prop, "Uplogic Version", "Version of the uplogic module to install");
+  RNA_def_property_update(prop, 0, "rna_userdef_update");
+
+  prop = RNA_def_property(srna, "use_node_debug", PROP_BOOLEAN, PROP_NONE);
+  RNA_def_property_boolean_sdna(prop, nullptr, "use_node_debug", 1);
+  RNA_def_property_ui_text(prop, "Debug Mode", "Print node errors to the console");
+  RNA_def_property_update(prop, 0, "rna_userdef_update");
+
+  prop = RNA_def_property(srna, "use_node_notify", PROP_BOOLEAN, PROP_NONE);
+  RNA_def_property_boolean_sdna(prop, nullptr, "use_node_notify", 1);
+  RNA_def_property_ui_text(prop, "Notifications", "Show node notifications");
+  RNA_def_property_update(prop, 0, "rna_userdef_update");
+
+  prop = RNA_def_property(srna, "use_fmod_nodes", PROP_BOOLEAN, PROP_NONE);
+  RNA_def_property_boolean_sdna(prop, nullptr, "use_fmod_nodes", 1);
+  RNA_def_property_ui_text(prop, "FMOD Support", "Enable FMOD nodes");
+  RNA_def_property_update(prop, 0, "rna_userdef_update");
+
+  /* Node palette collapse state. */
+  prop = RNA_def_property(srna, "palette_trigger_open", PROP_BOOLEAN, PROP_NONE);
+  RNA_def_property_boolean_sdna(prop, nullptr, "palette_trigger_open", 1);
+  RNA_def_property_ui_text(prop, "Palette Trigger Open", "");
+  RNA_def_property_update(prop, 0, "rna_userdef_update");
+
+  prop = RNA_def_property(srna, "palette_input_open", PROP_BOOLEAN, PROP_NONE);
+  RNA_def_property_boolean_sdna(prop, nullptr, "palette_input_open", 1);
+  RNA_def_property_ui_text(prop, "Palette Input Open", "");
+  RNA_def_property_update(prop, 0, "rna_userdef_update");
+
+  prop = RNA_def_property(srna, "palette_object_open", PROP_BOOLEAN, PROP_NONE);
+  RNA_def_property_boolean_sdna(prop, nullptr, "palette_object_open", 1);
+  RNA_def_property_ui_text(prop, "Palette Object Open", "");
+  RNA_def_property_update(prop, 0, "rna_userdef_update");
+
+  prop = RNA_def_property(srna, "palette_physics_open", PROP_BOOLEAN, PROP_NONE);
+  RNA_def_property_boolean_sdna(prop, nullptr, "palette_physics_open", 1);
+  RNA_def_property_ui_text(prop, "Palette Physics Open", "");
+  RNA_def_property_update(prop, 0, "rna_userdef_update");
+
+  prop = RNA_def_property(srna, "palette_logic_open", PROP_BOOLEAN, PROP_NONE);
+  RNA_def_property_boolean_sdna(prop, nullptr, "palette_logic_open", 1);
+  RNA_def_property_ui_text(prop, "Palette Logic Open", "");
+  RNA_def_property_update(prop, 0, "rna_userdef_update");
+
+  prop = RNA_def_property(srna, "palette_value_open", PROP_BOOLEAN, PROP_NONE);
+  RNA_def_property_boolean_sdna(prop, nullptr, "palette_value_open", 1);
+  RNA_def_property_ui_text(prop, "Palette Value Open", "");
+  RNA_def_property_update(prop, 0, "rna_userdef_update");
+
+  prop = RNA_def_property(srna, "palette_uiscene_open", PROP_BOOLEAN, PROP_NONE);
+  RNA_def_property_boolean_sdna(prop, nullptr, "palette_uiscene_open", 1);
+  RNA_def_property_ui_text(prop, "Palette UI Scene Open", "");
+  RNA_def_property_update(prop, 0, "rna_userdef_update");
+
+  prop = RNA_def_property(srna, "palette_ui_expanded", PROP_BOOLEAN, PROP_NONE);
+  RNA_def_property_boolean_sdna(prop, nullptr, "palette_ui_expanded", 1);
+  RNA_def_property_ui_text(prop, "Palette UI Expanded", "");
+  RNA_def_property_update(prop, 0, "rna_userdef_update");
+
+  prop = RNA_def_property(srna, "palette_file_expanded", PROP_BOOLEAN, PROP_NONE);
+  RNA_def_property_boolean_sdna(prop, nullptr, "palette_file_expanded", 1);
+  RNA_def_property_ui_text(prop, "Palette File Expanded", "");
+  RNA_def_property_update(prop, 0, "rna_userdef_update");
+
+  prop = RNA_def_property(srna, "palette_utility_open", PROP_BOOLEAN, PROP_NONE);
+  RNA_def_property_boolean_sdna(prop, nullptr, "palette_utility_open", 1);
+  RNA_def_property_ui_text(prop, "Palette Utility Open", "");
+  RNA_def_property_update(prop, 0, "rna_userdef_update");
+
+  /* Property panel filter. */
+  prop = RNA_def_property(srna, "do_filter", PROP_BOOLEAN, PROP_NONE);
+  RNA_def_property_boolean_sdna(prop, nullptr, "do_filter", 1);
+  RNA_def_property_ui_text(prop, "Filter", "Filter properties by type or name");
+  RNA_def_property_update(prop, 0, "rna_userdef_update");
+
+  prop = RNA_def_property(srna, "filter_by", PROP_ENUM, PROP_NONE);
+  RNA_def_property_enum_sdna(prop, nullptr, "filter_by");
+  RNA_def_property_enum_items(prop, filter_types);
+  RNA_def_property_ui_text(prop, "Filter By", "");
+  RNA_def_property_update(prop, 0, "rna_userdef_update");
+
+  prop = RNA_def_property(srna, "filter_name", PROP_STRING, PROP_NONE);
+  RNA_def_property_string_sdna(prop, nullptr, "filter_name");
+  RNA_def_property_ui_text(prop, "Property Name", "");
+  RNA_def_property_update(prop, 0, "rna_userdef_update");
+
+  prop = RNA_def_property(srna, "show_hidden", PROP_BOOLEAN, PROP_NONE);
+  RNA_def_property_boolean_sdna(prop, nullptr, "show_hidden", 1);
+  RNA_def_property_ui_text(prop, "Show Hidden", "Show properties that start with a dot");
+  RNA_def_property_update(prop, 0, "rna_userdef_update");
+
+  prop = RNA_def_property(srna, "show_trees", PROP_BOOLEAN, PROP_NONE);
+  RNA_def_property_boolean_sdna(prop, nullptr, "show_trees", 1);
+  RNA_def_property_ui_text(prop, "Show Trees", "Show applied node trees");
+  RNA_def_property_update(prop, 0, "rna_userdef_update");
+
+  prop = RNA_def_property(srna, "collapse_trees", PROP_BOOLEAN, PROP_NONE);
+  RNA_def_property_boolean_sdna(prop, nullptr, "collapse_trees", 1);
+  RNA_def_property_ui_text(
+      prop, "Collapse Trees", "Compress node tree properties to an immutable form");
+  RNA_def_property_update(prop, 0, "rna_userdef_update");
 }
 
 static void rna_def_userdef_view(BlenderRNA *brna)
@@ -8091,6 +8264,13 @@ void RNA_def_userdef(BlenderRNA *brna)
   RNA_def_property_pointer_funcs(prop, "rna_UserDef_apps_get", nullptr, nullptr, nullptr);
   RNA_def_property_ui_text(prop, "Apps", "Preferences that work only for apps");
 
+  prop = RNA_def_property(srna, "game_nodes", PROP_POINTER, PROP_NONE);
+  RNA_def_property_flag(prop, PROP_NEVER_NULL);
+  RNA_def_property_struct_type(prop, "PreferencesGameNodes");
+  RNA_def_property_pointer_funcs(
+      prop, "rna_UserDef_game_nodes_get", nullptr, nullptr, nullptr);
+  RNA_def_property_ui_text(prop, "Game Nodes", "Game Nodes editor preferences");
+
   prop = RNA_def_property(srna, "experimental", PROP_POINTER, PROP_NONE);
   RNA_def_property_flag(prop, PROP_NEVER_NULL);
   RNA_def_property_struct_type(prop, "PreferencesExperimental");
@@ -8163,6 +8343,7 @@ void RNA_def_userdef(BlenderRNA *brna)
   rna_def_userdef_studiolight(brna);
   rna_def_userdef_pathcompare(brna);
   rna_def_userdef_apps(brna);
+  rna_def_userdef_game_nodes(brna);
   rna_def_userdef_experimental(brna);
 
   USERDEF_TAG_DIRTY_PROPERTY_UPDATE_DISABLE;

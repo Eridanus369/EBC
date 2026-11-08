@@ -1739,6 +1739,13 @@ static void modifyGeometry(ModifierData *md,
   const bNodeTree &tree = *nmd->node_group;
 
   tree.ensure_topology_cache();
+  /* An empty node group is a placeholder, semantically equivalent to having no
+   * node group assigned at all: leave the input geometry untouched instead of
+   * clearing it. Groups that have nodes but no output node still report an
+   * error and produce empty geometry below. */
+  if (tree.nodes.is_empty()) {
+    return;
+  }
   const bNode *output_node = tree.group_output_node();
   if (output_node == nullptr) {
     BKE_modifier_set_error(ctx->object, md, "Node group must have a group output node");

@@ -7,12 +7,16 @@
  */
 
 #include "BLI_listbase.hh"
+#include "BLI_utildefines.hh"
 
 #include "DNA_ID.h"
+#include "DNA_node_types.h"
 #include "DNA_object_types.h"
 #include "DNA_outliner_types.h"
 
 #include "BKE_deform.hh"
+
+#include "RNA_access.hh"
 
 #include "../outliner_intern.hh"
 
@@ -21,6 +25,7 @@
 #include "tree_element_defgroup.hh"
 #include "tree_element_gpencil_effect.hh"
 #include "tree_element_id_object.hh"
+#include "tree_element_linked_node_tree.hh"
 #include "tree_element_modifier.hh"
 #include "tree_element_pose.hh"
 
@@ -44,6 +49,7 @@ void TreeElementIDObject::expand(SpaceOutliner & /*space_outliner*/) const
   expand_pose();
   expand_data();
   expand_materials();
+  expand_game_nodes();
   expand_constraints();
   expand_modifiers();
   expand_gpencil_modifiers();
@@ -70,6 +76,27 @@ void TreeElementIDObject::expand_materials() const
   for (int a = 0; a < object_.totcol; a++) {
     add_id_element({.index = a}, reinterpret_cast<ID *>(object_.mat[a]));
   }
+}
+
+void TreeElementIDObject::expand_game_nodes() const
+{
+  /* `game_node_tree` is registered by the Game Nodes add-on at startup. Without
+   * the add-on the property does not exist and nothing is shown. */
+  PointerRNA object_ptr = RNA_id_pointer_create(&object_.id);
+  PropertyRNA *prop = RNA_struct_find_property(&object_ptr, "game_node_tree");
+  if (prop == nullptr || RNA_property_type(prop) != PROP_POINTER) {
+    return;
+  }
+  PointerRNA value = RNA_property_pointer_get(&object_ptr, prop);
+  bNodeTree *node_tree = static_cast<bNodeTree *>(value.data);
+  if (node_tree == nullptr || GS(node_tree->id.name) != ID_NT ||
+      !STREQ(node_tree->idname, "BGELogicTree"))
+  {
+    return;
+  }
+  /* Reuse the geometry nodes element so icon, rename and library badge behave
+   * the same as a node group linked below a modifier. */
+  add_element<TreeElementLinkedNodeTree>({}, *reinterpret_cast<ID *>(node_tree));
 }
 
 void TreeElementIDObject::expand_constraints() const

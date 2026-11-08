@@ -222,7 +222,8 @@ ninja -C <build_dir> -j6                 # 应 exit=0
 > ② 手工汇总 `PASS ...`（`reg_b4_e2e.cpp:522` 的 `PASS 10 rebuilds kept UI handles...`：`^PASS` 行 56 = 55 + 1，基线 45 + 本批新增 10 条 JSON 值断言 = 55；`p44_stability.cpp:215`：`^PASS` 行 36 = 35 + 1）。
 > 另 `c1_restitution.cpp:100` 也有同类手工汇总句，但不在本清单的 17 个 harness 内。
 
-> 权威复算全表 `/tmp/d1_assertion_recount.log:28`：**26 批（含 `b66_uncovered`）`TOTAL=850`；25 批（不含 `b66_uncovered`）为 `830`**。`tests/run_all_e2e.sh --list` 共 26 行（MANIFEST 25 条 + `b66_uncovered`），`b66` 源码已落库为 `tests/b66_uncovered_e2e.cpp`。本表只列 clean 复核的 C++ harness 与 B4.5 GUI，表内 C++ 断言合计 **491**，与 850 不是同一集合，勿直接相加或对比。
+> **K 冻结（2026-11-06，`RUN_ID=20261106-224926`）**：46 批、`TOTAL assertions=1456` / `failures=0` / `build_failures=0` / `crashes=0`；逐批 `.build.rc` 46/46 全 0，42 份 harness 构建日志 `error:` 0 份；无「证据不足」批次。
+> 历史快照（`RUN_ID=20261106-101536`）：`TOTAL assertions=957` / 29 行（不含 `b66_uncovered` = 28 行 / 937）、clean rebuild 8442 步；J 块 `851`（26 批）/ `831`（25 批）。两者均已被冻结值覆盖。**K 冻结（`RUN_ID=20261106-224926`）：build `NINJA_EXIT=0`、8439/8439 步、39 分 32 秒、`error:` 0；E2E 46 批 / 1456 断言。** 本表只列当次 clean 复核的 C++ harness 与 B4.5 GUI，表内 C++ 断言合计 **491**，与 **1456** 不是同一集合，勿直接相加或对比。
 
 > **性能附项：权威值 + 协议标签 + 复现记录**
 > - **协议标签**：`frames=1000 × rounds=20 × 统计量=best(min)`（输出字段 `best_us_per_1000_frames`）；被测二进制 = clean 归档对象 + `harness.o` 重链，md5 `a0200513869049a7e5970213ceb55111`，ELF `3,242,464` B（**clean 链接集**）。
@@ -296,13 +297,13 @@ b661_query_e2e:
 
 真正的 warning 仍然必须为 0；信息诊断不会被吞掉，而是单独计数显示。
 
-> 结论口径修正：旧审计声称的「17 全 PASS」依赖未真正重链的旧产物（`/tmp/b661_cross_compile.log` 当时出现大量 `multiple definition`，部分二进制沿用了更早版本）；本次 clean 重链才暴露出上述 2 条假红。**修正后最终为 18/18 PASS（新增 `b66_uncovered` 后；全量 E2E 权威总数为 850/26 批，见 §11 注）。**
+> 结论口径修正：旧审计声称的「17 全 PASS」依赖未真正重链的旧产物（`/tmp/b661_cross_compile.log` 当时出现大量 `multiple definition`，部分二进制沿用了更早版本）；本次 clean 重链才暴露出上述 2 条假红。**修正后最终为 18/18 PASS（新增 `b66_uncovered` 后）。全量 E2E 基线为 1456 断言 / 46 批、0 失败（K 冻结 `RUN_ID=20261106-224926`；历史：`RUN_ID=20261106-101536` 为 957/29 行、J 块为 851/26 批），见 §11 注。**
 
 GUI 附项的硬编码路径要求（原样记录）：
 
 1. `build_clean_verify/bin/5.3/scripts` → `source/scripts`，`.../datafiles` → `release/datafiles`（否则 `_bpy_types` 缺失，rc=139）；
 2. `build_clean_verify/bin/5.3/source` → `source`（`port_contract.py` 用 `__file__` 上溯 4 级求 `REPO_ROOT`，缺失时 inspector audit 报 `source/gameengine/...` 不存在）；
-3. `PYTHONPATH=<repo>/scripts/addons_core/bge_netlogic/generator` + `--python-use-system-env`（否则 `native_metadata_audit` 找不到 `port_contract`，TICK_FAIL）。
+3. `PYTHONPATH=<repo>/scripts/startup/bge_gamenodes/generator` + `--python-use-system-env`（否则 `native_metadata_audit` 找不到 `port_contract`，TICK_FAIL）。
    完成后：`INSPECTOR_LOG 17 inputs 5 outputs`、两张截图、`DONE`，inspector `checked=287 missing=[]`，palette `palette_total=150 missing=[]`。
 
 ## 12. clean 产物与 `build_linux` 的对比

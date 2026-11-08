@@ -167,6 +167,7 @@ void register_nodes()
   register_standard_node_socket_types();
 
   register_node_tree_type_geo();
+  register_node_tree_type_phys();
   register_node_tree_type_cmp();
 
   register_node_type_frame();

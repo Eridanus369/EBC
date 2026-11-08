@@ -31,9 +31,31 @@
 
 #include "BL_SceneConverter.h"
 
+#include <cctype>
+
 #include "KX_GameObject.h"
 
 using namespace blender;
+
+/* Reduce a sound reference to a comparable form: basename, no extension, lowercase.
+ * Node ports carry plain strings, so users (and exported graphs) may pass a file
+ * name, a path or a differently-cased datablock name. */
+static std::string SoundLookupKey(const std::string &name)
+{
+  std::string key = name;
+  const size_t slash = key.find_last_of("/\\");
+  if (slash != std::string::npos) {
+    key = key.substr(slash + 1);
+  }
+  const size_t dot = key.find_last_of('.');
+  if (dot != std::string::npos && dot != 0) {
+    key = key.substr(0, dot);
+  }
+  for (char &c : key) {
+    c = char(std::tolower(static_cast<unsigned char>(c)));
+  }
+  return key;
+}
 
 BL_SceneConverter::BL_SceneConverter()
 {
@@ -154,5 +176,17 @@ void BL_SceneConverter::RegisterSound(const std::string &name, blender::bSound *
 blender::bSound *BL_SceneConverter::FindSound(const std::string &name) const
 {
   std::map<std::string, blender::bSound *>::const_iterator it = m_sounds.find(name);
-  return it != m_sounds.end() ? it->second : nullptr;
+  if (it != m_sounds.end()) {
+    return it->second;
+  }
+  const std::string wanted = SoundLookupKey(name);
+  if (wanted.empty()) {
+    return nullptr;
+  }
+  for (auto &entry : m_sounds) {
+    if (SoundLookupKey(entry.first) == wanted) {
+      return entry.second;
+    }
+  }
+  return nullptr;
 }

@@ -112,6 +112,7 @@ set(SRC
   engines/eevee/eevee_depth_of_field.cc
   engines/eevee/eevee_caustic_map.cc
   engines/eevee/eevee_caustics.cc
+  engines/eevee/eevee_heightfield.cc
   engines/eevee/eevee_spectral.cc
   engines/eevee/eevee_spectral_lut.cc
   engines/eevee/eevee_dlss5.cc
@@ -241,6 +242,7 @@ set(SRC
   engines/eevee/eevee_engine.h
   engines/eevee/eevee_film.hh
   engines/eevee/eevee_gbuffer.hh
+  engines/eevee/eevee_heightfield.hh
   engines/eevee/eevee_hizbuffer.hh
   engines/eevee/eevee_instance.hh
   engines/eevee/eevee_light.hh
@@ -417,6 +419,9 @@ set(GLSL_SRC
   engines/eevee/shaders/eevee_photon_trace.bsl.hh
   engines/eevee/shaders/eevee_photon_splat_comp.glsl
   engines/eevee/shaders/eevee_photon_resolve_comp.glsl
+  engines/eevee/shaders/eevee_heightfield_lib.bsl.hh
+  engines/eevee/shaders/eevee_heightfield_trace.bsl.hh
+  engines/eevee/eevee_heightfield_shared.hh
   engines/eevee/shaders/eevee_attributes_world_lib.glsl
   engines/eevee/shaders/eevee_bxdf.bsl.hh
   engines/eevee/shaders/eevee_bxdf_diffuse.bsl.hh

@@ -1453,6 +1453,14 @@ static void add_nodes_inlined(Scene *scene,
 
       if (b_node == output_node) {
         node = graph->output();
+        fprintf(stderr, "[cycnode] out=%s\n", b_node->idname);
+        for (blender::bNodeSocket *b_input : b_node->input_sockets()) {
+          fprintf(stderr,
+                  "[cycnode]  in id='%s' avail=%d mapped=%d\n",
+                  b_input->identifier,
+                  int(b_input->is_available()),
+                  int(node->input(b_input->identifier) != nullptr));
+        }
       }
       else {
         node = add_node(scene, b_engine, b_data, b_scene, graph, b_ntree, *b_node);
@@ -1492,6 +1500,15 @@ static void add_nodes_inlined(Scene *scene,
 
   /* connect nodes */
   for (blender::bNodeLink *b_link : b_ntree.all_links()) {
+    fprintf(stderr,
+            "[cyclink] %s.%s -> %s.%s valid=%d avail=%d muted=%d\n",
+            b_link->fromnode->idname,
+            b_link->fromsock->identifier,
+            b_link->tonode->idname,
+            b_link->tosock->identifier,
+            int((b_link->flag & blender::NODE_LINK_VALID) != 0),
+            int(b_link->fromsock->is_available() && b_link->tosock->is_available()),
+            int(b_link->is_muted()));
     /* Ignore invalid links to avoid unwanted cycles created in graph.
      * Also ignore links with unavailable sockets. */
     if (!((b_link->flag & blender::NODE_LINK_VALID) != 0 && b_link->fromsock->is_available() &&
@@ -1519,6 +1536,13 @@ static void add_nodes_inlined(Scene *scene,
         ShaderInput *input = input_it->second;
         if (input != nullptr) {
           graph->connect(output, input);
+          fprintf(stderr,
+                  "[cycconn] %s -> %s out_type=%d in_type=%d linked=%d\n",
+                  b_from_sock->identifier,
+                  b_to_sock->identifier,
+                  int(output->type()),
+                  int(input->type()),
+                  int(input->link != nullptr));
         }
       }
     }

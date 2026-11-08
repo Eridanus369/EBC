@@ -59,8 +59,8 @@ B5.1 的教训是“能映射”必须由契约证明，而不是由名字推测
 | [KX_RuntimeNodes.cpp](../source/gameengine/GameLogic/GameNodes/KX_RuntimeNodes.cpp#L248) | 248 | 追加注册调用（只追加，未重排） |
 | [KX_FunctionNode.h](../source/gameengine/GameLogic/GameNodes/KX_FunctionNode.h#L263) | 263 | 追加声明 |
 | [CMakeLists.txt](../source/gameengine/GameLogic/CMakeLists.txt#L201) | 201 | 追加源文件 |
-| [native_catalog.py](../scripts/addons_core/bge_netlogic/editor/nodes/native_catalog.py#L443-L557) | 443–557 | 14 条映射 + config value_map |
-| [port_contract.py](../scripts/addons_core/bge_netlogic/generator/port_contract.py#L66) | 66 | 新表加入 `CPP_TABLES` |
+| [native_catalog.py](../scripts/startup/bge_gamenodes/editor/nodes/native_catalog.py#L443-L557) | 443–557 | 14 条映射 + config value_map |
+| [port_contract.py](../scripts/startup/bge_gamenodes/generator/port_contract.py#L66) | 66 | 新表加入 `CPP_TABLES` |
 
 ## 3. 第一层：7 条高价值
 
@@ -190,17 +190,23 @@ E2E 覆盖（每个新节点至少一条行为断言）：
 - LogicGate 已由 B6.6 的调度器输入 trigger 快照解决同帧观测问题；NOT 定义为对 A 取反，
   B 仅用于触发求值（与 legacy UI 禁用 B 的行为一致）。
 - 属性节点 `mode=1`（内部属性）在 `EvaluatePropertyLegacy` 中运行时直接返回，仅支持
-  `mode=0` 游戏属性；这是 backend 能力边界，不是端口问题。
+  `mode=0` 游戏属性；这是 backend 能力边界，不是端口问题。**用户侧表现**：`mode != 0`
+  时节点**静默无输出**——不触发、不写 stderr（`KX_FunctionNodesB6Legacy.cpp:448-450`），
+  按端口契约使用会看到「什么都没发生」。**判定维持 `approximate`**：只实现 `mode=0`，
+  `mode != 0` 没有后端路径、也没有任何诊断。
 - MoveTo/RotateTo/MouseLook/SwitchValue 等需要独立 Legacy 类型，本轮未写，已列 deferred。
 - B5 未单独执行回归套件（历史 harness 未保留）；仅以“未修改 B5 源文件 + 审计 B5 条目数不变”
   作为间接证据，属未覆盖风险。
 - TouchLegacy 的重叠集合是**球近似**，不是真实碰撞体/网格重叠：`OverlapQuery`
-  （`KX_GameAdaptersEngine.cpp:699-753`）以对象世界位置为球心、`max(|world_scale.x|, |world_scale.y|,
+  （`KX_GameAdaptersEngine.cpp:1034-1088`）以对象世界位置为球心、`max(|world_scale.x|, |world_scale.y|,
   |world_scale.z|)` 为半径；`overlap_threshold` 默认 `0.1`；仅当 `distance <= threshold + radius` 时计入。
   它遍历整条场景对象列表（包括相机等无碰撞体对象），与对象形状、旋向无关，命中的对象始终第一个
   回调且用精确射线点/法线。物理侧虽然有 `btGhostObject` 与 `getOverlappingPairCache()`，但只服务于
   Collision 触发器的内部配对，`KX_PhysicsAdapter` 没有同步 `contactTest` 类入口，因此本节点保持
   “射线命中点附近的对象”语义，而不是“本帧接触的刚体”。要真重叠属于设计变更。
+  **用户侧表现**：球心 + 最大轴缩放半径与形状/旋向无关，按屏幕点选会撞到两件事——
+  旋转/薄壁物体的命中集合与真实网格不一致；相机等无碰撞体对象也会进入命中列表。
+  **判定 `approximate`**：球近似是实现层的精度取舍，不升 `full`（与 `CAPABILITY_WEIGHT_AUDIT.md` §4.1 一致）。
 - WorldPosition 的真实反投影链路已在 `blenderplayer` 里端到端验证（真实 `KX_Scene`/`KX_Camera`/
   canvas + 真实 `GPU_matrix_unproject_3fv`，误差 1.679e-6）；但 standalone player 下必须用
   `SetActiveCamera` 显式设活动相机（否则走 `__default__cam__` 回退），且首帧投影矩阵未初始化，

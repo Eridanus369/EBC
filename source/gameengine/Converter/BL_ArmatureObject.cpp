@@ -42,6 +42,7 @@
 #include "BKE_scene.hh"
 #include "BLI_listbase.hh"
 #include "BLI_math_matrix_c.hh"
+#include "BLI_math_quaternion_types.hh"
 #include "BLI_math_rotation_c.hh"
 #include "DEG_depsgraph_query.hh"
 #include "DNA_mesh_types.h"
@@ -420,6 +421,242 @@ void BL_ArmatureObject::ApplyPose()
 
     m_lastapplyframe = m_lastframe;
   }
+}
+
+void BL_ArmatureObject::ApplyPoseImmediate()
+{
+  if (m_objArma == nullptr || m_objArma->pose == nullptr) {
+    return;
+  }
+
+  UpdateTimestep(KX_GetActiveEngine()->GetFrameTime());
+  if (!ApplyPoseOverrides()) {
+    for (BL_ArmatureConstraint *constraint : m_controlledConstraints) {
+      constraint->UpdateTarget();
+    }
+    blender::bContext *C = KX_GetActiveEngine()->GetContext();
+    blender::Depsgraph *depsgraph = CTX_data_depsgraph_pointer(C);
+    BKE_pose_where_is(depsgraph, GetScene()->GetBlenderScene(), m_objArma);
+  }
+
+  /* Tagging makes the current pose visible to the depsgraph for this frame. With an active
+   * action the same-frame action update later reapplies the stored override after its fcurve
+   * evaluation, see ApplyPoseOverrides(). */
+  GetScene()->AppendToIdsToUpdate(&m_objArma->id,
+                                  ID_RECALC_TRANSFORM,
+                                  m_objArma->gameflag & OB_OVERLAY_COLLECTION);
+}
+
+namespace {
+
+/* Write a quaternion into a pose channel using the channel's own rotation representation.
+ * The quaternion is authoritative (the override layer never adds eulers); this only adapts the
+ * storage so the action fcurves keep driving the representation they were authored in. */
+void write_pose_channel_quat(blender::bPoseChannel &channel, const float quat[4])
+{
+  BKE_pchan_quat_to_rot(channel, blender::float4(quat[0], quat[1], quat[2], quat[3]));
+}
+
+/* Snapshot a channel's current local transform; used as the additive base. */
+void read_pose_channel_base(const blender::bPoseChannel &channel, float loc[3], float quat[4])
+{
+  for (int i = 0; i < 3; ++i) {
+    loc[i] = channel.loc[i];
+  }
+  const blender::float4 q = BKE_pchan_rot_to_quat(channel);
+  for (int i = 0; i < 4; ++i) {
+    quat[i] = q[i];
+  }
+}
+
+}  // namespace
+
+void BL_ArmatureObject::SetPoseOverride(const std::string &bone,
+                                        KX_PoseBlendMode mode,
+                                        const float position[3],
+                                        const float rotation[3])
+{
+  PoseOverride &entry = m_poseOverrides[bone];
+  entry.mode = mode;
+  for (int i = 0; i < 3; ++i) {
+    entry.loc[i] = position[i];
+  }
+  /* Store the user rotation as a quaternion immediately; never keep an euler offset because
+   * adding eulers would introduce gimbal lock. Additive holds the delta quaternion, Override
+   * holds the absolute target quaternion. */
+  eulO_to_quat(entry.quat, rotation, ROT_MODE_XYZ);
+
+  /* First registration: remember the pose this bone had before any override was applied, so
+   * the graph-tick ApplyPoseImmediate() path already combines against a stable base. The
+   * action pipeline refreshes it every frame through CapturePoseOverrideBases(). */
+  if (m_poseOverrideBases.find(bone) == m_poseOverrideBases.end()) {
+    blender::bPoseChannel *channel =
+        (m_objArma != nullptr && m_objArma->pose != nullptr) ?
+            BKE_pose_channel_find_name(m_objArma->pose, bone.c_str()) :
+            nullptr;
+    if (channel != nullptr) {
+      PoseOverrideBase &base = m_poseOverrideBases[bone];
+      read_pose_channel_base(*channel, base.loc, base.quat);
+    }
+  }
+}
+
+void BL_ArmatureObject::CapturePoseOverrideBases()
+{
+  if (m_poseOverrides.empty() || m_objArma == nullptr || m_objArma->pose == nullptr) {
+    return;
+  }
+  for (const auto &item : m_poseOverrides) {
+    blender::bPoseChannel *channel = BKE_pose_channel_find_name(m_objArma->pose, item.first.c_str());
+    if (channel == nullptr) {
+      continue;
+    }
+    PoseOverrideBase &base = m_poseOverrideBases[item.first];
+    read_pose_channel_base(*channel, base.loc, base.quat);
+  }
+}
+
+bool BL_ArmatureObject::ClearPoseOverride(const std::string &bone)
+{
+  auto found = m_poseOverrides.find(bone);
+  if (found == m_poseOverrides.end()) {
+    /* Unknown bone (or an object without an armature): documented no-op, never a crash. */
+    return false;
+  }
+  auto base = m_poseOverrideBases.find(bone);
+  blender::bPoseChannel *channel =
+      (m_objArma != nullptr && m_objArma->pose != nullptr) ?
+          BKE_pose_channel_find_name(m_objArma->pose, bone.c_str()) :
+          nullptr;
+  if (channel != nullptr && base != m_poseOverrideBases.end()) {
+    /* Restore the action-evaluated pose so a same-frame read-back already sees the bone
+     * driven by the action again instead of the last overridden value. */
+    for (int i = 0; i < 3; ++i) {
+      channel->loc[i] = base->second.loc[i];
+    }
+    write_pose_channel_quat(*channel, base->second.quat);
+  }
+  m_poseOverrides.erase(found);
+  if (base != m_poseOverrideBases.end()) {
+    m_poseOverrideBases.erase(base);
+  }
+  return true;
+}
+
+bool BL_ArmatureObject::ApplyPoseOverrides()
+{
+  if (m_poseOverrides.empty() || m_objArma == nullptr || m_objArma->pose == nullptr) {
+    return false;
+  }
+
+  bool applied = false;
+  for (const auto &item : m_poseOverrides) {
+    blender::bPoseChannel *channel = BKE_pose_channel_find_name(m_objArma->pose, item.first.c_str());
+    if (channel == nullptr) {
+      continue;
+    }
+    const PoseOverride &override = item.second;
+
+    /* Base = the pose after fcurve evaluation + layer blending and before this override. That
+     * is the pose of the current frame, not the previous frame's final pose, which is what
+     * keeps additive entries from accumulating. Falling back to the channel value keeps the
+     * graph-tick ApplyPoseImmediate() path working before the action pipeline refreshed it. */
+    float base_loc[3];
+    float base_quat[4];
+    auto base_it = m_poseOverrideBases.find(item.first);
+    if (base_it != m_poseOverrideBases.end()) {
+      for (int i = 0; i < 3; ++i) {
+        base_loc[i] = base_it->second.loc[i];
+      }
+      for (int i = 0; i < 4; ++i) {
+        base_quat[i] = base_it->second.quat[i];
+      }
+    }
+    else {
+      read_pose_channel_base(*channel, base_loc, base_quat);
+    }
+
+    float result_loc[3];
+    float result_quat[4];
+    if (override.mode == KX_PoseBlendMode::Additive) {
+      /* result = current * delta: a Hamilton quaternion product, never an euler addition (see
+       * KX_PoseBlendMode). Components are (w, x, y, z), the same convention used by
+       * BKE_pchan_rot_to_quat / BKE_pchan_quat_to_rot. */
+      const blender::math::Quaternion current{blender::float4(base_quat)};
+      const blender::math::Quaternion delta{blender::float4(override.quat)};
+      const blender::math::Quaternion result = current * delta;
+      result_quat[0] = result.w;
+      result_quat[1] = result.x;
+      result_quat[2] = result.y;
+      result_quat[3] = result.z;
+      for (int i = 0; i < 3; ++i) {
+        result_loc[i] = base_loc[i] + override.loc[i];
+      }
+    }
+    else {
+      for (int i = 0; i < 4; ++i) {
+        result_quat[i] = override.quat[i];
+      }
+      for (int i = 0; i < 3; ++i) {
+        result_loc[i] = override.loc[i];
+      }
+    }
+
+    for (int i = 0; i < 3; ++i) {
+      channel->loc[i] = result_loc[i];
+    }
+    write_pose_channel_quat(*channel, result_quat);
+    applied = true;
+  }
+  if (!applied) {
+    return false;
+  }
+
+  for (BL_ArmatureConstraint *constraint : m_controlledConstraints) {
+    constraint->UpdateTarget();
+  }
+  blender::bContext *C = KX_GetActiveEngine()->GetContext();
+  blender::Depsgraph *depsgraph = CTX_data_depsgraph_pointer(C);
+  BKE_pose_where_is(depsgraph, GetScene()->GetBlenderScene(), m_objArma);
+  /* The pose for this frame is fully evaluated now; the regular ApplyPose() later in the
+   * action pipeline must not duplicate the work. */
+  m_lastapplyframe = m_lastframe;
+  return true;
+}
+
+bool BL_ArmatureObject::GetPoseChannelTransform(const std::string &bone,
+                                                float position[3],
+                                                float rotation[3])
+{
+  if (m_objArma == nullptr || m_objArma->pose == nullptr) {
+    return false;
+  }
+  /* Evaluate the frame first, so the read reflects the same pose the renderer will use. With
+   * an override pending, ApplyPoseOverrides() wins over the fcurve values. */
+  ApplyPose();
+  blender::bPoseChannel *channel = BKE_pose_channel_find_name(m_objArma->pose, bone.c_str());
+  if (channel == nullptr) {
+    return false;
+  }
+  for (int i = 0; i < 3; ++i) {
+    position[i] = channel->loc[i];
+  }
+  if (channel->rotmode == ROT_MODE_XYZ) {
+    for (int i = 0; i < 3; ++i) {
+      rotation[i] = channel->eul[i];
+    }
+  }
+  else if (channel->rotmode == ROT_MODE_QUAT) {
+    quat_to_eulO(rotation, ROT_MODE_XYZ, channel->quat);
+  }
+  else if (channel->rotmode == ROT_MODE_AXISANGLE) {
+    axis_angle_to_eulO(rotation, ROT_MODE_XYZ, channel->rotAxis, channel->rotAngle);
+  }
+  else {
+    /* Euler order differs from XYZ: normalise through the channel matrix. */
+    mat4_to_eulO(rotation, ROT_MODE_XYZ, channel->chan_mat);
+  }
+  return true;
 }
 
 static void compute_bendy_bones_matrices(blender::Object *armOb)

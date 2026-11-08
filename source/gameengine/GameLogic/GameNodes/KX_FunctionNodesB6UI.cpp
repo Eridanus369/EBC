@@ -38,6 +38,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -272,7 +273,9 @@ struct B6ListViewState {
   int item_count = 0;
   int item_handles[kMaxListItems];
   int item_index[kMaxListItems];
-  int click_index = -1;
+  /** Latched selection: kept until the next click or a Clear trigger. */
+  int selected_index = -1;
+  bool clear_was_set = false;
   float offset = 0.0f;
   bool bar_visible = false;
   bool was_down = false;
@@ -424,7 +427,6 @@ void FuncCreateListView(KX_FunctionNode &node, KX_ExecutionContext &ctx)
     B6ListSyncItems(node, ctx, live, items);
   }
 
-  bool clicked = false;
   if (live != nullptr && live->created) {
     const bool down = ctx.UI().MouseDown();
     if (down && !live->was_down && live->view >= 0) {
@@ -437,8 +439,7 @@ void FuncCreateListView(KX_FunctionNode &node, KX_ExecutionContext &ctx)
         if (local >= 0.0f && live->item_height > 0.0f) {
           const int index = static_cast<int>(std::floor(local / live->item_height));
           if (index >= 0 && index < live->item_count) {
-            live->click_index = index;
-            clicked = true;
+            live->selected_index = index;
           }
         }
       }
@@ -446,9 +447,19 @@ void FuncCreateListView(KX_FunctionNode &node, KX_ExecutionContext &ctx)
     live->was_down = down;
   }
 
+  /* Clear is edge triggered: an unconnected trigger stays true every frame and
+   * must not wipe the selection continuously. */
+  const bool clear = node.InTrigger(ctx, 5);
+  if (live != nullptr && clear && !live->clear_was_set) {
+    live->selected_index = -1;
+  }
+  if (live != nullptr) {
+    live->clear_was_set = clear;
+  }
+
   node.OutTrigger(ctx, 0, trigger && state != nullptr && state->created);
   node.OutInt(ctx, 1, state != nullptr ? state->view : -1);
-  node.OutInt(ctx, 2, clicked && state != nullptr ? state->click_index : -1);
+  node.OutInt(ctx, 2, state != nullptr ? state->selected_index : -1);
 }
 
 /* ------------------------------------------------------------------------- */
@@ -786,16 +797,19 @@ int B6ScreenFindEntry(B6ScreenStackState *state, const std::string &name)
   return -1;
 }
 
-/** The screen stack is shared UI state, so push/pop/replace nodes cooperate. */
-B6ScreenStackState *B6ScreenStackShared()
+/** One stack per graph instance: the state lives on the execution context. */
+B6ScreenStackState *B6ScreenStackFor(KX_ExecutionContext &ctx)
 {
-  static B6ScreenStackState state;
-  return &state;
+  std::shared_ptr<void> &slot = ctx.UISharedState();
+  if (!slot) {
+    slot = std::make_shared<B6ScreenStackState>();
+  }
+  return static_cast<B6ScreenStackState *>(slot.get());
 }
 
 void FuncUIScreenStack(KX_FunctionNode &node, KX_ExecutionContext &ctx)
 {
-  B6ScreenStackState *state = B6ScreenStackShared();
+  B6ScreenStackState *state = B6ScreenStackFor(ctx);
   const bool trigger = node.InTrigger(ctx, 0);
   bool done = false;
   if (trigger && state != nullptr) {
@@ -900,6 +914,7 @@ const KX_FuncPort kCreateListViewInputs[] = {
     FP("Pos", KX_VALUE_VECTOR),
     FP("Size", KX_VALUE_VECTOR),
     FP("Items", KX_VALUE_LIST),
+    TP("Clear"),
 };
 const KX_FuncPort kCreateListViewOutputs[] = {
     TP("Done"),
@@ -1024,6 +1039,6 @@ void RegisterB6UIFunctionGameNodes()
         spec.type_id,
         std::string("KX_FuncB6UI_") + spec.type_id,
         MakeB6UISignature(*entry),
-        [entry]() { return std::unique_ptr<KX_LogicNodeRuntime>(new KX_FunctionNode(entry)); });
+        [entry]() { return std::unique_ptr<KX_GameNodeRuntime>(new KX_FunctionNode(entry)); });
   }
 }

@@ -4,8 +4,8 @@ import os
 import sys
 
 REPO = '/home/eridanusepsilon/Code/EBC/EBC5.3'
-sys.path.insert(0, os.path.join(REPO, 'scripts/addons_core/bge_netlogic/generator'))
-sys.path.insert(0, os.path.join(REPO, 'scripts/addons_core/bge_netlogic/editor/nodes'))
+sys.path.insert(0, os.path.join(REPO, 'scripts/startup/bge_gamenodes/generator'))
+sys.path.insert(0, os.path.join(REPO, 'scripts/startup/bge_gamenodes/editor/nodes'))
 
 import port_contract as pc  # noqa: E402
 import native_metadata_audit as audit_mod  # noqa: E402

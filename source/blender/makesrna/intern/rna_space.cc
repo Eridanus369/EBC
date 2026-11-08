@@ -141,7 +141,6 @@ const EnumPropertyItem rna_enum_space_type_items[] = {
      ICON_TEXT,
      "Text Editor",
      "Edit scripts and in-file documentation"},
-    {SPACE_LOGIC, "LOGIC_EDITOR", ICON_LOGIC, "Logic Bricks Editor", "Logic Bricks Editor tools"},
     {SPACE_CONSOLE,
      "CONSOLE",
      ICON_CONSOLE,

@@ -38,13 +38,13 @@
 #include <string>
 
 #include "KX_GameDataAsset.h"
-#include "KX_LogicNodeRuntime.h"
+#include "KX_GameNodeRuntime.h"
 #include "KX_NodeRegistry.h"
 
 /** Register the built-in P1 and P2 nodes. Idempotent. */
 void RegisterBuiltinGameNodes();
 
-class KX_Node_FloatMath : public KX_LogicNodeRuntime {
+class KX_Node_FloatMath : public KX_GameNodeRuntime {
  public:
   enum class Op : uint8_t {
     Add = 0,
@@ -83,7 +83,7 @@ class KX_Node_FloatMath : public KX_LogicNodeRuntime {
   bool warning_ = false;
 };
 
-class KX_Node_VectorMath : public KX_LogicNodeRuntime {
+class KX_Node_VectorMath : public KX_GameNodeRuntime {
  public:
   enum class Op : uint8_t {
     Add = 0,
@@ -119,7 +119,7 @@ class KX_Node_VectorMath : public KX_LogicNodeRuntime {
   Op op_ = Op::Add;
 };
 
-class KX_Node_Branch : public KX_LogicNodeRuntime {
+class KX_Node_Branch : public KX_GameNodeRuntime {
  public:
   enum Input : uint32_t {
     IN_TRIGGER = 0,
@@ -140,7 +140,7 @@ struct KX_DelayState {
   bool pending = false;
 };
 
-class KX_Node_Delay : public KX_LogicNodeRuntime {
+class KX_Node_Delay : public KX_GameNodeRuntime {
  public:
   enum Input : uint32_t {
     IN_TRIGGER = 0,
@@ -156,7 +156,7 @@ class KX_Node_Delay : public KX_LogicNodeRuntime {
   void Tick(KX_ExecutionContext &ctx, float delta_time) override;
 };
 
-class KX_Node_Raycast : public KX_LogicNodeRuntime {
+class KX_Node_Raycast : public KX_GameNodeRuntime {
  public:
   enum Input : uint32_t {
     IN_TRIGGER = 0,
@@ -178,7 +178,7 @@ class KX_Node_Raycast : public KX_LogicNodeRuntime {
 };
 
 /** Read one field of a shared game data asset. */
-class KX_Node_AssetGet : public KX_LogicNodeRuntime {
+class KX_Node_AssetGet : public KX_GameNodeRuntime {
  public:
   enum class Mode : uint8_t {
     Poll = 0,
@@ -223,7 +223,7 @@ class KX_Node_AssetGet : public KX_LogicNodeRuntime {
 };
 
 /** Write one field of a shared game data asset. */
-class KX_Node_AssetSet : public KX_LogicNodeRuntime {
+class KX_Node_AssetSet : public KX_GameNodeRuntime {
  public:
   enum Input : uint32_t {
     IN_TRIGGER = 0,
@@ -260,7 +260,7 @@ class KX_Node_AssetSet : public KX_LogicNodeRuntime {
 };
 
 /** Read one game property of an object through the generation counted cache. */
-class KX_Node_ObjectGet : public KX_LogicNodeRuntime {
+class KX_Node_ObjectGet : public KX_GameNodeRuntime {
  public:
   enum class Mode : uint8_t {
     Poll = 0,
@@ -295,7 +295,7 @@ class KX_Node_ObjectGet : public KX_LogicNodeRuntime {
 };
 
 /** Write one game property of an object through the generation counted cache. */
-class KX_Node_ObjectSet : public KX_LogicNodeRuntime {
+class KX_Node_ObjectSet : public KX_GameNodeRuntime {
  public:
   enum Input : uint32_t {
     IN_TRIGGER = 0,
@@ -329,7 +329,7 @@ class KX_Node_ObjectSet : public KX_LogicNodeRuntime {
 /* ------------------------------------------------------------------------- */
 
 /** Emits its trigger exactly once, on the first frame of a graph instance. */
-class KX_Node_OnInit : public KX_LogicNodeRuntime {
+class KX_Node_OnInit : public KX_GameNodeRuntime {
  public:
   enum Output : uint32_t {
     OUT_TRIGGER = 0,
@@ -344,7 +344,7 @@ class KX_Node_OnInit : public KX_LogicNodeRuntime {
 };
 
 /** Emits its trigger every frame. */
-class KX_Node_OnUpdate : public KX_LogicNodeRuntime {
+class KX_Node_OnUpdate : public KX_GameNodeRuntime {
  public:
   enum Output : uint32_t {
     OUT_TRIGGER = 0,
@@ -360,7 +360,7 @@ class KX_Node_OnUpdate : public KX_LogicNodeRuntime {
 /* ------------------------------------------------------------------------- */
 
 /** Feeds a float literal into the graph. The value comes from config `value`. */
-class KX_Node_ConstFloat : public KX_LogicNodeRuntime {
+class KX_Node_ConstFloat : public KX_GameNodeRuntime {
  public:
   enum Output : uint32_t {
     OUT_VALUE = 0,
@@ -381,7 +381,7 @@ class KX_Node_ConstFloat : public KX_LogicNodeRuntime {
 };
 
 /** Feeds a bool literal into the graph. The value comes from config `value`. */
-class KX_Node_ConstBool : public KX_LogicNodeRuntime {
+class KX_Node_ConstBool : public KX_GameNodeRuntime {
  public:
   enum Output : uint32_t {
     OUT_VALUE = 0,
@@ -411,7 +411,7 @@ class KX_Node_ConstBool : public KX_LogicNodeRuntime {
  * It exists so the E2E tests can assert "the trigger arrived N times with
  * value V" without a rendering side effect.
  */
-class KX_Node_Sink : public KX_LogicNodeRuntime {
+class KX_Node_Sink : public KX_GameNodeRuntime {
  public:
   enum Input : uint32_t {
     IN_TRIGGER = 0,

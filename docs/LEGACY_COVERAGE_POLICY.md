@@ -37,7 +37,7 @@
 - 57 = `docs/DEFERRED_FOREVER.md` 机器区间内的 FOREVER 行（渲染内部件 40 + 废弃 17）。
 - 证据：`docs/B6_LEGACY_COMPAT.md:175`「233 = 290 − 57，未做分母修饰」。
 - 含义：把“明确不做、用户也基本感知不到”的行剔除后，剩下的**可评估集合**。
-- 注意：233 只扣 57 条 FOREVER，**不扣**新增的 9 条 FOREVER（它们不在机器区间，见该文件 §6）。
+- 注意：233 只扣 57 条 FOREVER，**不扣**新增的 8 条 FOREVER（#8 Recast 已实现移出；它们不在机器区间，见该文件 §6）。
 
 ### 1.3 semantic 360
 
@@ -46,7 +46,7 @@ semantic_total = legacy_semantics(去重旧语义) + native_only_semantics(新�
 semantic_pct   = (migrated_semantics + native_only_semantics) / semantic_total
 ```
 
-- 算式实现在 `scripts/addons_core/bge_netlogic/generator/native_audit.py:217-256`（`_semantic_coverage`）
+- 算式实现在 `scripts/startup/bge_gamenodes/generator/native_audit.py:217-256`（`_semantic_coverage`）
   与 `:338-341`（百分比计算）；去重键由 `_normalise_semantics`（`:200-215`）生成。
 - 本轮实测（`/tmp/d2_audit.log`）：
   `SEMANTIC COVERAGE covered=146 total=360 pct=40.6% legacy_semantics=283 native_only_new=77 deduped=43`；
@@ -194,8 +194,8 @@ EOF
 
   ```bash
   build_linux/bin/blender -b --factory-startup --python-expr \
-    "import sys; sys.path.append('scripts/addons_core'); \
-     from bge_netlogic.generator.native_audit import main; main()"
+    "import sys; sys.path.append('scripts/startup'); \
+     from bge_gamenodes.generator.native_audit import main; main()"
   ```
 
   本轮输出（`/tmp/d2_audit.log`）：
@@ -206,7 +206,7 @@ EOF
 
 - 算式：`total = 283 + 77 = 360`；`covered = migrated_semantics + native_only_new(77) = 146`，
   反推 `migrated_semantics = 146 − 77 = 69`；`146 / 360 = 40.5556%`，输出保留一位小数即 **40.6%**。
-- 与旧说法的差异：此前本文写「用户给定值，待补算式」，理由是仓库内没有该次运行日志；
+- 与旧说法的差异：此前本文曾标注为「用户给定值（算式未给）」，理由是仓库内没有该次运行日志；
   本轮重跑后已有可复算结果，**旧说法作废**。`docs/B5_REMAP.md:26` 的 `130/360 = 36.1%`
   只是同一分母更早的快照，不能与本轮 146 混用。
 - 注意：40.6% 的分母是**语义集合**（360），不是 290/233；360 会随新增原生语义变化，

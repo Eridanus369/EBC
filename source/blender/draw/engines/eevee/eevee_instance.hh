@@ -40,6 +40,7 @@
 #include "eevee_render_texture.hh"
 #include "eevee_film.hh"
 #include "eevee_gbuffer.hh"
+#include "eevee_heightfield.hh"
 #include "eevee_hizbuffer.hh"
 #include "eevee_light.hh"
 #include "eevee_lightprobe.hh"
@@ -138,6 +139,7 @@ class Instance : public DrawEngine {
   Dlss5Module dlss5;
   DlssSRModule dlss_sr;
   CausticModule caustics;
+  HeightfieldModule heightfield;
   Cryptomatte cryptomatte;
   GBuffer gbuffer;
   HiZBuffer hiz_buffer;
@@ -312,6 +314,7 @@ class Instance : public DrawEngine {
         dlss5(*this),
         dlss_sr(*this),
         caustics(*this),
+        heightfield(*this),
         cryptomatte(*this),
         hiz_buffer(*this, uniform_data.data.hiz),
         sampling(*this, uniform_data.data.clamp),

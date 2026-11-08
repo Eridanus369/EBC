@@ -13,7 +13,9 @@
 #include "MEM_guardedalloc.h"
 
 #include "DNA_collection_types.h"
+#include "DNA_modifier_types.h"
 #include "DNA_node_types.h"
+#include "DNA_object_types.h"
 #include "DNA_sequence_types.h"
 #include "DNA_texture_types.h"
 
@@ -28,13 +30,16 @@
 #include "BKE_compositor.hh"
 #include "BKE_context.hh"
 #include "BKE_image.hh"
+#include "BKE_layer.hh"
 #include "BKE_lib_id.hh"
 #include "BKE_main.hh"
 #include "BKE_main_invariants.hh"
+#include "BKE_modifier.hh"
 #include "BKE_node.hh"
 #include "BKE_node_legacy_types.hh"
 #include "BKE_node_runtime.hh"
 #include "BKE_node_tree_update.hh"
+#include "BKE_object.hh"
 #include "BKE_report.hh"
 #include "BKE_scene.hh"
 #include "BKE_texture.h"
@@ -1629,6 +1634,55 @@ static bNodeTree *new_node_tree_impl(bContext *C, StringRef treename, StringRef 
   return node_tree;
 }
 
+/**
+ * A new `PhysNodeTree` is only usable when an object references it. Fill an
+ * existing `Physics Nodes` modifier that has no tree yet, or append a sink
+ * modifier, so the user does not have to type the tree name by hand.
+ */
+static void phys_tree_attach_to_active_object(const bContext *C, bNodeTree *tree)
+{
+  if (tree == nullptr || !STREQ(tree->idname, "PhysNodeTree")) {
+    return;
+  }
+  Main *bmain = CTX_data_main(C);
+  const Scene *scene = CTX_data_scene(C);
+  ViewLayer *view_layer = CTX_data_view_layer(C);
+  if (bmain == nullptr || scene == nullptr || view_layer == nullptr) {
+    return;
+  }
+  BKE_view_layer_synced_ensure(*bmain, scene, view_layer);
+  Object *object = BKE_view_layer_active_object_get(view_layer);
+  if (object == nullptr) {
+    return;
+  }
+
+  PhysNodesModifierData *pmd = nullptr;
+  for (ModifierData &md : object->modifiers) {
+    if (md.type != eModifierType_PhysNodes) {
+      continue;
+    }
+    PhysNodesModifierData *candidate = reinterpret_cast<PhysNodesModifierData *>(&md);
+    if (candidate->tree_name[0] == '\0') {
+      pmd = candidate;
+      break;
+    }
+  }
+  if (pmd == nullptr) {
+    ModifierData *md = BKE_modifier_new(eModifierType_PhysNodes);
+    BKE_modifiers_add_at_end_if_possible(object, md);
+    BKE_modifiers_persistent_uid_init(*object, *md);
+    STRNCPY_UTF8(md->name, "Physics Update");
+    BKE_modifier_unique_name(&object->modifiers, md);
+    pmd = reinterpret_cast<PhysNodesModifierData *>(md);
+    pmd->mode = PHYSNODES_MODE_SINK;
+  }
+  STRNCPY_UTF8(pmd->tree_name, tree->id.name + 2);
+
+  DEG_id_tag_update(&object->id, ID_RECALC_GEOMETRY);
+  DEG_relations_tag_update(bmain);
+  WM_event_add_notifier(C, NC_OBJECT | ND_MODIFIER, object);
+}
+
 static wmOperatorStatus new_node_tree_exec(bContext *C, wmOperator *op)
 {
   SpaceNode *snode = CTX_wm_space_node(C);
@@ -1663,7 +1717,8 @@ static wmOperatorStatus new_node_tree_exec(bContext *C, wmOperator *op)
     treename = type->ui_name.c_str();
   }
 
-  new_node_tree_impl(C, treename, idname);
+  bNodeTree *tree = new_node_tree_impl(C, treename, idname);
+  phys_tree_attach_to_active_object(C, tree);
 
   WM_event_add_notifier(C, NC_NODE | NA_ADDED, nullptr);
   return OPERATOR_FINISHED;

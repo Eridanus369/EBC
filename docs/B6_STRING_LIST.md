@@ -1,7 +1,7 @@
-# B6.2 字符串 / 列表高级（14 节点）
+# B6.2 字符串 / 列表高级（17 节点）
 
 日期：2026-11-05
-范围：`StringSplit`、`StringJoin`、`StringRegexMatch`、`StringRegexReplace`、`StringTrim`、`StringPad`、`StringLengthChars`、`StringPadChars`、`ListSort`、`ListFilter`、`ListMap`、`ListFind`、`ListSlice`、`ListConcat`
+范围：`StringSplit`、`StringJoin`、`StringRegexMatch`、`StringRegexReplace`、`StringTrim`、`StringPad`、`StringLengthChars`、`StringPadChars`、`ListSort`、`ListFilter`、`ListMap`、`ListFind`、`ListSlice`、`ListConcat`、`ListReverse`、`ListUnique`、`ListIndexOf`
 运行时：`KX_FunctionNodesB6String.cpp`（表驱动，`kB6StringSpecs`）
 
 ## 0. 字节 vs 字符（中文字符串必读）
@@ -20,12 +20,12 @@
 
 | 层 | 文件 | 位置 |
 |---|---|---|
-| 运行时实现 | `source/gameengine/GameLogic/GameNodes/KX_FunctionNodesB6String.cpp` | 新建；字符串 121-293，列表 294-750，表达式求值器 760-880，spec 表 884-910，注册 948-958 |
+| 运行时实现 | `source/gameengine/GameLogic/GameNodes/KX_FunctionNodesB6String.cpp` | 新建；字符串 121-293，列表 294-750，表达式求值器 760-880，列表尾巴 882-951，spec 表 958-996，注册 1025 |
 | 注册声明 | `.../KX_FunctionNode.h` | `RegisterB6StringFunctionGameNodes()` 242 |
 | 启动注册 | `.../KX_RuntimeNodes.cpp` | 追加调用 241 |
 | 构建 | `source/gameengine/GameLogic/CMakeLists.txt` | `GameNodes/KX_FunctionNodesB6String.cpp` 200 |
-| 编辑器表 | `scripts/addons_core/bge_netlogic/editor/nodes/native_b6b.py` | `NATIVE_B6B` 中 12 条 |
-| 调色板 | `.../ui/node_palette.py` | 12 条字符串/列表条目 |
+| 编辑器表 | `scripts/startup/bge_gamenodes/editor/nodes/native_b6b.py` | `NATIVE_B6B` 中 17 条 |
+| 调色板 | `.../ui/node_palette.py` | 17 条字符串/列表条目 |
 
 ## 2. 节点与端口
 
@@ -33,8 +33,8 @@
 |---|---|---|---|
 | StringSplit | Source, Separator | Parts(List<String>) | — |
 | StringJoin | Parts(List), Separator | Result(String) | — |
-| StringRegexMatch | Source, Pattern | Matched(Bool), Groups(List<String>) | — |
-| StringRegexReplace | Source, Pattern, Replacement | Result(String) | — |
+| StringRegexMatch | Source, Pattern | Matched(Bool), Groups(List<String>), Rejected(Bool) | — |
+| StringRegexReplace | Source, Pattern, Replacement | Result(String), Rejected(Bool) | — |
 | StringTrim | Source, Mode(Int) | Result(String) | — |
 | StringPad | Source, Length(Int), PadChar, Side(Int) | Result(String) | — |
 | StringLengthChars | Source | Count(Int) | — |
@@ -45,6 +45,9 @@
 | ListFind | List, Value(Float) | Index(Int), Found(Bool) | — |
 | ListSlice | List, Start(Int), End(Int) | Slice | — |
 | ListConcat | ListA, ListB | Result | — |
+| ListReverse | List | ReversedList | — |
+| ListUnique | List | UniqueList | — |
+| ListIndexOf | List, Value(Float) | Index(Int) | — |
 
 全部为 `is_value_node=true`，每帧求值；`ListSort.key` 走 `ConfigString`，`ListSort.descending` 走 `ConfigBool`，其余参数都是输入端口。
 
@@ -57,14 +60,32 @@
 - `StringTrim`：`Mode` 0=两端、1=左侧、2=右侧。
 - `StringPad`：`Side` 0=左补、1=右补；`PadChar` 为空时用空格，否则取第一个字符；目标长度非法（`<=` 当前长度或超过元素上限）时原样返回。
 - `StringLengthChars` / `StringPadChars`：按 UTF-8 码点处理。解码器只接受合法的前导字节 + 后续 `0x80..0xBF` 组合；遇到非法前导、非法后续或截断尾部时，**按一个字符容错**并只打印一次 `[StringLengthChars]` / `[StringPadChars] invalid UTF-8 sequence: counted as one character`，绝不越界读取。截断的多字节尾部整体算一个字符，不会按剩余字节数重复计数。
-- `StringRegexMatch`：`Groups` 第 0 项为完整匹配，之后按**左括号出现顺序**依次是捕获组（嵌套组外层在前、内层在后）；未参与匹配的可选组输出空串（无法与“匹配到空串”区分）；整体未匹配时 `Matched=false` 且 `Groups` 为空列表。ECMAScript 语法不支持 `(?<name>...)` 命名组，命名组按非法 Pattern 处理。
-- `StringRegexReplace`：等价 `std::regex_replace`，替换串支持 `$1` 等 ECMAScript 格式。
+- `StringRegexMatch`：`Groups` 第 0 项为完整匹配，之后按**左括号出现顺序**依次是捕获组（嵌套组外层在前、内层在后）；未参与匹配的可选组输出空串（无法与“匹配到空串”区分）；整体未匹配时 `Matched=false` 且 `Groups` 为空列表。输出另有 `Rejected(Bool)`（索引 2）：守卫拒绝、源串超长、非法 Pattern 时为 `true` 且 `Matched=false`；正常不匹配为 `false` + `Matched=false`；正常匹配为 `false` + `Matched=true`。ECMAScript 语法不支持 `(?<name>...)` 命名组，命名组按非法 Pattern 处理。
+- `StringRegexReplace`：等价 `std::regex_replace`，替换串支持 `$1` 等 ECMAScript 格式。输出 `Result(String)` + `Rejected(Bool)`（索引 0/1）：被拒（含非法 Pattern）时 `Rejected=true` 且 `Result` 原样返回 `Source`，正常替换/无替换时 `Rejected=false`。
 
 ### 正则限制
 
 - 使用 C++11 `std::regex`（ECMAScript 语法），不引入 PCRE。
-- **非法 Pattern** 由 `std::regex_error` 捕获：每个节点实例只写一次 `[StringRegexMatch] invalid pattern ...` / `[StringRegexReplace] invalid pattern ...` 诊断；前者返回 `Matched=false`，后者原样返回 `Source`，均不崩溃（191-247）。
-- **未防护灾难性回溯**：`std::regex` 没有超时机制，病态模式（如嵌套量词对长输入）仍可能长时间占用 CPU。**不要对用户输入的任意长度文本使用复杂正则**；需要处理不可信输入时，请在上层限制字符串长度或改用非回溯匹配。节点层不做额外兜底。
+- **非法 Pattern** 由 `std::regex_error` 捕获：每个节点实例只写一次 `[StringRegexMatch] invalid pattern ...` / `[StringRegexReplace] invalid pattern ...` 诊断；前者返回 `Matched=false`，后者原样返回 `Source`，均置 `Rejected=true`，不崩溃。
+- **守卫规则（2026-11-06 收紧）**：两个节点共用同一份 `IsSafeRegexPattern`（`KX_FunctionNodesB6String.cpp:146-300`），在 `std::regex` 构造前用单趟 `O(n)` 扫描 + 括号深度栈判定，**不借用 `std::regex` 做这项判定**。量词修饰的分组在**以下任一条件成立**时被拒：
+  1. 组体**整体就是一个无界重复**（`+` / `*` / `{n,}` 覆盖整个组体），含跨层传播：`(a+)+`、`(a*)*`、`(.*)*`、`(a+){2,}`、`((a+))+`；
+  2. 组体**可匹配空串**：`(a?)+`、`(a*)+`、`(b?)*`。
+
+  连续量词（`a**`、`a++`、`a?*`、`a*+`）直接拒绝。判定表：
+
+  | 模式 | 判定 |
+  |---|---|
+  | `(\d+,)+` | 放行（组体是「数字 + 逗号重复」的拼接，不是裸重复） |
+  | `(ab?)+` | 放行（`?` 有界，组体不可匹配空串） |
+  | `(a+)+` / `(a*)*` / `(.*)*` | 拒绝 |
+  | `(a?)+` | 拒绝（组体可匹配空串） |
+  | `(a\|aa)+` | 放行（无嵌套量词；见下方「交替不受保护」） |
+  | `(ab)+` / `(a\|b)*` / `[+*?]` / `\+` / `a+?` | 放行（不得误杀） |
+
+  命中时每个实例只写一次 `[Regex] unsafe pattern rejected: nested quantifier`，**不编译正则**；`Rejected=true`，Match 的 `Matched=false` + 空 `Groups`，Replace 原样返回 `Source`。
+- **长度上限（B6.9 3.3）**：`Source` 超过 **4096** 字节或 `Pattern` 超过 **512** 字节时直接拒绝，每个实例只写一次 `[StringRegexMatch] input too long ...` / `[StringRegexReplace] input too long ...`，同样置 `Rejected=true`；前者 `Matched=false` + 空 `Groups`，后者原样返回 `Source`。上限是常量（`KX_FunctionNodesB6String.cpp:54-55`），不做配置。
+- **无墙钟超时（保留的明确限制）**：`std::regex` 没有超时机制；嵌套量词与空串组体已在编译前拒绝，但**其余模式仅受长度限制**（模式 512 / 源串 4096）。`(a|aa)+$` 这类「交替项前缀重叠」的模式不受保护：**40 字符输入可达 29.7 秒，44 字符超 45 秒**，属引擎层限制。处理不可信输入时需在上层限制复杂度或改用非回溯匹配。该风险已登记 `KNOWN_LIMITATIONS.md` #30。
+- **评分**：`StringRegexMatch` / `StringRegexReplace` 本轮判 `full`（新增拒绝规则 + `Rejected` 端口 + 长度上限；剩余为已知的书面限制）。字符串域内 37/37 全 `full`（**域内 100%，不是全局 100%**）。全局口径：`N=325`（`TypeCount()` 实测），`F=299 / A=4 / U=7 / P=15`，`D = F + A = 303`；严格 `F/D = 299/303 = 98.68%`、加权 `(F+0.5A)/D = (299+0.5×4)/303 = 301/303 = 99.34%`、覆盖 `(F+A+P)/(D+U+P) = (299+4+15)/(303+7+15) = 318/325 = 97.85%`。`unsupported` 7 与 `pending-device` 15 已剔出严格/加权分母；这是 **C++ 实现正确率**，不是用户默认体验。**数值已冻结（K 实测，`RUN_ID=20261106-224926`；46 批 / 1456 断言 / 0 失败）。**
 
 ## 4. 列表语义与生命周期
 
@@ -72,8 +93,17 @@
 - `ListSort` 对输入做浅拷贝后排序，不修改输入列表。`key` 为空时按元素自身值排序；非空时把元素当作对象，用 `KX_PropertyAccessor` 读取该属性（数值或字符串）作为排序键（311-346）。比较器对降序使用 `less_key(b, a)`，满足严格弱序，`stable_sort` 保持相等元素原序。
 - `ListFilter` 保留使表达式结果为非 0 的元素；`ListMap` 输出 `Float` 结果列表。求值遇到错误时：`ListFilter` 停止并把已接受的元素作为结果输出；`ListMap` 清空结果并输出空列表；两者各只打一次诊断。
 - `ListFind` 按数值相等（Float/Int/Bool 互转）或字符串内容相等匹配，返回 `Index=-1 / Found=false` 表示未找到。
-- `ListSlice`：`Start<=0` 视为 0，`End<=0` 视为 `size`，`End<Start` 视为空；越界自动截断到 `size`。
+- `ListSlice`（B6.9-S1 定稿的负索引语义）：
+  - `Start >= 0`：绝对位置，越界截断到 `size`。
+  - `Start < 0`：从尾部计数，`-1` 是最后一个元素，`-size` 是第一个元素；小于 `-size` 截断到 0。
+  - `End < 0`：同样从尾部计数，`-1` **不含**最后一个元素（即 `size-1`）。
+  - `End == 0`：保留旧的哨兵语义“切到末尾”（兼容既有图）；要排除最后一个元素请用 `End = -1`。
+  - `End < Start` 视为空；所有索引最终截断到 `[0, size]`。
 - `ListConcat` 依次追加 A、B，总长度受 `kMaxListElements` 截断。
+- `ListReverse`：对输入做浅拷贝后逆序输出，**不修改输入列表**；空输入输出空列表；长度受 `kMaxListElements` 截断（从尾部开始取，所以截断时保留原列表末尾元素）。
+- `ListUnique`：**保序去重，保留每个值第一次出现的位置**（不是任意顺序，也不保留最后一次）。相等判定与 `ListFind` 一致：Float/Int/Bool 按数值互转比较，字符串按内容比较，其他类型按类型 + 指针比较；空输入输出空列表，结果长度受 `kMaxListElements` 截断。
+- `ListIndexOf`：返回目标值**第一次出现的下标**，未找到返回 `-1`；`Value` 端口是 `Float`（与 `ListFind` 相同），需要显式 `Found` 布尔时用 `ListFind`。输入为空或未找到都返回 `-1`，不产生诊断。
+  **精度边界**：`Float` 只有 24 位尾数，**绝对值超过 `2^24`（16777216）的整数无法精确表示**，相邻的大整数可能被判为相等而返回错误下标。`Index` 输出是 `Int`，不受影响。列表长度受 `KX_ValuePool::kMaxListElements = 4096`（`KX_ValuePool.h:52`）限制，远低于 `2^24`，所以正常图不会触及；只有列表元素**值本身**是大整数（如超过 1677 万的 ID / 时间戳）时才需要注意。
 
 ## 5. Predicate / Expression 最小语法子集
 
@@ -100,11 +130,10 @@ x | X                    当前元素的数值（AsFloat）
 
 ## 6. 验证
 
-- 编译：前一轮 `ninja -C build_linux -j6` exit=0（`/tmp/b62_build2.log`）。本轮编译器文件（`KX_CompiledGraph.cpp`）由 JIT 并行线占用，**未跑全量 ninja**；改为目标文件级验证：
-  `c++ -c KX_FunctionNodesB6String.cpp` exit=0，输出 0 字节（无警告），产物 `/tmp/b6string_c6.o`，日志 `/tmp/b62_b6string_obj.log`。
-- E2E：`/tmp/b62_e2e_v3` 58 项断言 + 汇总行全 PASS（59 行 `total failures=0`，`/tmp/b62_e2e_v3.log`）。
-  该 harness 的 `KX_FunctionNodesB6String.cpp` 来自当前源码，只有 `KX_CompiledGraph.cpp` 取 19:16 快照对象
-  （`/tmp/b661_cross_obj/game/KX_CompiledGraph.o`）以绕开正在被改写的编译器源文件；全量现源码链接会段错误，属并行线阻塞，不是字符串代码问题。
+- 编译：目标文件级验证，`flock /tmp/build_linux.lock -c "ninja -C build_linux ... KX_FunctionNodesB6String.cpp.o"` exit=0
+  （唯一警告是既有的 `EXP_Value::SetValue` 隐藏重载，与本轮新增无关）。
+- E2E：`tests/run_all_e2e.sh --only b62` → **134 assertions / 0 failures**（K 冻结 `RUN_ID=20261106-224926`，批 `b62`；旧 `run_20261106-095219` 的 77 条已被覆盖）；
+  `--only b64` metadata harness → 61 assertions / 0 failures（`run_20261106-095233`）。
 
 | 断言 | 结果 |
 |---|---|
@@ -127,14 +156,20 @@ x | X                    当前元素的数值（AsFloat）
 | `ListFilter("x > 1")` → 2 项；`ListMap("x * 2")` → `[6,2,4]` | PASS |
 | `ListFind(1)` → Index=1/Found=true | PASS |
 | `ListSlice([0,2))` → 2 项；`ListConcat` 3+3 → 6 | PASS |
+| `ListReverse([1,2,1,3,2])` → `[2,3,1,2,1]`，且输入不变 | PASS |
+| `ListUnique([1,2,1,3,2])` → `[1,2,3]`（保序、保留首次出现） | PASS |
+| `ListIndexOf(1)` → `0`（首次出现）；`ListIndexOf(9)` → `-1` | PASS |
+| 两个 3D 句柄的衰减参数各自独立（A=2/5、B=4/20 互不影响） | PASS |
 
-- 注册与枚举：`native_b6b.py` 27 行与 C++ 27 条 spec 完全一致 `MISSING []`；
-  本轮全仓复跑 `enum_consistency.py` → `checked_pairs=108 inconsistencies=0`；
-  `port_contract.py` → `native_nodes=223 errors=0 warnings=4`（4 条为既有的索引对齐 NOTE，非错误）。
+- 注册与枚举：`gen_metadata.py --check` → `up to date (325 nodes)`；b64 metadata harness 61/0。
+  `native_b6b.py` 现有 30 条（字符串 17 + 音频 5 + 输入 8），与三段 C++ spec 表一一对应。
+- 2026-11-06 正则双修改了端口契约：`StringRegexMatch` 输出 2→3（新增 `Rejected`，索引 2），
+  `StringRegexReplace` 输出 1→2（新增 `Rejected`，索引 1）。已同步 `native_b6b.py`、重生成
+  `native_metadata_gen.py`（325 节点）并重跑 `enum_consistency.py`（125 pairs / 0）与 `port_contract.py`（errors=0）。
 
 ## 7. 限制
 
-1. 正则无回溯/时间预算（§3），恶意输入需在上层限制字符串长度。
+1. 正则无墙钟超时（§3）：嵌套量词与可匹配空串的组体已在编译前被 `IsSafeRegexPattern` 拒绝，其余模式仅受长度限制（`Source` 4096 字节 / `Pattern` 512 字节）；上限之内 `(a|aa)+$` 这类交替项前缀重叠的回溯仍不受保护（40 字符约 29.7 秒、44 字符超 45 秒），恶意输入需在上层限制复杂度。
 2. Predicate/Expression 只支持 §5 子集，元素必须是数值语义（`AsFloat`）；对象/列表元素按 0 处理。
 3. `ListSort.key` 只读取对象的直接属性，不支持嵌套路径或索引。
 4. 列表长度上限固定为 `kMaxListElements`，超出静默截断。

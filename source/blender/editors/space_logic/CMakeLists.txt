@@ -30,12 +30,7 @@ set(INC_SYS
 )
 
 set(SRC
-  logic_buttons.cc
   logic_ops.cc
-  logic_window.cc
-  space_logic.cc
-
-  logic_intern.hh
 )
 
 set(LIB

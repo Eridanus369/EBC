@@ -29,6 +29,8 @@
  *  blocks the frame.
  */
 
+#include <cmath>
+#include <cstdint>
 #include <cstdio>
 #include <memory>
 #include <string>
@@ -459,6 +461,365 @@ void FuncReconnect(KX_FunctionNode &node, KX_ExecutionContext &ctx)
   node.OutTrigger(ctx, 1, !ok);
 }
 
+/* ------------------------------------------------------------------------- */
+/* B6.9-N N-1 LAN discovery                                                   */
+/* ------------------------------------------------------------------------- */
+
+const KX_FuncPort kDiscoverRoomsInputs[] = {
+    TP("OnEnter"),
+    FP("Port", KX_VALUE_INT),
+    FP("TimeoutMs", KX_VALUE_INT),
+};
+const KX_FuncPort kDiscoverRoomsOutputs[] = {
+    TP("OnSuccess"),
+    TP("OnFail"),
+    FP("Rooms", KX_VALUE_LIST),
+    FP("Count", KX_VALUE_INT),
+    FP("Error", KX_VALUE_STRING),
+};
+
+void FuncDiscoverRooms(KX_FunctionNode &node, KX_ExecutionContext &ctx)
+{
+  if (!node.InTrigger(ctx, 0)) {
+    return;
+  }
+  std::vector<KX_RoomInfo> rooms;
+  std::string error;
+  /* A completed window is success even with zero rooms: an empty LAN is a
+   * valid answer, unlike a one-host ListRooms probe that timed out. */
+  const bool ok =
+      ctx.Network().DiscoverRooms(node.InInt(ctx, 1), node.InInt(ctx, 2), rooms, &error);
+  if (!ok) {
+    std::fprintf(stderr, "GameNode: DiscoverRooms failed: %s\n", error.c_str());
+  }
+  B6NetWriteRooms(node, ctx, 2, 3, rooms);
+  node.OutString(ctx, 4, ok ? std::string() : error);
+  node.OutTrigger(ctx, 0, ok);
+  node.OutTrigger(ctx, 1, !ok);
+}
+
+/* ------------------------------------------------------------------------- */
+/* B6.9-N N-2 player state replication                                        */
+/* ------------------------------------------------------------------------- */
+
+const KX_FuncPort kSyncPlayerStateInputs[] = {
+    TP("OnEnter"),
+    FP("Position", KX_VALUE_VECTOR),
+    FP("Rotation", KX_VALUE_VECTOR),
+    FP("Animation", KX_VALUE_INT),
+    FP("AnimationPhase", KX_VALUE_FLOAT),
+};
+const KX_FuncPort kSyncPlayerStateOutputs[] = {
+    TP("OnDone"),
+};
+
+void FuncSyncPlayerState(KX_FunctionNode &node, KX_ExecutionContext &ctx)
+{
+  if (!node.InTrigger(ctx, 0)) {
+    return;
+  }
+  KX_PlayerState state;
+  const KX_RuntimeValue position = node.In(ctx, 1);
+  if (position.type == KX_VALUE_VECTOR) {
+    state.position[0] = position.data.vec[0];
+    state.position[1] = position.data.vec[1];
+    state.position[2] = position.data.vec[2];
+  }
+  const KX_RuntimeValue rotation = node.In(ctx, 2);
+  if (rotation.type == KX_VALUE_VECTOR) {
+    state.rotation[0] = rotation.data.vec[0];
+    state.rotation[1] = rotation.data.vec[1];
+    state.rotation[2] = rotation.data.vec[2];
+  }
+  /* sync_animation=false sends "no clip" (-1), so a scene without animation
+   * does not have to fabricate a clip id. */
+  state.animation = node.ConfigBool("sync_animation", true) ? node.InInt(ctx, 3) : -1;
+  state.animation_phase = node.InFloat(ctx, 4);
+  ctx.Network().SetLocalPlayerState(state);
+  node.OutTrigger(ctx, 0, true);
+}
+
+const KX_FuncPort kGetPlayerStateInputs[] = {
+    TP("OnEnter"),
+    FP("PlayerId", KX_VALUE_INT),
+};
+const KX_FuncPort kGetPlayerStateOutputs[] = {
+    FP("Position", KX_VALUE_VECTOR),
+    FP("Rotation", KX_VALUE_VECTOR),
+    FP("Animation", KX_VALUE_INT),
+    FP("AnimationPhase", KX_VALUE_FLOAT),
+    TP("OnSuccess"),
+    TP("OnFail"),
+};
+
+void FuncGetPlayerState(KX_FunctionNode &node, KX_ExecutionContext &ctx)
+{
+  if (!node.InTrigger(ctx, 0)) {
+    return;
+  }
+  KX_PlayerState state;
+  const bool ok = ctx.Network().GetRemotePlayerState(node.InInt(ctx, 1), &state);
+  if (ok) {
+    node.OutVector(ctx, 0, state.position[0], state.position[1], state.position[2]);
+    node.OutVector(ctx, 1, state.rotation[0], state.rotation[1], state.rotation[2]);
+    node.OutInt(ctx, 2, state.animation);
+    node.OutFloat(ctx, 3, state.animation_phase);
+  }
+  else {
+    /* No packet yet: never invent a pose. */
+    node.OutVector(ctx, 0, 0.0f, 0.0f, 0.0f);
+    node.OutVector(ctx, 1, 0.0f, 0.0f, 0.0f);
+    node.OutInt(ctx, 2, -1);
+    node.OutFloat(ctx, 3, 0.0f);
+  }
+  node.OutTrigger(ctx, 4, ok);
+  node.OutTrigger(ctx, 5, !ok);
+}
+
+/* ------------------------------------------------------------------------- */
+/* B6.9-Ms Ms-1 RPC / Ms-2 delayed message (appended)                         */
+
+/** Wire envelope for RPC packets carried over the network adapter. */
+const char kB6RpcMagic[] = "EBCRPC1";
+const size_t kB6RpcMagicLen = 7;
+
+void B6AppendU32(std::string *out, uint32_t value)
+{
+  out->push_back(char(value & 0xff));
+  out->push_back(char((value >> 8) & 0xff));
+  out->push_back(char((value >> 16) & 0xff));
+  out->push_back(char((value >> 24) & 0xff));
+}
+
+uint32_t B6ReadU32(const std::string &data, size_t offset)
+{
+  return uint32_t(uint8_t(data[offset])) | (uint32_t(uint8_t(data[offset + 1])) << 8) |
+         (uint32_t(uint8_t(data[offset + 2])) << 16) |
+         (uint32_t(uint8_t(data[offset + 3])) << 24);
+}
+
+std::string B6EncodeRpcPacket(const std::string &subject, const std::string &payload)
+{
+  std::string packet(kB6RpcMagic);
+  B6AppendU32(&packet, static_cast<uint32_t>(subject.size()));
+  B6AppendU32(&packet, static_cast<uint32_t>(payload.size()));
+  packet += subject;
+  packet += payload;
+  return packet;
+}
+
+bool B6DecodeRpcPacket(const std::string &packet, std::string *subject, std::string *payload)
+{
+  const size_t header = kB6RpcMagicLen + 8;
+  if (packet.size() < header || packet.compare(0, kB6RpcMagicLen, kB6RpcMagic) != 0) {
+    return false;
+  }
+  const uint32_t subject_len = B6ReadU32(packet, kB6RpcMagicLen);
+  const uint32_t payload_len = B6ReadU32(packet, kB6RpcMagicLen + 4);
+  if (static_cast<size_t>(subject_len) + payload_len != packet.size() - header) {
+    return false;
+  }
+  *subject = packet.substr(header, subject_len);
+  *payload = packet.substr(header + subject_len, payload_len);
+  return true;
+}
+
+const KX_FuncPort kSendRPCInputs[] = {
+    TP("OnEnter"),
+    FP("Subject", KX_VALUE_STRING),
+    FP("Payload", KX_VALUE_STRING),
+    FP("Target", KX_VALUE_OBJECT),
+};
+const KX_FuncPort kSendRPCOutputs[] = {
+    TP("OnSuccess"),
+    TP("OnFail"),
+};
+
+void FuncSendRPC(KX_FunctionNode &node, KX_ExecutionContext &ctx)
+{
+  if (!node.InTrigger(ctx, 0)) {
+    return;
+  }
+  const std::string subject = B6NetInString(node, ctx, 1);
+  if (subject.empty()) {
+    std::fprintf(stderr, "GameNode: SendRPC: subject must not be empty\n");
+    node.OutTrigger(ctx, 1, true);
+    return;
+  }
+  const std::string payload = B6NetInString(node, ctx, 2);
+  KX_GameObject *target = node.InObject(ctx, 3);
+  /* Local loopback is always delivered, even without a network adapter:
+   * single-player must behave like a same-scene RPC, not a failure. */
+  ctx.Message().Send(target != nullptr ? ctx.Objects().GetName(target) : std::string(),
+                     ctx.Owner(),
+                     std::string("rpc:") + subject,
+                     payload);
+  if (ctx.Network().IsConnected()) {
+    const std::string packet = B6EncodeRpcPacket(subject, payload);
+    if (!ctx.Network().BroadcastReliable(packet.data(), packet.size())) {
+      std::fprintf(stderr, "GameNode: SendRPC: network broadcast failed\n");
+      node.OutTrigger(ctx, 1, true);
+      return;
+    }
+  }
+  node.OutTrigger(ctx, 0, true);
+}
+
+const KX_FuncPort kOnRPCInputs[] = {
+    FP("Object", KX_VALUE_OBJECT),
+    FP("Subject", KX_VALUE_STRING),
+};
+const KX_FuncPort kOnRPCOutputs[] = {
+    TP("OnRPC"),
+    FP("Subject", KX_VALUE_STRING),
+    FP("Payload", KX_VALUE_STRING),
+    FP("Sender", KX_VALUE_STRING),
+};
+
+struct KX_RpcState {
+  std::vector<KX_Message> *messages = nullptr;
+};
+
+void FuncOnRPCTick(KX_FunctionNode &node, KX_ExecutionContext &ctx, float delta_time)
+{
+  (void)delta_time;
+  KX_RpcState *state = node.StateBlock<KX_RpcState>(ctx);
+  if (state->messages != nullptr) {
+    delete state->messages;
+    state->messages = nullptr;
+  }
+  KX_GameObject *receiver = node.InObject(ctx, 0);
+  if (receiver == nullptr) {
+    receiver = ctx.Owner();
+  }
+  /* A graph without an owner (tests, object-less graphs) still receives
+   * broadcast RPCs; targeted RPCs need a receiver object. */
+  const std::string receiver_name =
+      receiver != nullptr ? ctx.Objects().GetName(receiver) : std::string();
+  std::string filter = B6NetInString(node, ctx, 1);
+  if (filter.empty()) {
+    filter = node.ConfigString("subject");
+  }
+  /* Same enum semantics as MessageReceived: 0 exact, 1 prefix. Never a
+   * string comparison against "prefix". */
+  const bool prefix_match = node.ConfigInt("match", 0) == 1;
+
+  state->messages = new std::vector<KX_Message>();
+  const std::vector<KX_Message> all = ctx.Message().Receive(receiver_name, "");
+  for (const KX_Message &message : all) {
+    const std::string prefix = "rpc:";
+    if (message.subject.compare(0, prefix.size(), prefix) != 0) {
+      continue;
+    }
+    const std::string subject = message.subject.substr(prefix.size());
+    const bool matches = filter.empty() || (prefix_match ?
+                                                subject.compare(0, filter.size(), filter) == 0 :
+                                                subject == filter);
+    if (matches) {
+      KX_Message rpc = message;
+      rpc.subject = subject;
+      state->messages->push_back(rpc);
+    }
+  }
+
+  /* Remote RPC packets share the adapter queue with OnNetworkEvent. Drain them,
+   * keep only RPC envelopes, and put everything else back at the front so the
+   * other node still sees its events. */
+  if (ctx.Network().IsConnected()) {
+    std::vector<KX_NetworkEvent> deferred;
+    KX_NetworkEvent event;
+    uint32_t drained = 0;
+    while (drained < 64 && ctx.Network().PollEvent(event)) {
+      ++drained;
+      if (event.type == KX_NetworkEvent::Message) {
+        std::string subject;
+        std::string payload;
+        if (B6DecodeRpcPacket(event.data, &subject, &payload)) {
+          const bool matches = filter.empty() ||
+                               (prefix_match ? subject.compare(0, filter.size(), filter) == 0 :
+                                               subject == filter);
+          if (matches) {
+            KX_Message rpc;
+            rpc.to = receiver_name;
+            rpc.from = "player:" + std::to_string(event.player_id);
+            rpc.subject = subject;
+            rpc.body = payload;
+            state->messages->push_back(rpc);
+          }
+          continue;
+        }
+      }
+      deferred.push_back(event);
+    }
+    for (auto it = deferred.rbegin(); it != deferred.rend(); ++it) {
+      ctx.Network().RequeueEvent(*it);
+    }
+  }
+}
+
+uint32_t FuncOnRPCPending(KX_FunctionNode &node, KX_ExecutionContext &ctx)
+{
+  KX_RpcState *state = node.StateBlock<KX_RpcState>(ctx);
+  return state->messages != nullptr ? static_cast<uint32_t>(state->messages->size()) : 0;
+}
+
+void FuncOnRPCElement(KX_FunctionNode &node, KX_ExecutionContext &ctx, uint32_t index)
+{
+  KX_RpcState *state = node.StateBlock<KX_RpcState>(ctx);
+  if (state->messages == nullptr || index >= state->messages->size()) {
+    return;
+  }
+  const KX_Message &message = (*state->messages)[index];
+  node.OutString(ctx, 1, message.subject);
+  node.OutString(ctx, 2, message.body);
+  node.OutString(ctx, 3, message.from);
+  node.OutTrigger(ctx, 0, true);
+}
+
+void FuncOnRPCFinish(KX_FunctionNode &node, KX_ExecutionContext &ctx)
+{
+  KX_RpcState *state = node.StateBlock<KX_RpcState>(ctx);
+  delete state->messages;
+  state->messages = nullptr;
+}
+
+const KX_FuncPort kSendDelayedMessageInputs[] = {
+    TP("OnEnter"),
+    FP("Subject", KX_VALUE_STRING),
+    FP("Payload", KX_VALUE_STRING),
+    FP("Delay", KX_VALUE_FLOAT),
+};
+const KX_FuncPort kSendDelayedMessageOutputs[] = {
+    TP("OnSuccess"),
+    TP("OnFail"),
+};
+
+void FuncSendDelayedMessage(KX_FunctionNode &node, KX_ExecutionContext &ctx)
+{
+  if (!node.InTrigger(ctx, 0)) {
+    return;
+  }
+  const std::string subject = B6NetInString(node, ctx, 1);
+  if (subject.empty()) {
+    std::fprintf(stderr, "GameNode: SendDelayedMessage: subject must not be empty\n");
+    node.OutTrigger(ctx, 1, true);
+    return;
+  }
+  const std::string payload = B6NetInString(node, ctx, 2);
+  const float delay = node.InFloat(ctx, 3);
+  if (!std::isfinite(delay) || delay < 0.0f) {
+    std::fprintf(stderr, "GameNode: SendDelayedMessage: delay must be finite and >= 0\n");
+    node.OutTrigger(ctx, 1, true);
+    return;
+  }
+  /* Channels accept an empty receiver name as "broadcast". A zero delay is
+   * delivered by the next frame's TickDelayed, not synchronously. */
+  ctx.Message().SendDelayed(std::string(), ctx.Owner(), subject, payload, delay);
+  node.OutTrigger(ctx, 0, true);
+}
+
+/* ------------------------------------------------------------------------- */
+
 const KX_FunctionSpec kB6NetSpecs[] = {
     B6_ACTION("HostRoom", kHostRoomInputs, kHostRoomOutputs, FuncHostRoom),
     B6_ACTION("JoinRoom", kJoinRoomInputs, kJoinRoomOutputs, FuncJoinRoom),
@@ -485,6 +846,32 @@ const KX_FunctionSpec kB6NetSpecs[] = {
     B6_ACTION("ListRooms", kListRoomsInputs, kListRoomsOutputs, FuncListRooms),
     B6_ACTION("RefreshRooms", kListRoomsInputs, kListRoomsOutputs, FuncRefreshRooms),
     B6_ACTION("Reconnect", kReconnectInputs, kReconnectOutputs, FuncReconnect),
+    /* B6.9-N N-1: broadcast discovery, no mDNS and no handshake. */
+    B6_ACTION("DiscoverRooms", kDiscoverRoomsInputs, kDiscoverRoomsOutputs, FuncDiscoverRooms),
+    /* B6.9-N N-2: 20 Hz pose replication, 16 bit fixed point. */
+    B6_ACTION("SyncPlayerState",
+              kSyncPlayerStateInputs,
+              kSyncPlayerStateOutputs,
+              FuncSyncPlayerState),
+    B6_ACTION("GetPlayerState", kGetPlayerStateInputs, kGetPlayerStateOutputs, FuncGetPlayerState),
+};
+
+/* B6.9-Ms specs are a separate table so the B6.3/B6.7/B6.9-N entries above
+ * stay untouched for other in-flight branches. */
+const KX_FunctionSpec kB6MsgSpecs[] = {
+    B6_ACTION("SendRPC", kSendRPCInputs, kSendRPCOutputs, FuncSendRPC),
+    B6_TICK_SEQUENCE("OnRPC",
+                     kOnRPCInputs,
+                     kOnRPCOutputs,
+                     FuncOnRPCTick,
+                     FuncOnRPCPending,
+                     FuncOnRPCElement,
+                     FuncOnRPCFinish,
+                     KX_RpcState),
+    B6_ACTION("SendDelayedMessage",
+              kSendDelayedMessageInputs,
+              kSendDelayedMessageOutputs,
+              FuncSendDelayedMessage),
 };
 
 KX_NodeSignature MakeB6NetSignature(const KX_FunctionSpec &spec)
@@ -522,6 +909,14 @@ void RegisterB6NetworkFunctionGameNodes()
         spec.type_id,
         std::string("KX_FuncB6Net_") + spec.type_id,
         MakeB6NetSignature(*entry),
-        [entry]() { return std::unique_ptr<KX_LogicNodeRuntime>(new KX_FunctionNode(entry)); });
+        [entry]() { return std::unique_ptr<KX_GameNodeRuntime>(new KX_FunctionNode(entry)); });
+  }
+  for (const KX_FunctionSpec &spec : kB6MsgSpecs) {
+    const KX_FunctionSpec *entry = &spec;
+    KX_NodeRegistry::Get().RegisterType(
+        spec.type_id,
+        std::string("KX_FuncB6Net_") + spec.type_id,
+        MakeB6NetSignature(*entry),
+        [entry]() { return std::unique_ptr<KX_GameNodeRuntime>(new KX_FunctionNode(entry)); });
   }
 }

@@ -252,6 +252,123 @@ void FuncUnloadScene(KX_FunctionNode &node, KX_ExecutionContext &ctx)
 }
 
 /* ------------------------------------------------------------------------- */
+/* MountChildScene / UnmountChildScene (B6.9 flat scene stack)                */
+/* ------------------------------------------------------------------------- */
+
+/* This engine keeps exactly one active scene: KX_KetsjiEngine::LoadScene calls
+ * ReplaceScene, and RemoveScene is explicitly disabled (KX_KetsjiEngine.cpp
+ * KX_SceneUnloadResult path). A child scene therefore cannot coexist with its
+ * parent. The nodes below implement the only honest equivalent: a push/pop
+ * stack where the parent becomes inactive while the child is active. "Unmount"
+ * means "deactivate the child and return to the parent"; it never frees the
+ * child scene, because that path is Unsupported in the engine. */
+
+const KX_FuncPort kMountChildSceneInputs[] = {
+    TP("OnEnter"),
+    FP("ParentScene", KX_VALUE_STRING),
+    FP("ChildScene", KX_VALUE_STRING),
+};
+const KX_FuncPort kMountChildSceneOutputs[] = {
+    TP("OnDone"),
+    TP("OnFail"),
+    FP("Reason", KX_VALUE_STRING),
+};
+const KX_FuncPort kUnmountChildSceneInputs[] = {
+    TP("OnEnter"),
+    FP("ParentScene", KX_VALUE_STRING),
+    FP("ChildScene", KX_VALUE_STRING),
+};
+const KX_FuncPort kUnmountChildSceneOutputs[] = {
+    TP("OnDone"),
+    TP("OnFail"),
+    FP("Reason", KX_VALUE_STRING),
+};
+
+bool B6SceneIsActive(KX_ExecutionContext &ctx, const std::string &name)
+{
+  std::vector<std::string> active;
+  ctx.SceneControl().ActiveSceneNames(active);
+  for (const std::string &entry : active) {
+    if (entry == name) {
+      return true;
+    }
+  }
+  return false;
+}
+
+void B6FinishSceneAction(KX_FunctionNode &node,
+                         KX_ExecutionContext &ctx,
+                         bool ok,
+                         const std::string &reason)
+{
+  node.OutTrigger(ctx, 0, ok);
+  node.OutTrigger(ctx, 1, !ok);
+  node.OutString(ctx, 2, reason);
+}
+
+void FuncMountChildScene(KX_FunctionNode &node, KX_ExecutionContext &ctx)
+{
+  if (!node.InTrigger(ctx, 0)) {
+    return;
+  }
+  const std::string parent = B6SceneInString(node, ctx, 1);
+  const std::string child = B6SceneInString(node, ctx, 2);
+  if (parent.empty() || child.empty()) {
+    B6FinishSceneAction(node, ctx, false, "parent and child scene names are required");
+    return;
+  }
+  if (parent == child) {
+    B6FinishSceneAction(node, ctx, false, "parent and child are the same scene");
+    return;
+  }
+  if (!ctx.SceneControl().HasScene(child)) {
+    B6FinishSceneAction(node, ctx, false, "child scene not found");
+    return;
+  }
+  if (ctx.SceneControl().HasScene(parent) && !B6SceneIsActive(ctx, parent)) {
+    B6FinishSceneAction(node, ctx, false, "parent scene is not active");
+    return;
+  }
+  if (!ctx.SceneQuery().LoadScene(child)) {
+    B6FinishSceneAction(node, ctx, false, "child scene load failed");
+    return;
+  }
+  node.OutTrigger(ctx, 0, true);
+  node.OutTrigger(ctx, 1, false);
+  node.OutString(ctx, 2, std::string());
+}
+
+void FuncUnmountChildScene(KX_FunctionNode &node, KX_ExecutionContext &ctx)
+{
+  if (!node.InTrigger(ctx, 0)) {
+    return;
+  }
+  const std::string parent = B6SceneInString(node, ctx, 1);
+  const std::string child = B6SceneInString(node, ctx, 2);
+  if (parent.empty() || child.empty()) {
+    B6FinishSceneAction(node, ctx, false, "parent and child scene names are required");
+    return;
+  }
+  if (!B6SceneIsActive(ctx, child)) {
+    B6FinishSceneAction(node, ctx, false, "child scene is not active");
+    return;
+  }
+  if (!ctx.SceneControl().HasScene(parent)) {
+    /* Missing parent: this is the equivalent of the UnloadScene "Missing"
+     * state. Report failure instead of pretending the stack is consistent. */
+    B6FinishSceneAction(node, ctx, false, "parent scene missing");
+    return;
+  }
+  if (!ctx.SceneQuery().LoadScene(parent)) {
+    B6FinishSceneAction(node, ctx, false, "return to parent scene failed");
+    return;
+  }
+  node.OutTrigger(ctx, 0, true);
+  node.OutTrigger(ctx, 1, false);
+  node.OutString(ctx, 2, std::string());
+}
+
+/* ------------------------------------------------------------------------- */
 /* TransitionScene                                                            */
 /* ------------------------------------------------------------------------- */
 
@@ -438,6 +555,18 @@ const KX_FunctionSpec kB6SceneSpecs[] = {
                 FuncLoadSceneAsyncTick,
                 B6LoadSceneState),
     B6SC_ACTION("UnloadScene", kUnloadSceneInputs, kUnloadSceneOutputs, FuncUnloadScene, nullptr, B6NoState),
+    B6SC_ACTION("MountChildScene",
+                kMountChildSceneInputs,
+                kMountChildSceneOutputs,
+                FuncMountChildScene,
+                nullptr,
+                B6NoState),
+    B6SC_ACTION("UnmountChildScene",
+                kUnmountChildSceneInputs,
+                kUnmountChildSceneOutputs,
+                FuncUnmountChildScene,
+                nullptr,
+                B6NoState),
     B6SC_ACTION("TransitionScene",
                kTransitionSceneInputs,
                kTransitionSceneOutputs,
@@ -488,6 +617,6 @@ void RegisterB6SceneFunctionGameNodes()
         spec.type_id,
         std::string("KX_FuncB6Scene_") + spec.type_id,
         MakeB6SceneSignature(*entry),
-        [entry]() { return std::unique_ptr<KX_LogicNodeRuntime>(new KX_FunctionNode(entry)); });
+        [entry]() { return std::unique_ptr<KX_GameNodeRuntime>(new KX_FunctionNode(entry)); });
   }
 }

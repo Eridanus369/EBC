@@ -38,7 +38,7 @@
 #include <cstdint>
 #include <vector>
 
-#include "KX_LogicNodeRuntime.h"
+#include "KX_GameNodeRuntime.h"
 
 struct KX_ExecutionContext;
 struct KX_ExecutionPlan;
@@ -54,22 +54,22 @@ struct KX_InlineStats {
  *
  * The wrapped nodes are owned by the execution plan; the block only keeps raw
  * pointers to them. Nodes without a dedicated value path fall back to
- * #KX_LogicNodeRuntime::Execute so behavior never changes.
+ * #KX_GameNodeRuntime::Execute so behavior never changes.
  */
-class KX_InlinedBlock : public KX_LogicNodeRuntime {
+class KX_InlinedBlock : public KX_GameNodeRuntime {
  public:
-  explicit KX_InlinedBlock(std::vector<KX_LogicNodeRuntime *> nodes);
+  explicit KX_InlinedBlock(std::vector<KX_GameNodeRuntime *> nodes);
 
   KX_ExecResult Execute(KX_ExecutionContext &ctx) override;
   bool ExecuteValueOnly(KX_ExecutionContext &ctx) override;
 
-  const std::vector<KX_LogicNodeRuntime *> &Nodes() const
+  const std::vector<KX_GameNodeRuntime *> &Nodes() const
   {
     return nodes_;
   }
 
  private:
-  std::vector<KX_LogicNodeRuntime *> nodes_;
+  std::vector<KX_GameNodeRuntime *> nodes_;
 };
 
 class KX_InlinePass {

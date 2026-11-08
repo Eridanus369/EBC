@@ -12,6 +12,7 @@
 #include "draw_view.bsl.hh"
 #include "eevee_closure.bsl.hh"
 #include "eevee_gbuffer_read.bsl.hh"
+#include "eevee_heightfield_lib.bsl.hh"
 #include "eevee_hiz.bsl.hh"
 #include "eevee_light_eval.bsl.hh"
 #include "eevee_lightprobe.bsl.hh"
@@ -128,6 +129,7 @@ void light_eval_frag([[resource_table]] LightEval &srt,
                      [[resource_table]] const HiZ &hiz,
                      [[resource_table]] const UtilityTexture &util_tx,
                      [[resource_table]] const gbuffer::Reader &reader,
+                     [[resource_table]] const HeightfieldSample &hf,
                      [[resource_table]] RenderPassOutput &render_passes,
                      [[frag_coord]] const float4 frag_co,
                      [[in]] const VertOut v_out)
@@ -141,14 +143,22 @@ void light_eval_frag([[resource_table]] LightEval &srt,
   constexpr float bias = 2.4e-7f;
 
   const float depth = texelFetch(hiz.hiz_tx, texel, 0).r - bias;
-  const gbuffer::Layers gbuf = reader.read_layers(texel);
+  gbuffer::Layers gbuf = reader.read_layers(texel);
+  /* Replace the carrier plane normal by the analytic normal of the displaced heightfield. */
+  const bool hf_hit = hf.is_valid(texel);
+  float3 N_hf = hf_hit ? hf.override_normal(texel, gbuf.surface_N()) : gbuf.surface_N();
+  if (hf_hit) {
+    for (int i = 0; i < 3 /* GBUFFER_LAYER_MAX */; i++) [[unroll]] {
+      gbuf.layer[i].N = N_hf;
+    }
+  }
   const Thickness thickness = reader.read_thickness(gbuf.header, texel);
   const uchar closure_count = gbuf.header.closure_len();
 
   const ViewMatrices view = views.get(0);
 
   const float3 P = view.point_screen_to_world(float3(v_out.screen_uv, depth));
-  const float3 Ng = gbuf.header.geometry_normal(gbuf.surface_N());
+  const float3 Ng = hf_hit ? N_hf : gbuf.header.geometry_normal(gbuf.surface_N());
   const float3 V = view.world_incident_vector(P);
   const float vPz = dot(view.forward(), P) - dot(view.forward(), view.position());
 
@@ -273,6 +283,7 @@ void sphere_eval_frag([[resource_table]] LightEvalIterator &lights,
                       [[resource_table]] const HiZ &hiz,
                       [[resource_table]] const UtilityTexture &util_tx,
                       [[resource_table]] const gbuffer::Reader &reader,
+                      [[resource_table]] const HeightfieldSample &hf,
                       [[frag_coord]] const float4 frag_co,
                       [[in]] const VertOut v_out,
                       [[out]] FragOut &frag_out)
@@ -281,11 +292,18 @@ void sphere_eval_frag([[resource_table]] LightEvalIterator &lights,
 
   float depth = texelFetch(hiz.hiz_tx, texel, 0).r;
 
-  const gbuffer::Layers gbuf = reader.read_layers(texel);
+  gbuffer::Layers gbuf = reader.read_layers(texel);
 
   if (gbuf.has_no_closure()) {
     frag_out.radiance = float4(0.0f);
     return;
+  }
+
+  if (hf.is_valid(texel)) {
+    float3 N_hf = hf.override_normal(texel, gbuf.surface_N());
+    for (int i = 0; i < 3 /* GBUFFER_LAYER_MAX */; i++) [[unroll]] {
+      gbuf.layer[i].N = N_hf;
+    }
   }
 
   const uchar closure_count = gbuf.header.closure_len();
@@ -389,6 +407,7 @@ void planar_eval_frag([[resource_table]] PlanarProbeEval & /*srt*/,
                       [[resource_table]] const HiZ &hiz,
                       [[resource_table]] const UtilityTexture &util_tx,
                       [[resource_table]] const gbuffer::Reader &reader,
+                      [[resource_table]] const HeightfieldSample &hf,
                       [[frag_coord]] const float4 frag_co,
                       [[in]] const VertOut v_out,
                       [[out]] FragOut &frag_out)
@@ -397,7 +416,13 @@ void planar_eval_frag([[resource_table]] PlanarProbeEval & /*srt*/,
 
   float depth = texelFetch(hiz.hiz_tx, texel, 0).r;
 
-  const gbuffer::Layers gbuf = reader.read_layers(texel);
+  gbuffer::Layers gbuf = reader.read_layers(texel);
+  if (hf.is_valid(texel)) {
+    float3 N_hf = hf.override_normal(texel, gbuf.surface_N());
+    for (int i = 0; i < 3 /* GBUFFER_LAYER_MAX */; i++) [[unroll]] {
+      gbuf.layer[i].N = N_hf;
+    }
+  }
   const uchar closure_count = gbuf.header.closure_len();
   const Thickness thickness = reader.read_thickness(gbuf.header, texel);
 

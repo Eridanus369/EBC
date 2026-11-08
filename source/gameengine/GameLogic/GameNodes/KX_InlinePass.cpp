@@ -47,7 +47,7 @@ bool IsInlineCandidate(const KX_ExecutionPlan &plan, uint32_t node_index)
   if (node_index >= plan.nodes.size() || plan.nodes[node_index] == nullptr) {
     return false;
   }
-  const KX_LogicNodeRuntime *node = plan.nodes[node_index].get();
+  const KX_GameNodeRuntime *node = plan.nodes[node_index].get();
   /* Value only means: no trigger ports and no per node state. Anything else,
    * including Branch, Delay, Timer, ForEach, OnEnter and the trigger based
    * LogicGate, keeps its original scheduling path. */
@@ -66,7 +66,7 @@ bool IsInlineCandidate(const KX_ExecutionPlan &plan, uint32_t node_index)
 
 }  // namespace
 
-KX_InlinedBlock::KX_InlinedBlock(std::vector<KX_LogicNodeRuntime *> nodes)
+KX_InlinedBlock::KX_InlinedBlock(std::vector<KX_GameNodeRuntime *> nodes)
     : nodes_(std::move(nodes))
 {
 }
@@ -79,7 +79,7 @@ KX_ExecResult KX_InlinedBlock::Execute(KX_ExecutionContext &ctx)
 
 bool KX_InlinedBlock::ExecuteValueOnly(KX_ExecutionContext &ctx)
 {
-  for (KX_LogicNodeRuntime *node : nodes_) {
+  for (KX_GameNodeRuntime *node : nodes_) {
     /* Every wrapped node passed the pure value filter, so #Execute is the value
      * path for it. Calling it directly costs one dispatch per node instead of
      * the two a nested #ExecuteValueOnly chain would spend. */
@@ -120,7 +120,7 @@ KX_InlineStats KX_InlinePass::Run(KX_ExecutionPlan &plan)
       continue;
     }
 
-    std::vector<KX_LogicNodeRuntime *> inlined;
+    std::vector<KX_GameNodeRuntime *> inlined;
     inlined.reserve(run_size);
     for (size_t copy = index; copy < end; ++copy) {
       inlined.push_back(plan.nodes[plan.value_nodes[copy]].get());

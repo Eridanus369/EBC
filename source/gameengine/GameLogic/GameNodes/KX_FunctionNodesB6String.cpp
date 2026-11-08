@@ -48,6 +48,257 @@ struct B6SWarnState {
 
 const size_t kMaxElements = KX_ValuePool::kMaxListElements;
 
+/* std::regex has no timeout parameter. Input length is capped instead so a
+ * pathological pattern is bounded by a fixed amount of text; the residual
+ * backtracking cost is documented in docs/B6_STRING_LIST.md. */
+const size_t kMaxRegexSource = 4096;
+const size_t kMaxRegexPattern = 512;
+
+/* ---- regex safety guard ------------------------------------------------- */
+
+/* Accepts "{n}", "{n,}" and "{n,m}" only; a bare "{" is an ordinary literal in
+ * ECMAScript. */
+struct RegexBraceQuantifier {
+  size_t close = 0;
+  bool min_zero = false;
+  bool unbounded = false;
+};
+
+bool IsBraceQuantifier(const std::string &pattern, size_t open,
+                       RegexBraceQuantifier &quantifier)
+{
+  const size_t size = pattern.size();
+  size_t index = open + 1;
+  size_t digits = 0;
+  unsigned long minimum = 0;
+  while (index < size && std::isdigit(static_cast<unsigned char>(pattern[index]))) {
+    if (minimum < 4096) {
+      minimum = minimum * 10 + static_cast<unsigned long>(pattern[index] - '0');
+    }
+    ++index;
+    ++digits;
+  }
+  if (digits == 0) {
+    return false;
+  }
+  bool unbounded = false;
+  if (index < size && pattern[index] == ',') {
+    ++index;
+    const size_t maximum_begin = index;
+    while (index < size && std::isdigit(static_cast<unsigned char>(pattern[index]))) {
+      ++index;
+    }
+    unbounded = index == maximum_begin;
+  }
+  if (index >= size || pattern[index] != '}') {
+    return false;
+  }
+  quantifier.close = index;
+  quantifier.min_zero = minimum == 0;
+  quantifier.unbounded = unbounded;
+  return true;
+}
+
+/* One bracket-depth level of the guard scan. `atoms` counts the atoms of the
+ * current alternative (a group counts as one atom); `last_*` describes the
+ * final atom, and `required_before_last` records whether an earlier atom in the
+ * same alternative still needs at least one character. */
+struct RegexGroupFrame {
+  size_t atoms = 0;
+  bool required_before_last = false;
+  bool last_nullable = true;
+  bool last_ends_unbounded = false;
+  bool any_branch_nullable = false;
+  bool has_alternation = false;
+};
+
+bool BranchNullable(const RegexGroupFrame &frame)
+{
+  return !frame.required_before_last && frame.last_nullable;
+}
+
+void PushRegexAtom(std::vector<RegexGroupFrame> &groups, bool nullable,
+                   bool ends_unbounded)
+{
+  if (groups.empty()) {
+    return;
+  }
+  RegexGroupFrame &frame = groups.back();
+  if (frame.atoms > 0) {
+    frame.required_before_last = frame.required_before_last || !frame.last_nullable;
+  }
+  ++frame.atoms;
+  frame.last_nullable = nullable;
+  frame.last_ends_unbounded = ends_unbounded;
+}
+
+/* Rejects, before std::regex is constructed, the quantified groups that make
+ * the engine backtrack catastrophically. A group followed by a quantifier is
+ * rejected when either
+ *   1) the whole body is one unbounded repetition ((a+)+, (a*)*, (.*)*,
+ *      ((a+))+), or
+ *   2) the body can match the empty string ((a?)+, (a?)*).
+ * Sequences such as (\d+,)+ and (ab?)+ stay allowed: their body is a
+ * concatenation, not a bare repetition. Consecutive quantifiers (a**, a++,
+ * a?*, a*+) are rejected outright. Lazy suffixes (a+?, a*?, a??) count as one
+ * quantifier. One pass, one bracket-depth stack; std::regex is never asked to
+ * decide this. */
+bool IsSafeRegexPattern(const std::string &pattern)
+{
+  std::vector<RegexGroupFrame> groups;
+  bool previous_quantifier = false;
+  bool previous_lazy = false;
+  bool previous_closed_group = false;
+  bool closed_group_nullable = false;
+  bool closed_group_pure_unbounded = false;
+  bool in_class = false;
+  bool escaped = false;
+
+  for (size_t index = 0; index < pattern.size(); ++index) {
+    const char current = pattern[index];
+
+    if (escaped) {
+      escaped = false;
+      /* "\b" and "\B" are zero-width assertions, not consuming atoms. */
+      if (current != 'b' && current != 'B') {
+        PushRegexAtom(groups, false, false);
+      }
+      previous_quantifier = false;
+      previous_lazy = false;
+      previous_closed_group = false;
+      continue;
+    }
+    if (in_class) {
+      if (current == '\\') {
+        escaped = true;
+      }
+      else if (current == ']') {
+        in_class = false;
+        previous_quantifier = false;
+        previous_lazy = false;
+        previous_closed_group = false;
+      }
+      continue;
+    }
+    if (current == '\\') {
+      escaped = true;
+      previous_quantifier = false;
+      previous_lazy = false;
+      previous_closed_group = false;
+      continue;
+    }
+    if (current == '[') {
+      in_class = true;
+      PushRegexAtom(groups, false, false);
+      previous_quantifier = false;
+      previous_lazy = false;
+      previous_closed_group = false;
+      continue;
+    }
+    if (current == '(') {
+      groups.push_back(RegexGroupFrame());
+      /* "(?" introduces a non-capturing or lookaround group, not a quantifier. */
+      if (index + 1 < pattern.size() && pattern[index + 1] == '?') {
+        ++index;
+      }
+      previous_quantifier = false;
+      previous_lazy = false;
+      previous_closed_group = false;
+      continue;
+    }
+    if (current == ')') {
+      RegexGroupFrame frame;
+      if (!groups.empty()) {
+        frame = groups.back();
+        groups.pop_back();
+      }
+      const bool body_nullable =
+          frame.any_branch_nullable || BranchNullable(frame);
+      const bool body_pure_unbounded =
+          !frame.has_alternation && frame.atoms == 1 && frame.last_ends_unbounded;
+      /* The closed group is one atom of the enclosing alternative; its
+       * unbounded tail propagates so ((a+))+ is caught one level up. */
+      PushRegexAtom(groups, body_nullable, frame.last_ends_unbounded);
+      closed_group_nullable = body_nullable;
+      closed_group_pure_unbounded = body_pure_unbounded;
+      previous_quantifier = false;
+      previous_lazy = false;
+      previous_closed_group = true;
+      continue;
+    }
+    if (current == '|') {
+      if (!groups.empty()) {
+        RegexGroupFrame &frame = groups.back();
+        frame.has_alternation = true;
+        frame.any_branch_nullable =
+            frame.any_branch_nullable || BranchNullable(frame);
+        frame.atoms = 0;
+        frame.required_before_last = false;
+        frame.last_nullable = true;
+        frame.last_ends_unbounded = false;
+      }
+      previous_quantifier = false;
+      previous_lazy = false;
+      previous_closed_group = false;
+      continue;
+    }
+    if (current == '^' || current == '$') {
+      /* Zero-width anchors do not consume characters. */
+      previous_quantifier = false;
+      previous_lazy = false;
+      previous_closed_group = false;
+      continue;
+    }
+
+    bool is_quantifier = current == '*' || current == '+' || current == '?';
+    RegexBraceQuantifier brace;
+    const bool brace_quantifier =
+        current == '{' && IsBraceQuantifier(pattern, index, brace);
+    if (brace_quantifier) {
+      is_quantifier = true;
+    }
+    if (is_quantifier) {
+      if (previous_quantifier) {
+        if (current == '?' && !previous_lazy) {
+          previous_lazy = true;
+          previous_closed_group = false;
+          continue;
+        }
+        return false; /* a** / a++ / a?* / a*+ */
+      }
+      if (previous_closed_group &&
+          (closed_group_nullable || closed_group_pure_unbounded)) {
+        return false; /* (a+)+ / (a?)+ / (.*)* / ((a+))+ */
+      }
+      bool min_zero = current == '*' || current == '?';
+      bool unbounded = current == '*' || current == '+';
+      if (brace_quantifier) {
+        min_zero = brace.min_zero;
+        unbounded = brace.unbounded;
+      }
+      if (!groups.empty() && groups.back().atoms > 0) {
+        RegexGroupFrame &frame = groups.back();
+        frame.last_nullable = frame.last_nullable || min_zero;
+        frame.last_ends_unbounded = unbounded;
+      }
+      previous_quantifier = true;
+      previous_lazy = false;
+      previous_closed_group = false;
+      if (brace_quantifier) {
+        index = brace.close;
+      }
+      continue;
+    }
+
+    /* Ordinary literal atom, including a lone "{" or "}" or ".". */
+    PushRegexAtom(groups, false, false);
+    previous_quantifier = false;
+    previous_lazy = false;
+    previous_closed_group = false;
+  }
+  return true;
+}
+
 /* ------------------------------------------------------------------ helpers */
 
 std::string InString(KX_FunctionNode &node, KX_ExecutionContext &ctx, uint32_t index)
@@ -191,6 +442,7 @@ const KX_FuncPort kStringRegexMatchInputs[] = {
 const KX_FuncPort kStringRegexMatchOutputs[] = {
     FP("Matched", KX_VALUE_BOOL),
     FP("Groups", KX_VALUE_LIST),
+    FP("Rejected", KX_VALUE_BOOL),
 };
 
 void FuncStringRegexMatch(KX_FunctionNode &node, KX_ExecutionContext &ctx)
@@ -199,28 +451,52 @@ void FuncStringRegexMatch(KX_FunctionNode &node, KX_ExecutionContext &ctx)
   const std::string source = InString(node, ctx, 0);
   const std::string pattern = InString(node, ctx, 1);
   KX_ValueList &groups = ctx.Pool().AllocList();
-  try {
-    const std::regex expression(pattern);
-    std::smatch match;
-    const bool matched = std::regex_search(source, match, expression);
-    if (matched) {
-      for (size_t i = 0; i < match.size() && groups.size() < kMaxElements; ++i) {
-        groups.push_back(KX_RuntimeValue::String(ctx.Pool().Intern(match[i].str())));
-      }
-    }
-    node.Out(ctx, 0, KX_RuntimeValue::Bool(matched));
-  }
-  catch (const std::regex_error &error) {
+  bool matched = false;
+  bool rejected = false;
+  if (source.size() > kMaxRegexSource || pattern.size() > kMaxRegexPattern) {
     if (state != nullptr && !state->warned) {
       state->warned = true;
       std::fprintf(stderr,
-                   "[StringRegexMatch] invalid pattern '%s': %s\n",
-                   pattern.c_str(),
-                   error.what());
+                   "[StringRegexMatch] input too long (source=%zu pattern=%zu; limits %zu/%zu)\n",
+                   source.size(),
+                   pattern.size(),
+                   kMaxRegexSource,
+                   kMaxRegexPattern);
     }
-    node.Out(ctx, 0, KX_RuntimeValue::Bool(false));
+    rejected = true;
   }
+  else if (!IsSafeRegexPattern(pattern)) {
+    if (state != nullptr && !state->warned) {
+      state->warned = true;
+      std::fprintf(stderr, "[Regex] unsafe pattern rejected: nested quantifier\n");
+    }
+    rejected = true;
+  }
+  else {
+    try {
+      const std::regex expression(pattern);
+      std::smatch match;
+      matched = std::regex_search(source, match, expression);
+      if (matched) {
+        for (size_t i = 0; i < match.size() && groups.size() < kMaxElements; ++i) {
+          groups.push_back(KX_RuntimeValue::String(ctx.Pool().Intern(match[i].str())));
+        }
+      }
+    }
+    catch (const std::regex_error &error) {
+      if (state != nullptr && !state->warned) {
+        state->warned = true;
+        std::fprintf(stderr,
+                     "[StringRegexMatch] invalid pattern '%s': %s\n",
+                     pattern.c_str(),
+                     error.what());
+      }
+      rejected = true;
+    }
+  }
+  node.Out(ctx, 0, KX_RuntimeValue::Bool(matched));
   node.Out(ctx, 1, KX_RuntimeValue::List(&groups));
+  node.Out(ctx, 2, KX_RuntimeValue::Bool(rejected));
 }
 
 const KX_FuncPort kStringRegexReplaceInputs[] = {
@@ -228,6 +504,19 @@ const KX_FuncPort kStringRegexReplaceInputs[] = {
     FP("Pattern", KX_VALUE_STRING),
     FP("Replacement", KX_VALUE_STRING),
 };
+const KX_FuncPort kStringRegexReplaceOutputs[] = {
+    FP("Result", KX_VALUE_STRING),
+    FP("Rejected", KX_VALUE_BOOL),
+};
+
+/* The runtime reads output ports by index and the editor mirrors them by name,
+ * so the output counts are part of the port contract (Match: Matched=0,
+ * Groups=1, Rejected=2; Replace: Result=0, Rejected=1). */
+static_assert(B6S_ARRAY_LEN(kStringRegexMatchOutputs) == 3,
+              "StringRegexMatch ABI: Matched/Groups/Rejected");
+static_assert(B6S_ARRAY_LEN(kStringRegexReplaceOutputs) == 2,
+              "StringRegexReplace ABI: Result/Rejected");
+static_assert(sizeof(B6SWarnState) == 1, "B6SWarnState ABI: one bool");
 
 void FuncStringRegexReplace(KX_FunctionNode &node, KX_ExecutionContext &ctx)
 {
@@ -235,20 +524,45 @@ void FuncStringRegexReplace(KX_FunctionNode &node, KX_ExecutionContext &ctx)
   const std::string source = InString(node, ctx, 0);
   const std::string pattern = InString(node, ctx, 1);
   const std::string replacement = InString(node, ctx, 2);
-  try {
-    const std::regex expression(pattern);
-    node.OutString(ctx, 0, std::regex_replace(source, expression, replacement));
-  }
-  catch (const std::regex_error &error) {
+  std::string result = source;
+  bool rejected = false;
+  if (source.size() > kMaxRegexSource || pattern.size() > kMaxRegexPattern) {
     if (state != nullptr && !state->warned) {
       state->warned = true;
       std::fprintf(stderr,
-                   "[StringRegexReplace] invalid pattern '%s': %s\n",
-                   pattern.c_str(),
-                   error.what());
+                   "[StringRegexReplace] input too long (source=%zu pattern=%zu; limits %zu/%zu)\n",
+                   source.size(),
+                   pattern.size(),
+                   kMaxRegexSource,
+                   kMaxRegexPattern);
     }
-    node.OutString(ctx, 0, source);
+    rejected = true;
   }
+  else if (!IsSafeRegexPattern(pattern)) {
+    if (state != nullptr && !state->warned) {
+      state->warned = true;
+      std::fprintf(stderr, "[Regex] unsafe pattern rejected: nested quantifier\n");
+    }
+    rejected = true;
+  }
+  else {
+    try {
+      const std::regex expression(pattern);
+      result = std::regex_replace(source, expression, replacement);
+    }
+    catch (const std::regex_error &error) {
+      if (state != nullptr && !state->warned) {
+        state->warned = true;
+        std::fprintf(stderr,
+                     "[StringRegexReplace] invalid pattern '%s': %s\n",
+                     pattern.c_str(),
+                     error.what());
+      }
+      rejected = true;
+    }
+  }
+  node.OutString(ctx, 0, result);
+  node.Out(ctx, 1, KX_RuntimeValue::Bool(rejected));
 }
 
 const KX_FuncPort kStringTrimInputs[] = {
@@ -833,8 +1147,22 @@ void FuncListSlice(KX_FunctionNode &node, KX_ExecutionContext &ctx)
   const size_t size = source != nullptr ? source->size() : 0;
   const int start_value = node.InInt(ctx, 1);
   const int end_value = node.InInt(ctx, 2);
-  const size_t start = start_value <= 0 ? 0 : std::min(static_cast<size_t>(start_value), size);
-  size_t end = end_value <= 0 ? size : std::min(static_cast<size_t>(end_value), size);
+  /* B6.9-S1 negative index contract (documented in B6_STRING_LIST.md):
+   *   value >= 0       -> that absolute position, clamped to [0, size]
+   *   value <  0       -> counts from the end (-1 = last element,
+   *                       -size = first element); values below -size clamp
+   *                       to 0.
+   *   End == 0 keeps the legacy sentinel "through the end" so existing graphs
+   *   keep working; use -1 when the last element must be excluded. */
+  auto resolve_index = [size](int value) -> size_t {
+    if (value >= 0) {
+      return std::min(static_cast<size_t>(value), size);
+    }
+    const int from_end = static_cast<int>(size) + value;
+    return from_end <= 0 ? 0 : std::min(static_cast<size_t>(from_end), size);
+  };
+  const size_t start = resolve_index(start_value);
+  size_t end = end_value == 0 ? size : resolve_index(end_value);
   if (end < start) {
     end = start;
   }
@@ -879,6 +1207,80 @@ void FuncListConcat(KX_FunctionNode &node, KX_ExecutionContext &ctx)
   node.Out(ctx, 0, KX_RuntimeValue::List(&result));
 }
 
+const KX_FuncPort kListReverseInputs[] = {
+    FP("List", KX_VALUE_LIST),
+};
+const KX_FuncPort kListReverseOutput[] = {
+    FP("ReversedList", KX_VALUE_LIST),
+};
+
+void FuncListReverse(KX_FunctionNode &node, KX_ExecutionContext &ctx)
+{
+  const KX_ValueList *source = InList(node, ctx, 0);
+  KX_ValueList &result = ctx.Pool().AllocList();
+  if (source != nullptr) {
+    for (size_t i = source->size(); i > 0 && result.size() < kMaxElements; --i) {
+      result.push_back((*source)[i - 1]);
+    }
+  }
+  node.Out(ctx, 0, KX_RuntimeValue::List(&result));
+}
+
+const KX_FuncPort kListUniqueInputs[] = {
+    FP("List", KX_VALUE_LIST),
+};
+const KX_FuncPort kListUniqueOutput[] = {
+    FP("UniqueList", KX_VALUE_LIST),
+};
+
+void FuncListUnique(KX_FunctionNode &node, KX_ExecutionContext &ctx)
+{
+  const KX_ValueList *source = InList(node, ctx, 0);
+  KX_ValueList &result = ctx.Pool().AllocList();
+  if (source != nullptr) {
+    for (const KX_RuntimeValue &value : *source) {
+      if (result.size() >= kMaxElements) {
+        break;
+      }
+      bool seen = false;
+      for (const KX_RuntimeValue &existing : result) {
+        if (ValuesEqual(existing, value)) {
+          seen = true;
+          break;
+        }
+      }
+      if (!seen) {
+        result.push_back(value);
+      }
+    }
+  }
+  node.Out(ctx, 0, KX_RuntimeValue::List(&result));
+}
+
+const KX_FuncPort kListIndexOfInputs[] = {
+    FP("List", KX_VALUE_LIST),
+    FP("Value", KX_VALUE_FLOAT),
+};
+const KX_FuncPort kListIndexOfOutput[] = {
+    FP("Index", KX_VALUE_INT),
+};
+
+void FuncListIndexOf(KX_FunctionNode &node, KX_ExecutionContext &ctx)
+{
+  const KX_ValueList *source = InList(node, ctx, 0);
+  const KX_RuntimeValue value = node.In(ctx, 1);
+  int index = -1;
+  if (source != nullptr) {
+    for (size_t i = 0; i < source->size(); ++i) {
+      if (ValuesEqual((*source)[i], value)) {
+        index = static_cast<int>(i);
+        break;
+      }
+    }
+  }
+  node.OutInt(ctx, 0, index);
+}
+
 /* ------------------------------------------------------------------- Registry */
 
 const KX_FunctionSpec kB6StringSpecs[] = {
@@ -891,7 +1293,7 @@ const KX_FunctionSpec kB6StringSpecs[] = {
                     B6SWarnState),
     B6S_VALUE_STATE("StringRegexReplace",
                     kStringRegexReplaceInputs,
-                    kStringResultOutput,
+                    kStringRegexReplaceOutputs,
                     FuncStringRegexReplace,
                     B6SWarnState),
     B6S_VALUE("StringTrim", kStringTrimInputs, kStringResultOutput, FuncStringTrim),
@@ -916,6 +1318,9 @@ const KX_FunctionSpec kB6StringSpecs[] = {
     B6S_VALUE("ListFind", kListFindInputs, kListFindOutputs, FuncListFind),
     B6S_VALUE("ListSlice", kListSliceInputs, kListSliceOutput, FuncListSlice),
     B6S_VALUE("ListConcat", kListConcatInputs, kListConcatOutput, FuncListConcat),
+    B6S_VALUE("ListReverse", kListReverseInputs, kListReverseOutput, FuncListReverse),
+    B6S_VALUE("ListUnique", kListUniqueInputs, kListUniqueOutput, FuncListUnique),
+    B6S_VALUE("ListIndexOf", kListIndexOfInputs, kListIndexOfOutput, FuncListIndexOf),
 };
 
 KX_NodeSignature MakeB6StringSignature(const KX_FunctionSpec &spec)
@@ -953,6 +1358,6 @@ void RegisterB6StringFunctionGameNodes()
         spec.type_id,
         std::string("KX_FuncB6String_") + spec.type_id,
         MakeB6StringSignature(*entry),
-        [entry]() { return std::unique_ptr<KX_LogicNodeRuntime>(new KX_FunctionNode(entry)); });
+        [entry]() { return std::unique_ptr<KX_GameNodeRuntime>(new KX_FunctionNode(entry)); });
   }
 }

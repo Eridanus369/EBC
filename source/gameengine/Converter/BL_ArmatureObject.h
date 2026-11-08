@@ -38,6 +38,7 @@
 #include "BL_ArmatureConstraint.h"
 #include "KX_GameObject.h"
 
+#include <cstdint>
 #include <unordered_map>
 
 namespace blender::gpu {
@@ -49,6 +50,31 @@ namespace blender { struct ID; } /* forward declare blender::ID for storing orig
 class MT_Matrix4x4;
 class BL_SceneConverter;
 class RAS_DebugDraw;
+
+/**
+ * How a per-bone pose override registered by SetBoneTransform combines with the pose the
+ * action pipeline produced for the current frame.
+ *
+ * Semantics (fixed, do not change without re-checking the runtime E2E):
+ * 1. Rotation math is a quaternion product, never an euler addition. Euler addition would
+ *    introduce gimbal lock; the override stores a target quaternion (Override) or a delta
+ *    quaternion (Additive) and combines them with Quaternion::operator* (Hamilton product).
+ * 2. The base is the pose evaluated *after* fcurve evaluation and layer blending and *before*
+ *    any override is applied (see ApplyPoseOverrides()). It is not the previous frame's pose.
+ * 3. Overrides are never accumulated: the map holds the user supplied target/delta only, and
+ *    every frame recomputes the result from the action-evaluated base, so a node that fires
+ *    once in OnInit does not drift over time.
+ * 4. Entries are removable with ClearBoneOverride / ClearPoseOverride(); without that path a
+ *    triggered override could never be undone.
+ */
+enum class KX_PoseBlendMode : uint8_t {
+  /** Replace the channel with the target transform. Default and legacy behaviour. */
+  Override = 0,
+  /** result = current * delta, quaternion product in bone-local space. */
+  Additive = 1,
+  /** Reserved (P2): not implemented this round, rejected by the adapter. */
+  Multiplicative = 2,
+};
 
 class BL_ArmatureObject : public KX_GameObject {
 
@@ -78,6 +104,34 @@ class BL_ArmatureObject : public KX_GameObject {
   bool m_drawDebug;
 
   double m_lastapplyframe;
+
+  /**
+   * Per-bone pose override registered by SetBoneTransform. The action pipeline reapplies it
+   * after fcurve evaluation and layer blending, so an animated channel cannot win the final
+   * pose. Entries persist until ClearPoseOverride() removes them. See KX_PoseBlendMode for the
+   * four fixed semantics (quaternion product, action-evaluated base, no per-frame accumulation,
+   * removable).
+   */
+  struct PoseOverride {
+    KX_PoseBlendMode mode = KX_PoseBlendMode::Override;
+    /** Bone-local location: absolute target (Override) or delta (Additive). */
+    float loc[3];
+    /** Bone-local rotation in Blender order (w, x, y, z): target or delta quaternion. */
+    float quat[4];
+  };
+  std::unordered_map<std::string, PoseOverride> m_poseOverrides;
+
+  /**
+   * Pose of each overridden bone as evaluated by the action pipeline for the current frame,
+   * captured right before ApplyPoseOverrides(). Additive overrides combine against this base
+   * instead of the (already overridden) channel value, which makes the result independent of
+   * how often the same frame is evaluated and prevents cross-frame accumulation.
+   */
+  struct PoseOverrideBase {
+    float loc[3];
+    float quat[4];
+  };
+  std::unordered_map<std::string, PoseOverrideBase> m_poseOverrideBases;
 
  public:
   BL_ArmatureObject();
@@ -131,6 +185,55 @@ class BL_ArmatureObject : public KX_GameObject {
   float GetBoneLength(blender::Bone *bone) const;
 
   virtual void SetBlenderObject(blender::Object *obj);
+
+  /**
+   * Recompute the armature pose for the current frame immediately and tag it for depsgraph
+   * update. Unlike ApplyPose(), this bypasses the once-per-frame guard; called after a
+   * GameNode writes a pose channel so the result can be used in the same frame.
+   * Appended for the GameNode SetBoneTransform bridge.
+   */
+  void ApplyPoseImmediate();
+
+  /**
+   * Register/update a persistent pose override for @a bone. @a rotation is an XYZ euler as
+   * authored by the node; it is converted to a quaternion immediately so the apply layer never
+   * adds eulers. For KX_PoseBlendMode::Additive @a position/@a rotation are deltas relative to
+   * the action-evaluated pose, otherwise they are absolute targets.
+   * Appended for the GameNode SetBoneTransform bridge.
+   */
+  void SetPoseOverride(const std::string &bone,
+                       KX_PoseBlendMode mode,
+                       const float position[3],
+                       const float rotation[3]);
+
+  /**
+   * Snapshot the action-evaluated pose of every overridden bone. Called by the action pipeline
+   * after ApplyAction()/ProcessArmatureBlending() and before ApplyPoseOverrides(), so the
+   * additive base is fixed per frame.
+   */
+  void CapturePoseOverrideBases();
+
+  /**
+   * Drop the override (and its captured base) of @a bone, restoring the pose channel to the
+   * action-evaluated base so the bone is driven by the action again. Returns false when the
+   * bone had no override (unknown bone / unknown object), which is a no-op and never crashes.
+   */
+  bool ClearPoseOverride(const std::string &bone);
+
+  /**
+   * Reapply every stored pose override and recompute the armature pose for this frame.
+   * Returns false when no override matched a pose channel, so the caller can fall back to
+   * ApplyPose().
+   */
+  bool ApplyPoseOverrides();
+
+  /**
+   * Read back the local transform of @a bone currently stored in the pose channel
+   * (location + XYZ euler rotation). Used by the GameNode GetBoneTransform bridge and by the
+   * runtime E2E checks that prove a manual pose survives a playing action.
+   * Appended for the GameNode pose read-back bridge.
+   */
+  bool GetPoseChannelTransform(const std::string &bone, float position[3], float rotation[3]);
 
 #ifdef WITH_PYTHON
 

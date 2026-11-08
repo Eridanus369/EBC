@@ -31,6 +31,7 @@
 #include "BKE_context.hh"
 #include "BKE_geometry_set.hh"
 #include "BKE_global.hh"
+#include "BKE_idprop.hh"
 #include "BKE_lib_id.hh"
 #include "BKE_main.hh"
 #include "BKE_main_invariants.hh"
@@ -5894,6 +5895,33 @@ static void rna_ShaderNodeOutput_nprtree_set(PointerRNA *ptr,
 static bool rna_ShaderNodeOutput_nprtree_poll(PointerRNA *ptr, const PointerRNA value)
 {
   return rna_ShaderNodeOutput_nprtree_valid(ptr, static_cast<bNodeTree *>(value.data));
+}
+
+/* `backend` has no DNA field: it is stored as an ID property on the tree so a
+ * saved file keeps the requested backend without widening `bNodeTree` for a
+ * single node-tree subtype. */
+static int rna_PhysNodeTree_backend_get(PointerRNA *ptr)
+{
+  ID *id = static_cast<ID *>(ptr->data);
+  const IDProperty *prop = IDP_GetPropertyFromGroup_null(id->properties, "phys_backend");
+  if (prop == nullptr || prop->type != IDP_INT) {
+    return 0;
+  }
+  return IDP_int_get(prop);
+}
+
+static void rna_PhysNodeTree_backend_set(PointerRNA *ptr, int value)
+{
+  ID *id = static_cast<ID *>(ptr->data);
+  IDProperty *group = IDP_EnsureProperties(id);
+  IDProperty *prop = IDP_GetPropertyFromGroup(group, "phys_backend");
+  if (prop == nullptr) {
+    prop = IDP_NewInt(value, "phys_backend");
+    IDP_AddToGroup(group, prop);
+  }
+  else {
+    IDP_int_set(prop, value);
+  }
 }
 
 }  // namespace blender
@@ -13850,6 +13878,49 @@ static void def_sh_npr_light_info(BlenderRNA * /*brna*/, StructRNA *srna)
   RNA_def_struct_sdna_from(srna, "bNode", nullptr);
 }
 
+/* `backend` is backed by the ID property accessors in the runtime section
+ * (`rna_PhysNodeTree_backend_get` / `_set`). */
+static const EnumPropertyItem phys_backend_items[] = {
+    {0,
+     "reference",
+     0,
+     N_("Reference"),
+     N_("Built-in reference integration, available on every platform")},
+    {1,
+     "nexus",
+     0,
+     N_("Nexus"),
+     N_("Insydium Nexus. Windows x64 only; refused elsewhere and falls back to Reference")},
+    {2,
+     "ppf",
+     0,
+     N_("PPF"),
+     N_("Offline PPF cache playback. Linux x86_64 + CUDA only")},
+    {0, nullptr, 0, nullptr, nullptr},
+};
+
+static void rna_def_phys_nodetree(BlenderRNA *brna)
+{
+  StructRNA *srna;
+  PropertyRNA *prop;
+
+  srna = RNA_def_struct(brna, "PhysNodeTree", "NodeTree");
+  RNA_def_struct_ui_text(
+      srna,
+      "Physics Node Tree",
+      "Native C++ node tree that owns a physics simulation world");
+  RNA_def_struct_sdna(srna, "bNodeTree");
+  RNA_def_struct_ui_icon(srna, ICON_PHYSICS);
+
+  prop = RNA_def_property(srna, "backend", PROP_ENUM, PROP_NONE);
+  RNA_def_property_enum_funcs(
+      prop, "rna_PhysNodeTree_backend_get", "rna_PhysNodeTree_backend_set", nullptr);
+  RNA_def_property_enum_items(prop, phys_backend_items);
+  RNA_def_property_ui_text(
+      prop, "Backend", "Solver backend requested by this physics tree");
+  RNA_def_property_update(prop, NC_NODE | ND_DRAW, nullptr);
+}
+
 static void rna_def_nodes(BlenderRNA *brna)
 {
   const auto define = [&](const char *base_name,
@@ -14376,6 +14447,16 @@ static void rna_def_nodes(BlenderRNA *brna)
   define("GeometryNode", "GeometryNodeGeometryMaterials");
   define("GeometryNode", "GeometryNodeMaterialSelection");
   define("GeometryNode", "GeometryNodeMathExpression", def_geo_math_expression);
+  /* C++ physics node (EBC). Needs an RNA struct so `node_type_base` can find
+   * it by idname, like every other node registered at startup. */
+  define("GeometryNode", "PhysRigidBodyNodeCXX");
+  define("GeometryNode", "PhysCollectionInputNodeCXX");
+  define("GeometryNode", "PhysColliderNodeCXX");
+  define("GeometryNode", "PhysTimeNodeCXX");
+  define("GeometryNode", "PhysOutputNodeCXX");
+  define("GeometryNode", "PhysParticleToMeshNodeCXX");
+  define("GeometryNode", "PhysParticleToVolumeNodeCXX");
+  define("GeometryNode", "PhysVolumeOutputNodeCXX");
   define("GeometryNode", "GeometryNodeMenuSwitch", def_geo_menu_switch);
   define("GeometryNode", "GeometryNodeMergeByDistance");
   define("GeometryNode", "GeometryNodeMergeLayers", def_geo_merge_layers);
@@ -14533,6 +14614,7 @@ void RNA_def_nodetree(BlenderRNA *brna)
   rna_def_shader_nodetree(brna);
   rna_def_texture_nodetree(brna);
   rna_def_geometry_nodetree(brna);
+  rna_def_phys_nodetree(brna);
 
   rna_def_nodes(brna);
 

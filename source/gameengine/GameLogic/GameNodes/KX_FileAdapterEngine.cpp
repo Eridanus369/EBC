@@ -355,6 +355,202 @@ bool KX_FileAdapterEngine::DeleteFile(const std::string &path)
   return removed;
 }
 
+/* ------------------------------------------------------------------------- */
+/* B6.9 Fi-1/Fi-2: streaming IO and directory operations (appended).         */
+
+bool KX_FileAdapterEngine::ReadFileRange(const std::string &path,
+                                         size_t offset,
+                                         size_t length,
+                                         std::string *out,
+                                         bool *eof)
+{
+  if (out == nullptr) {
+    return false;
+  }
+  const std::string resolved = ResolvePath(path);
+  if (resolved.empty()) {
+    return false;
+  }
+  std::error_code ec;
+  const size_t size = fs::file_size(fs::path(resolved), ec);
+  if (ec) {
+    std::fprintf(stderr,
+                 "GameNode: ReadFileChunk: cannot stat '%s': %s\n",
+                 resolved.c_str(),
+                 ec.message().c_str());
+    return false;
+  }
+  if (offset > size) {
+    std::fprintf(stderr,
+                 "GameNode: ReadFileChunk: offset %zu is past the end of '%s' (%zu bytes)\n",
+                 offset,
+                 resolved.c_str(),
+                 size);
+    return false;
+  }
+  const size_t take = std::min(length, size - offset);
+  std::ifstream stream(resolved, std::ios::binary);
+  if (!stream) {
+    std::fprintf(stderr, "GameNode: ReadFileChunk: cannot read '%s'\n", resolved.c_str());
+    return false;
+  }
+  stream.seekg(static_cast<std::streamoff>(offset));
+  out->assign(take, '\0');
+  if (take > 0) {
+    stream.read(out->data(), static_cast<std::streamsize>(take));
+    if (static_cast<size_t>(stream.gcount()) != take) {
+      std::fprintf(stderr, "GameNode: ReadFileChunk: short read on '%s'\n", resolved.c_str());
+      return false;
+    }
+  }
+  if (eof != nullptr) {
+    *eof = offset + take >= size;
+  }
+  return true;
+}
+
+bool KX_FileAdapterEngine::WriteFileRange(const std::string &path,
+                                          const std::string &data,
+                                          bool truncate)
+{
+  const std::string resolved = ResolvePath(path);
+  if (resolved.empty()) {
+    return false;
+  }
+  if (!EnsureParentDirectory(resolved)) {
+    std::fprintf(stderr, "GameNode: WriteFileChunk: cannot create the parent of '%s'\n",
+                 resolved.c_str());
+    return false;
+  }
+  std::ofstream stream(resolved,
+                       std::ios::binary | (truncate ? std::ios::trunc : std::ios::app));
+  if (!stream) {
+    std::fprintf(stderr, "GameNode: WriteFileChunk: cannot open '%s'\n", resolved.c_str());
+    return false;
+  }
+  if (!data.empty()) {
+    stream.write(data.data(), static_cast<std::streamsize>(data.size()));
+  }
+  stream.flush();
+  return stream.good();
+}
+
+bool KX_FileAdapterEngine::ListDirectory(const std::string &path,
+                                         std::vector<KX_DirectoryEntry> *entries,
+                                         std::string *error)
+{
+  std::string safe;
+  if (!KX_FileAdapterDirectoryPathIsSafe(path, true, &safe, error)) {
+    return false;
+  }
+  if (entries == nullptr) {
+    return false;
+  }
+  const std::string resolved = safe.empty() ? blend_dir_ : ResolvePath(safe);
+  std::error_code ec;
+  if (!fs::is_directory(fs::path(resolved), ec)) {
+    if (error != nullptr) {
+      *error = "not a directory: '" + resolved + "'";
+    }
+    return false;
+  }
+  std::vector<KX_DirectoryEntry> collected;
+  fs::directory_iterator iterator(fs::path(resolved), ec);
+  if (ec) {
+    if (error != nullptr) {
+      *error = "cannot list '" + resolved + "': " + ec.message();
+    }
+    return false;
+  }
+  for (const fs::directory_entry &entry : iterator) {
+    KX_DirectoryEntry child;
+    child.name = entry.path().filename().string();
+    std::error_code type_ec;
+    child.directory = entry.is_directory(type_ec);
+    collected.push_back(child);
+  }
+  std::sort(collected.begin(), collected.end(), [](const KX_DirectoryEntry &a, const KX_DirectoryEntry &b) {
+    return a.name < b.name;
+  });
+  *entries = std::move(collected);
+  return true;
+}
+
+bool KX_FileAdapterEngine::CreateDirectory(const std::string &path,
+                                           bool parents,
+                                           std::string *error)
+{
+  std::string safe;
+  if (!KX_FileAdapterDirectoryPathIsSafe(path, false, &safe, error)) {
+    return false;
+  }
+  const std::string resolved = ResolvePath(safe);
+  std::error_code ec;
+  if (parents) {
+    fs::create_directories(fs::path(resolved), ec);
+  }
+  else {
+    fs::create_directory(fs::path(resolved), ec);
+  }
+  if (ec) {
+    if (error != nullptr) {
+      *error = "cannot create '" + resolved + "': " + ec.message();
+    }
+    return false;
+  }
+  return true;
+}
+
+bool KX_FileAdapterEngine::RemoveDirectory(const std::string &path,
+                                           bool recursive,
+                                           std::string *error)
+{
+  std::string safe;
+  if (!KX_FileAdapterDirectoryPathIsSafe(path, false, &safe, error)) {
+    return false;
+  }
+  const std::string resolved = ResolvePath(safe);
+  std::error_code ec;
+  if (!fs::is_directory(fs::path(resolved), ec)) {
+    if (error != nullptr) {
+      *error = "not a directory: '" + resolved + "'";
+    }
+    return false;
+  }
+  bool non_empty = false;
+  fs::directory_iterator iterator(fs::path(resolved), ec);
+  if (ec) {
+    if (error != nullptr) {
+      *error = "cannot list '" + resolved + "': " + ec.message();
+    }
+    return false;
+  }
+  for (const fs::directory_entry &entry : iterator) {
+    (void)entry;
+    non_empty = true;
+    break;
+  }
+  if (non_empty && !recursive) {
+    if (error != nullptr) {
+      *error = "directory is not empty: '" + resolved + "' (recursive=false)";
+    }
+    return false;
+  }
+  if (recursive) {
+    fs::remove_all(fs::path(resolved), ec);
+  }
+  else {
+    fs::remove(fs::path(resolved), ec);
+  }
+  if (ec) {
+    if (error != nullptr) {
+      *error = "cannot remove '" + resolved + "': " + ec.message();
+    }
+    return false;
+  }
+  return true;
+}
+
 std::unique_ptr<KX_FileAdapter> KX_CreateEngineFileAdapter(KX_Scene *scene)
 {
   (void)scene;

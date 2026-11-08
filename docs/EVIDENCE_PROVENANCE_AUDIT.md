@@ -1,7 +1,8 @@
 # 证据溯源审计（docs/*.md）
 
 - 审计日期：2026-11-05
-- 状态同步：2026-11-05 已按 `A1_BUILD_AUDIT.md` §11 权威复算（`TOTAL=850`，26 批含 `b66_uncovered`；不含 b66 为 25 批 / 830）更新 P0-1、P1-1；旧判定已标注失效
+- 历史（J 块，已被下行 K 冻结值覆盖）：2026-11-06 J 块后按 `/tmp/j_full_e2e.log` 记为 `TOTAL=851`（26 批含 `b66_uncovered`；不含 b66 为 25 批 / 831，0 失败）；`b662_jit` 判据由 40% 改为同窗成对（17 → 18 断言）
+- **K 冻结（2026-11-06，`RUN_ID=20261106-224926`）**：46 批、`TOTAL assertions=1456`、0 失败、0 崩溃；逐批 `.build.rc` 46/46 全 0，42 份 `harness`/`script` 构建日志 `error:` 计数 0 份；**无「证据不足」批次**。历史快照（`RUN_ID=20261106-101536`）为 957/29 行，已被冻结值覆盖。
 - 审计规则：**审计文档的状态必须跟上被审计文档的实际状态**（数值、批数、引用路径、状态标注）。被审计文档一改，审计侧的引用与判定必须同步改，否则审计本身会变成第二个过期源
 - 范围：`/home/eridanusepsilon/Code/EBC/EBC5.3/docs/*.md`（34 份，7076 行）
 - 方式：只读脚本扫描路径引用与精确数值，对照 `/tmp` 下所有 `.log/.txt/.json` 语料；**未重跑 harness、未改任何既有文档/源码、未 commit**
@@ -9,12 +10,12 @@
 
 ## 结论
 
-共扫出 **390 处路径引用**（374 存在、4 缺失、12 个占位符模板），识别 **P0 无源之数 5 项（P0-1 已关闭）、P1 引用不匹配 8 项（P1-1 已演化、旧判定作废）、P2 口径可疑 8 项**。
+共扫出 **390 处路径引用**（374 存在、4 缺失、12 个占位符模板），识别 **P0 无源之数 5 项（P0-1 已关闭）、P1 引用不匹配 8 项（P1-1 已演化、旧判定作废；P1-2 已降级为历史）、P2 口径可疑 8 项**。
 
 最严重的三条：
 
 1. **`313.959 µs/1000 帧`**（[NUMBER_CONSISTENCY_AUDIT.md](NUMBER_CONSISTENCY_AUDIT.md#L182)，另见 L314-L321、L386）：`grep -rn "313.959" /tmp --include="*.log"` **零命中**；当前唯一 clean 日志 `/tmp/a1_clean_run_b661_perf.log` 是 **`312.376`**。**已关闭**：A1、NUMBER_CONSISTENCY_AUDIT 与本文均已用 `312.376` 取代，`313.959` 仅保留为历史注并标注“无 `/tmp` 日志来源，已作废”。
-2. **断言总数 `850`（26 批，含 `b66_uncovered`）**（权威复算 `/tmp/d1_assertion_recount.log:28`；算式 `822 − 46 − 36 + 55 + 35 + 20 = 850`，不含 `b66_uncovered` 的 25 批为 `830`）：[B6.8_ACCEPTANCE.md](B6.8_ACCEPTANCE.md#L20)、[L49](B6.8_ACCEPTANCE.md#L49)、[L117](B6.8_ACCEPTANCE.md#L117) 处的 `822 断言 / 1 失败` 引用了 `/tmp/d1_regression_partial.log`，该文件实际是 **`TOTAL assertions=737 failures=3`**（未修脚本的旧结果）；`822/1` 只是 `/tmp/d1_clean_rerun.log:33` 的中间态。**旧判定已作废**：问题不只是“指错文件”，而是“引用日志已过期 + 权威值又演化为 850”，后续一律按 `850` 复核。
+2. **断言总数 `851`（26 批，含 `b66_uncovered`；25 批为 831）**（J 块后权威 `/tmp/j_full_e2e.log` 尾行；算式 `822 − 46 − 36 + 55 + 35 + 20 − 17 + 18 = 851`）：[B6.8_ACCEPTANCE.md](B6.8_ACCEPTANCE.md#L20) 历史处曾写 `822 断言 / 1 失败` 并引用 `/tmp/d1_regression_partial.log`，该文件实际是 **`TOTAL assertions=737 failures=3`**（未修脚本的旧结果）；`822/1` 只是 `/tmp/d1_clean_rerun.log:33` 的中间态。**旧判定已作废，且不得停在 822**：问题不只是“指错文件”，而是“引用日志已过期 + 权威值又演化（850 → J 块后 851）”，后续一律按 `851` 复核。
 3. **`2634.3 / 2562.1 ns/帧`**（[BENCHMARK_FINAL.md](BENCHMARK_FINAL.md#L21)、L79）：声称“21:31 用 `/tmp/a4_bench` 重跑”得到这两个值，但 `/tmp` 下**没有任何 21:31 的日志**，且 `/tmp/a4_bench` 是 ELF 二进制，无法作为文本证据；现有 `/tmp/a4_benchmark_baseline.log`（21:08）只有 `2624.4 / 2525.2`。
 
 ---
@@ -37,8 +38,8 @@
 
 | # | 数值/结论 | 位置 | 引用路径 | 实际内容 | 建议 |
 | --- | --- | --- | --- | --- | --- |
-| P1-1 | `822 断言 / 1 失败`（中间态）→ 权威 `850 / 26 批` | `B6.8_ACCEPTANCE.md:20,49,117` | `/tmp/d1_regression_partial.log` | 该文件是 **`TOTAL assertions=737 failures=3`**（L71，未修脚本的旧结果）；`822/1` 在 `/tmp/d1_clean_rerun.log:33`，仅为中间态；权威复算 `/tmp/d1_assertion_recount.log:28` 为 `TOTAL=850`（26 批，含 `b66_uncovered`；不含 b66 为 25 批 / `830`） | **旧判定作废**：不要按“改引 clean 822”复核，否则会得到第三次不一致。应写三级演进：`737/3`（历史）→ `822/1`（中间态）→ `850`（权威），并注明各自日志路径 |
-| P1-2 | `1.42%`（b662_jit） | `B6.8_ACCEPTANCE.md:21,49` | `/tmp/d1_regression_partial.log` | 该文件无 `1.42`；实际在 `/tmp/d1_e2e_out/b662_jit.log` | 改引 `/tmp/d1_e2e_out/b662_jit.log` |
+| P1-1 | `822 断言 / 1 失败`（中间态）→ 权威 `851 / 26 批`（0 失败） | `B6.8_ACCEPTANCE.md` 历史引用处 | `/tmp/d1_regression_partial.log` | 该文件是 **`TOTAL assertions=737 failures=3`**（L71，未修脚本的旧结果）；`822/1` 在 `/tmp/d1_clean_rerun.log:33`，仅为中间态；`850/1` 是 `/tmp/d1_assertion_recount.log:28` 的 J 块前权威；J 块后 `/tmp/j_full_e2e.log` 尾行为 **`TOTAL assertions=851 failures=0`**（26 批含 b66；25 批为 831） | **旧判定作废**：不要按“改引 clean 822”复核，否则会得到第四次不一致。应写演进链：`737/3`（历史）→ `822/1`（中间态）→ `850/1`（J 块前）→ `851/0`（J 块后权威），并注明各自日志路径 |
+| P1-2 | `1.42%`（b662_jit 旧判据） | `B6.8_ACCEPTANCE.md`、`D1_REGRESSION.md` §2.3 | `/tmp/d1_regression_partial.log` | 该文件无 `1.42`；实际在 `/tmp/d1_e2e_out/b662_jit.log:51`。**J 块后该值只作历史记录**：40% 阈值已降级，新判据结果在 `/tmp/j_b662_detail.log:50-56,63-64`（`median=1.0091`、`slower_pairs=5`，18/0） | 引用 `1.42%` 时必须标“旧判据/历史”；新结论一律引 `/tmp/j_b662_detail.log` |
 | P1-3 | `1.679e-6`、`(−3.327339, −1.871628, −4.242609)` | `A2_TASK345_STATUS.md:185`；`B6.8_ACCEPTANCE.md:41`；`PROJECT_STATUS.md:110,131` | `/tmp/verify_gap/worldpos_real.log`、`worldpos_player4.log` | 日志只有 5 位小数 `(-3.32734,-1.87163,-4.24261)`；无 `1.679e-6`、无 6 位小数的“手算值” | `check_worldpos.py` 本就会打印 `max_err={:.3e}`。**A2 已补证**：2026-11-05 21:47 重跑并落盘 `/tmp/verify_gap/worldpos_real_final.log:32`（`max_err=1.679e-06`、`RESULT assertions=2 failures=0`），A2 已改指该行；`B6.8_ACCEPTANCE.md` 与 `PROJECT_STATUS.md` 仍待补 |
 | P1-4 | `0.5279` | `B6_PHYSICS_ADVANCED.md:169` | `tests/c1_restitution.cpp`（代码） | 文档值在全库无命中；`/tmp/c1_physics.log:54` 与 `/tmp/c1_restitution_run.log:1` 都是 **`0.5280`** | 改为 `0.5280` 并引 `/tmp/c1_physics.log:54`；若 `0.5279` 来自旧 run，注明旧 run 时间 |
 | P1-5 | `/tmp/sizo.cpp` | `UI_B4_TECH_SELECTION.md:637` | 文件已不存在 | `ls: No such file` | 补回脚本或删除该引用 |
@@ -54,7 +55,7 @@
 
 | # | 问题 | 位置 | 说明 | 建议 |
 | --- | --- | --- | --- | --- |
-| P2-1 | 断言数三种口径混用 | `A1_BUILD_AUDIT.md` §11；`A2_TASK345_STATUS.md` §E2E；`B6.8_ACCEPTANCE.md:7,41`；`NUMBER_CONSISTENCY_AUDIT.md:81` | A1 §11 已改为「只认 `assertions=N`，无声明才数 `^PASS` 行并排除两类汇总句」；A2 的 LogicGate 用 `RESULT assertions=N`，Query 用 `PASS` 行；B6.8/NUMBER 又把“29 断言 + 汇总=30”放在一起 | 统一写“断言数只认 `assertions=N`；无声明时才数 `^PASS` 行，并排除两类汇总句（`PASS total failures=` 与手工 `PASS ...`）”；旧口径数字保留时注明拆分 |
+| P2-1 | 断言数三种口径混用 | `A1_BUILD_AUDIT.md` §11；`A2_TASK345_STATUS.md` §E2E；`B6.8_ACCEPTANCE.md:7,41`；`NUMBER_CONSISTENCY_AUDIT.md:81` | A1 §11 已改为「只认 `assertions=N`，无声明才数 `^PASS` 行并排除两类汇总句」；`b662_jit` 已由 1 条 40% 断言改为 2 条同窗成对断言（总数 850 → 851）；A2 的 LogicGate 用 `RESULT assertions=N`，Query 用 `PASS` 行；B6.8/NUMBER 又把“29 断言 + 汇总=30”放在一起 | 统一写“断言数只认 `assertions=N`；无声明时才数 `^PASS` 行，并排除两类汇总句（`PASS total failures=` 与手工 `PASS ...`）”；旧口径数字保留时注明拆分 |
 | P2-2 | `b62` 版本漂移 | `B6.8_ACCEPTANCE.md` 引 `b62_e2e_v3.log` 的 58；`A1/A2` 已用扩展后的 68 | 新增 v4 音频 17 条后旧数字未同步 | 在 B6.8 处注明“v3 旧值 58，v4 已扩到 68”，避免被读成丢断言 |
 | P2-3 | `89.8% / 10.2%` 缺分母 | `VERIFICATION_LEVEL_AUDIT.md:11-13` | 44/49 与 5/49，表中未写 `n=49` | 在表头或脚注写 `n=49` |
 | P2-4 | `0.174533` 精度高于日志 | `B5_NODES.md:92` | 日志只有 `0.9895→1.1640→1.3385`（差 `0.1745`）；`0.174533` 是 10° 的精确弧度值 | 引日志 4 位小数，或注明“0.174533 = 10° 精确值” |
@@ -130,4 +131,5 @@ P2 的 8 条里，属于“口径混用”的（P2-1 至 P2-7）根因相同：*
 
 - 首轮扫描未修改任何既有文档或源码；唯一新增文件是本报告与 `/tmp/provenance_audit.log`；
 - 2026-11-05 状态同步轮只改了 `EVIDENCE_PROVENANCE_AUDIT.md` 与 `A1_BUILD_AUDIT.md`（`313.959 → 312.376`、`822 → 850/26 批`、§11 断言表三类变化），未改源码、未 commit、未碰构建目录与 `_lib.glsl`；
-- 未跑 harness/构建，未删除文件，未 `git commit/push`，未触碰两个构建目录与 `_lib.glsl`。
+- 2026-11-06 J 块：按用户决策改 `tests/b662_jit.cpp` 判据（40% → 同窗成对 median ≤ 1.05），实跑全量 26 批；同步 `B6.8_ACCEPTANCE.md`、`D1_REGRESSION.md`、`PROJECT_STATUS.md`、`A2_TASK345_STATUS.md`、`A1_BUILD_AUDIT.md` 与本文件的 `850 → 851`（25 批 `830 → 831`）及 b662 状态；b662 明细固化于 `/tmp/j_b662_detail.log`（`median=1.0091`、`slower_pairs=5`）；未 commit、未碰构建目录与 `_lib.glsl`；
+- 未删除文件，未 `git commit/push`，未触碰两个构建目录与 `_lib.glsl`。

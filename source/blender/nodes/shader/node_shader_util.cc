@@ -54,15 +54,23 @@ static bool sh_geo_poll_default(const bke::bNodeType * /*ntype*/,
   return true;
 }
 
-static bool common_poll_default(const bke::bNodeType * /*ntype*/,
+static bool common_poll_default(const bke::bNodeType *ntype,
                                 const bNodeTree *ntree,
                                 const char **r_disabled_hint)
 {
-  if (!STR_ELEM(ntree->idname, "ShaderNodeTree", "GeometryNodeTree", "CompositorNodeTree")) {
-    *r_disabled_hint = RPT_("Not a shader, geometry, or compositor node tree");
-    return false;
+  if (STR_ELEM(ntree->idname, "ShaderNodeTree", "GeometryNodeTree", "CompositorNodeTree")) {
+    return true;
   }
-  return true;
+  /* EBC physics node trees reuse the C++ implementations of a few generic
+   * nodes (Math, ColorRamp, Float Curve) instead of re-implementing them in
+   * Python. Only those three are exposed; everything else stays unavailable. */
+  if (STR_ELEM(ntree->idname, "PhysNodeTree") &&
+      STR_ELEM(ntype->idname.c_str(), "ShaderNodeMath", "ShaderNodeValToRGB", "ShaderNodeFloatCurve"))
+  {
+    return true;
+  }
+  *r_disabled_hint = RPT_("Not a shader, geometry, or compositor node tree");
+  return false;
 }
 
 void sh_node_type_base(bke::bNodeType *ntype,

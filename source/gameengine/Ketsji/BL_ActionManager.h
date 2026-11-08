@@ -132,4 +132,18 @@ class BL_ActionManager {
    * manages actions' frames.
    */
   void Update(float curtime, bool applyToObject);
+
+  /**
+   * Find the layer currently playing an action with the given name.
+   * Returns -1 when no matching action is playing.
+   * Appended for the GameNode animation-event bridge; existing layer order is untouched.
+   */
+  short FindLayerByActionName(const std::string &name);
+
+  /**
+   * Predict the frame an action would have at @a curtime without mutating its playback state.
+   * Used by AddAnimationEvent so the event fires on the frame the engine is about to render.
+   * Appended for the GameNode animation-event bridge.
+   */
+  float GetActionFrameAtTime(short layer, float curtime);
 };

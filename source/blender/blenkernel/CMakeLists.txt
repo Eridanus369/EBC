@@ -267,6 +267,7 @@ set(SRC
   intern/preferences.cc
   intern/preview_image.cc
   intern/property.cc
+  intern/physnodes.cc
   intern/python_proxy.cc
   intern/recents.cc
   intern/report.cc

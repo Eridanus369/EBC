@@ -38,6 +38,7 @@
 #include "DNA_mesh_types.h"
 #include "DNA_movieclip_types.h"
 #include "DNA_node_types.h"
+#include "DNA_modifier_types.h"
 #include "DNA_object_types.h"
 #include "DNA_particle_types.h"
 #include "DNA_rigidbody_types.h"
@@ -80,6 +81,8 @@
 #include "BKE_object.hh"
 #include "BKE_particle.h"
 #include "BKE_pointcache.h"
+#include "BKE_main.hh"
+#include "BKE_physnodes.hh"
 #include "BKE_rigidbody.h"
 #include "BKE_scene.hh"
 #include "BKE_shader_fx.hh"
@@ -1609,6 +1612,50 @@ void DepsgraphNodeBuilder::build_rigidbody(Scene *scene)
     }
     FOREACH_COLLECTION_OBJECT_RECURSIVE_END;
   }
+}
+
+void DepsgraphNodeBuilder::build_physnodes(Scene *scene)
+{
+  /* Collect the simulation worlds referenced by physics node modifiers.
+   * The world is stepped exactly once per frame on the Scene transform
+   * component; modifiers are only sinks and never step it themselves. */
+  Vector<std::string> tree_names;
+  if (bmain_ != nullptr) {
+    for (Object &object_ref : bmain_->objects) {
+      Object *object = &object_ref;
+      for (ModifierData &md : object->modifiers.items_mutable()) {
+        if (md.type != eModifierType_PhysNodes) {
+          continue;
+        }
+        PhysNodesModifierData &pmd = reinterpret_cast<PhysNodesModifierData &>(md);
+        if (pmd.tree_name[0] == '\0') {
+          continue;
+        }
+        const std::string name(pmd.tree_name);
+        if (!tree_names.contains(name)) {
+          tree_names.append(name);
+        }
+      }
+    }
+  }
+  if (tree_names.is_empty()) {
+    return;
+  }
+
+  OperationNode *sim_node = add_operation_node(
+      &scene->id,
+      NodeType::TRANSFORM,
+      OperationCode::PHYS_SIM,
+      [tree_names = std::move(tree_names)](blender::Depsgraph *depsgraph) {
+        bke::physnodes::sim_eval(depsgraph, tree_names.as_span());
+      });
+  /* Mark the simulation as an entry/exit point of the scene transform
+   * component (same as the rigid body simulation node). This guarantees the
+   * operation is evaluated once whenever the graph is evaluated, regardless of
+   * what else is tagged for update. */
+  sim_node->set_as_entry();
+  sim_node->set_as_exit();
+  sim_node->owner->entry_operation = sim_node;
 }
 
 void DepsgraphNodeBuilder::build_particle_systems(Object *object, bool is_object_visible)

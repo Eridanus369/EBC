@@ -74,6 +74,58 @@ bool ReadParams(KX_FunctionNode &node, const std::string &text, float out[6])
   return true;
 }
 
+/** Optional "x,y,z" config value. Empty text means "not set" without an error. */
+bool ReadOptionalVector3(KX_FunctionNode &node,
+                         const std::string &text,
+                         float out[3],
+                         bool *present)
+{
+  *present = false;
+  out[0] = out[1] = out[2] = 0.0f;
+  if (text.empty()) {
+    return true;
+  }
+  if (std::sscanf(text.c_str(), "%f,%f,%f", &out[0], &out[1], &out[2]) != 3) {
+    Fail(node, "expected three comma separated numbers");
+    return false;
+  }
+  *present = true;
+  return true;
+}
+
+/**
+ * P-3.5 per-wheel suspension config: "s,d,c[,rest];..." in wheel order.
+ * A single group is broadcast by the adapter; a missing rest length keeps the
+ * historical 0.2 m default.
+ */
+bool ReadSuspension(KX_FunctionNode &node, const std::string &text, std::vector<float> *out)
+{
+  out->clear();
+  if (text.empty()) {
+    return true;
+  }
+  size_t start = 0;
+  while (true) {
+    const size_t end = text.find(';', start);
+    const std::string group =
+        text.substr(start, end == std::string::npos ? std::string::npos : end - start);
+    float values[4] = {0.0f, 0.0f, 0.0f, 0.2f};
+    const int count =
+        std::sscanf(group.c_str(), "%f,%f,%f,%f", &values[0], &values[1], &values[2], &values[3]);
+    if (count < 3) {
+      Fail(node, "suspension groups need stiffness,damping,compression[,rest_length]");
+      out->clear();
+      return false;
+    }
+    out->insert(out->end(), values, values + 4);
+    if (end == std::string::npos) {
+      break;
+    }
+    start = end + 1;
+  }
+  return true;
+}
+
 KX_ValueList *ReadList(KX_FunctionNode &node, KX_ExecutionContext &ctx, uint32_t index, const char *label)
 {
   KX_ValueList *list = static_cast<KX_ValueList *>(node.In(ctx, index).AsList());
@@ -92,12 +144,26 @@ void FuncCreateVehicle(KX_FunctionNode &node, KX_ExecutionContext &ctx)
   }
   const char *template_name = node.In(ctx, 2).AsString();
   const std::string wheel_names = node.ConfigString("wheel_names");
+  const std::string suspension_text = node.ConfigString("suspension");
+  std::vector<float> suspension;
+  if (!ReadSuspension(node, suspension_text, &suspension)) {
+    node.OutInt(ctx, 2, 0);
+    node.OutTrigger(ctx, 1, true);
+    return;
+  }
   std::string error;
-  const int handle = ctx.PhysicsAdvanced().CreateVehicle(
-      node.InObject(ctx, 1),
-      wheel_names,
-      template_name != nullptr ? std::string(template_name) : std::string(),
-      &error);
+  const int handle = suspension.empty()
+                         ? ctx.PhysicsAdvanced().CreateVehicle(
+                               node.InObject(ctx, 1),
+                               wheel_names,
+                               template_name != nullptr ? std::string(template_name) : std::string(),
+                               &error)
+                         : ctx.PhysicsAdvanced().CreateVehicleWithSuspension(
+                               node.InObject(ctx, 1),
+                               wheel_names,
+                               template_name != nullptr ? std::string(template_name) : std::string(),
+                               suspension,
+                               &error);
   node.OutInt(ctx, 2, handle);
   if (handle > 0) {
     node.OutTrigger(ctx, 0, true);
@@ -136,12 +202,44 @@ void FuncAddConstraint(KX_FunctionNode &node, KX_ExecutionContext &ctx)
     node.OutTrigger(ctx, 0, true);
     return;
   }
+  float pivot[3];
+  float axis[3];
+  bool has_pivot = false;
+  bool has_axis = false;
+  if (!ReadOptionalVector3(node, node.ConfigString("pivot"), pivot, &has_pivot) ||
+      !ReadOptionalVector3(node, node.ConfigString("axis"), axis, &has_axis)) {
+    node.OutTrigger(ctx, 0, true);
+    return;
+  }
+  if (!has_pivot) {
+    const MT_Vector3 midpoint =
+        (node.InObject(ctx, 1)->NodeGetWorldPosition() +
+         node.InObject(ctx, 2)->NodeGetWorldPosition()) * 0.5f;
+    pivot[0] = midpoint.x();
+    pivot[1] = midpoint.y();
+    pivot[2] = midpoint.z();
+  }
+  if (!has_axis) {
+    axis[0] = 0.0f;
+    axis[1] = 1.0f;
+    axis[2] = 0.0f;
+  }
   std::string error;
-  if (ctx.PhysicsAdvanced().AddConstraint(node.InObject(ctx, 1),
-                                          node.InObject(ctx, 2),
-                                          node.ConfigInt("type", 0),
-                                          params,
-                                          &error) == 0)
+  const int constraint_id =
+      (has_pivot || has_axis)
+          ? ctx.PhysicsAdvanced().AddConstraintWithFrame(node.InObject(ctx, 1),
+                                                         node.InObject(ctx, 2),
+                                                         node.ConfigInt("type", 0),
+                                                         params,
+                                                         pivot,
+                                                         axis,
+                                                         &error)
+          : ctx.PhysicsAdvanced().AddConstraint(node.InObject(ctx, 1),
+                                                node.InObject(ctx, 2),
+                                                node.ConfigInt("type", 0),
+                                                params,
+                                                &error);
+  if (constraint_id == 0)
   {
     fprintf(stderr, "[AddConstraint] %s\n", error.c_str());
   }
@@ -381,12 +479,31 @@ void FuncSetBoneTransform(KX_FunctionNode &node, KX_ExecutionContext &ctx)
   float rotation[3];
   node.InVector(ctx, 3, position);
   node.InVector(ctx, 4, rotation);
+  /* 0 = Override (default, legacy behaviour), 1 = Additive (quaternion product against the
+   * action-evaluated pose, never an euler addition, never accumulated). 2 = Multiplicative is
+   * reserved for P2 and rejected by the adapter instead of silently falling back to Override. */
+  const int mode = node.ConfigInt("mode", 0);
   if (bone == nullptr || !ctx.Animation().SetBoneTransform(node.InObject(ctx, 1),
                                                            std::string(bone),
                                                            position,
-                                                           rotation))
+                                                           rotation,
+                                                           mode))
   {
-    Fail(node, "object must be an armature and the bone must exist");
+    Fail(node, "object must be an armature, the bone must exist and mode must be 0 or 1");
+  }
+  node.OutTrigger(ctx, 0, true);
+}
+
+void FuncClearBoneOverride(KX_FunctionNode &node, KX_ExecutionContext &ctx)
+{
+  if (!node.InTrigger(ctx, 0)) {
+    return;
+  }
+  const char *bone = node.In(ctx, 2).AsString();
+  if (bone == nullptr || !ctx.Animation().ClearPoseOverride(node.InObject(ctx, 1), std::string(bone)))
+  {
+    /* Unknown bone / no override is a documented no-op; report it but keep the graph alive. */
+    Fail(node, "object must be an armature and the bone must have a pose override");
   }
   node.OutTrigger(ctx, 0, true);
 }
@@ -443,11 +560,38 @@ void FuncSetAnimationSpeed(KX_FunctionNode &node, KX_ExecutionContext &ctx)
 
 struct B6AnimEventState {
   KX_GameObject *object = nullptr;
-  std::string event_name;
+  /* Raw state blocks are not constructed; keep strings fixed-size so no std::string ctor runs. */
+  char event_name[64] = {};
+  char action[128] = {};
   int frame = 0;
+  int layer = -1;
   float previous_frame = 0.0f;
   bool armed = false;
+  bool action_bound = false;
 };
+
+/* Bind the event to the layer currently playing `action`, and seed `previous_frame` so a
+ * node armed after the event frame does not fire retroactively while a node armed on the
+ * event frame still fires once. Returns false while the action is not playing. */
+static bool BindAnimationEventAction(B6AnimEventState *state, KX_ExecutionContext &ctx)
+{
+  if (state->object == nullptr || state->action[0] == '\0') {
+    return false;
+  }
+  const int layer = ctx.Animation().GetActionLayer(state->object, std::string(state->action));
+  if (layer < 0) {
+    state->action_bound = false;
+    state->layer = -1;
+    return false;
+  }
+  state->layer = layer;
+  state->action_bound = true;
+  const float current = ctx.Animation().GetActionFrameAtCurrentEngineTime(state->object, layer);
+  const float event_frame = static_cast<float>(state->frame);
+  state->previous_frame =
+      (current >= event_frame && current < event_frame + 0.5f) ? current - 0.5f : current;
+  return true;
+}
 
 void FuncAddAnimationEvent(KX_FunctionNode &node, KX_ExecutionContext &ctx)
 {
@@ -458,12 +602,22 @@ void FuncAddAnimationEvent(KX_FunctionNode &node, KX_ExecutionContext &ctx)
   state->object = node.InObject(ctx, 1);
   const char *action = node.In(ctx, 2).AsString();
   state->frame = node.InInt(ctx, 3);
-  state->event_name = node.ConfigString("event_name");
-  state->armed = state->object != nullptr && action != nullptr;
-  state->previous_frame = state->object != nullptr
-                              ? ctx.Animation().GetActionFrame(state->object, 0)
-                              : 0.0f;
-  if (!state->armed) {
+  const std::string event_name = node.ConfigString("event_name");
+  state->event_name[0] = '\0';
+  if (!event_name.empty()) {
+    snprintf(state->event_name, sizeof(state->event_name), "%s", event_name.c_str());
+  }
+  state->action[0] = '\0';
+  if (action != nullptr) {
+    snprintf(state->action, sizeof(state->action), "%s", action);
+  }
+  state->layer = -1;
+  state->action_bound = false;
+  state->armed = state->object != nullptr && state->action[0] != '\0';
+  if (state->armed) {
+    BindAnimationEventAction(state, ctx);
+  }
+  else {
     Fail(node, "object or action input is empty");
   }
 }
@@ -472,19 +626,48 @@ void TickAddAnimationEvent(KX_FunctionNode &node, KX_ExecutionContext &ctx, floa
 {
   (void)delta_time;
   B6AnimEventState *state = node.StateBlock<B6AnimEventState>(ctx);
-  if (!state->armed || state->object == nullptr) {
+  if (state->object == nullptr || state->action[0] == '\0') {
     return;
   }
-  const float current = ctx.Animation().GetActionFrame(state->object, 0);
-  if (state->previous_frame < static_cast<float>(state->frame) &&
-      current >= static_cast<float>(state->frame))
-  {
+
+  /* The graph ticks before the render-time action update; ask the adapter for the frame that
+   * update will apply so the event lands on the frame the engine is about to show. Resolve the
+   * action name on every tick so the event follows the layer it actually plays on. */
+  const int layer = ctx.Animation().GetActionLayer(state->object, std::string(state->action));
+  if (layer < 0) {
+    state->action_bound = false;
+    state->layer = -1;
+    return;
+  }
+  const float current = ctx.Animation().GetActionFrameAtCurrentEngineTime(state->object, layer);
+  const float event_frame = static_cast<float>(state->frame);
+  if (!state->action_bound || layer != state->layer) {
+    state->layer = layer;
+    state->action_bound = true;
+    state->previous_frame =
+        (current >= event_frame && current < event_frame + 0.5f) ? current - 0.5f : current;
+  }
+
+  if (state->armed && state->previous_frame < event_frame && current >= event_frame) {
     state->armed = false;
     fprintf(stderr,
             "[AddAnimationEvent] fired '%s' at frame %.1f\n",
-            state->event_name.c_str(),
+            state->event_name,
             current);
     node.PendingTrigger(ctx, 0);
+  }
+  else if (current < state->previous_frame) {
+    /* The action wrapped (loop) or restarted. Re-arm so the event fires once per pass and
+     * fire immediately when the wrap lands on the event frame (common for frame 0 events). */
+    state->armed = true;
+    if (current >= event_frame && current < event_frame + 0.5f) {
+      state->armed = false;
+      fprintf(stderr,
+              "[AddAnimationEvent] fired '%s' at frame %.1f\n",
+              state->event_name,
+              current);
+      node.PendingTrigger(ctx, 0);
+    }
   }
   state->previous_frame = current;
 }
@@ -500,6 +683,53 @@ void FuncGetAnimationFrame(KX_FunctionNode &node, KX_ExecutionContext &ctx)
   }
   node.OutFloat(ctx, 0, ctx.Animation().GetActionFrame(object, layer));
   node.OutFloat(ctx, 1, ctx.Animation().GetActionNormalized(object, layer));
+}
+
+/* B6.9-A: separate time scale. The engine only exposes BL_Action::m_speed as a single
+ * playback multiplier, so an independent time scale cannot be represented. The node is
+ * registered so a graph fails with an explicit reason instead of silently aliasing speed. */
+void FuncSetActionTimeScale(KX_FunctionNode &node, KX_ExecutionContext &ctx)
+{
+  if (!node.InTrigger(ctx, 0)) {
+    return;
+  }
+  std::string error;
+  if (!ctx.Animation().SetActionTimeScale(node.InObject(ctx, 1),
+                                          node.InInt(ctx, 2),
+                                          node.InFloat(ctx, 3),
+                                          &error))
+  {
+    fprintf(stderr, "[SetActionTimeScale] %s\n", error.c_str());
+  }
+  node.OutTrigger(ctx, 0, true);
+}
+
+/* B6.9-A: normalized playback position. Uses the engine's existing frame query through the
+ * animation adapter; the value is clamped to [0, 1] and returns to 0 when the action loops. */
+void FuncGetActionNormalizedTime(KX_FunctionNode &node, KX_ExecutionContext &ctx)
+{
+  KX_GameObject *object = node.InObject(ctx, 0);
+  const int layer = node.InInt(ctx, 1);
+  if (object == nullptr) {
+    node.OutFloat(ctx, 0, 0.0f);
+    return;
+  }
+  node.OutFloat(ctx, 0, ctx.Animation().GetActionNormalized(object, layer));
+}
+
+/* B6.9-A: read back the local pose stored on a bone channel. Value node used by graphs (and by
+ * runtime probes) to observe whether a manual SetBoneTransform survived the action pipeline. */
+void FuncGetBoneTransform(KX_FunctionNode &node, KX_ExecutionContext &ctx)
+{
+  KX_GameObject *object = node.InObject(ctx, 0);
+  const char *bone = node.In(ctx, 1).AsString();
+  float position[3] = {0.0f, 0.0f, 0.0f};
+  float rotation[3] = {0.0f, 0.0f, 0.0f};
+  if (object != nullptr && bone != nullptr) {
+    ctx.Animation().GetBoneTransform(object, std::string(bone), position, rotation);
+  }
+  node.OutVector(ctx, 0, position[0], position[1], position[2]);
+  node.OutVector(ctx, 1, rotation[0], rotation[1], rotation[2]);
 }
 
 void FuncSetLinearDamping(KX_FunctionNode &node, KX_ExecutionContext &ctx)
@@ -596,6 +826,25 @@ const KX_FuncPort kGetAnimationFrameInputs[] = {
 const KX_FuncPort kGetAnimationFrameOutputs[] = {
     FP("Frame", KX_VALUE_FLOAT), FP("Normalized", KX_VALUE_FLOAT)};
 
+const KX_FuncPort kSetActionTimeScaleInputs[] = {
+    TP("OnEnter"), FP("Object", KX_VALUE_OBJECT), FP("Layer", KX_VALUE_INT),
+    FP("TimeScale", KX_VALUE_FLOAT)};
+
+const KX_FuncPort kGetActionNormalizedTimeInputs[] = {
+    FP("Object", KX_VALUE_OBJECT), FP("Layer", KX_VALUE_INT)};
+const KX_FuncPort kGetActionNormalizedTimeOutputs[] = {
+    FP("Normalized", KX_VALUE_FLOAT)};
+
+const KX_FuncPort kGetBoneTransformInputs[] = {
+    FP("Object", KX_VALUE_OBJECT), FP("Bone", KX_VALUE_STRING)};
+const KX_FuncPort kGetBoneTransformOutputs[] = {
+    FP("Position", KX_VALUE_VECTOR), FP("Rotation", KX_VALUE_VECTOR)};
+
+/* B6.10 (appended): remove a pose override so the bone follows the action again. Without this
+ * clear path an override triggered once could never be undone. */
+const KX_FuncPort kClearBoneOverrideInputs[] = {
+    TP("OnEnter"), FP("Object", KX_VALUE_OBJECT), FP("Bone", KX_VALUE_STRING)};
+
 #define B6_SPEC(id, in, out, fn, tick, state, value_node) \
   { id, in, B6_ARRAY_LEN(in), out, B6_ARRAY_LEN(out), fn, nullptr, tick, state, \
     KX_RUNTIME_DATA_ALIGNMENT, value_node, tick != nullptr, false }
@@ -646,6 +895,17 @@ const KX_FunctionSpec kB6Specs[] = {
             sizeof(B6AnimEventState), false),
     B6_SPEC("GetAnimationFrame", kGetAnimationFrameInputs, kGetAnimationFrameOutputs,
             FuncGetAnimationFrame, nullptr, 0, true),
+    /* B6.9-A (appended): explicit time-scale failure path and normalized playback query. */
+    B6_SPEC("SetActionTimeScale", kSetActionTimeScaleInputs, kDoneOutputs,
+            FuncSetActionTimeScale, nullptr, 0, false),
+    B6_SPEC("GetActionNormalizedTime", kGetActionNormalizedTimeInputs,
+            kGetActionNormalizedTimeOutputs, FuncGetActionNormalizedTime, nullptr, 0, true),
+    /* B6.9-A (appended): bone pose read-back used to verify channel locking. */
+    B6_SPEC("GetBoneTransform", kGetBoneTransformInputs, kGetBoneTransformOutputs,
+            FuncGetBoneTransform, nullptr, 0, true),
+    /* B6.10 (appended): clear a SetBoneTransform pose override (bone returns to the action). */
+    B6_SPEC("ClearBoneOverride", kClearBoneOverrideInputs, kDoneOutputs,
+            FuncClearBoneOverride, nullptr, 0, false),
 };
 
 KX_NodeSignature MakeB6Signature(const KX_FunctionSpec &spec)
@@ -688,6 +948,6 @@ void RegisterB6AdvancedFunctionGameNodes()
         spec.type_id,
         std::string("KX_FuncB6_") + spec.type_id,
         MakeB6Signature(*entry),
-        [entry]() { return std::unique_ptr<KX_LogicNodeRuntime>(new KX_FunctionNode(entry)); });
+        [entry]() { return std::unique_ptr<KX_GameNodeRuntime>(new KX_FunctionNode(entry)); });
   }
 }

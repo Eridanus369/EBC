@@ -60,6 +60,17 @@ HARNESS_STATIC_EXCLUSIONS=(
   "KX_UIAdapterEngine.cpp|all|engine UI backend is never bound by standalone harnesses (KX_UIRenderer.cpp is compiled directly instead)|tests/harness_config.sh"
 )
 
+# --- opt-in inclusion table --------------------------------------------------
+# TU|harness basename glob|reason|owner
+#
+# A row re-includes a TU that the static table above excludes for everyone else.
+# It only applies to harnesses whose source basename (without .cpp) matches the
+# glob, so no other harness changes. Keep this table empty unless a harness
+# genuinely needs the excluded backend (the real-disk E2E does).
+HARNESS_OPT_IN_TUS=(
+  "KX_FileAdapterEngine.cpp|b69_file_engine_e2e|the real-disk E2E exists precisely to exercise the filesystem backend the mocks replace|tests/harness_config.sh"
+)
+
 # Symbols that must be defined in every linked harness. These are the cold
 # path entry points that a missing TU turns into a 0-address call at runtime.
 HARNESS_REQUIRED_SYMBOLS=(
@@ -259,6 +270,27 @@ harness_exclusions_for()
   done
 }
 
+# Print the TUs that this harness forces back in (opt-in table rows).
+harness_opt_in_tus_for()
+{
+  local src base row tu glob _reason _owner
+  local -a harness_names=()
+  for src in "$@"; do
+    [ -n "$src" ] || continue
+    harness_names+=("$(basename "${src%.*}")")
+  done
+  for row in "${HARNESS_OPT_IN_TUS[@]}"; do
+    IFS='|' read -r tu glob _reason _owner <<< "$row"
+    for base in "${harness_names[@]}"; do
+      # shellcheck disable=SC2053
+      if [[ "$base" == $glob ]]; then
+        printf '%s\n' "$tu"
+        break
+      fi
+    done
+  done
+}
+
 # Resolve the TU set for one harness: ninja list minus stub/static exclusions.
 harness_resolve_tus()
 {
@@ -268,10 +300,16 @@ harness_resolve_tus()
       harness_exclusions_for "$@" | cut -d'|' -f1
     } | sort -u
   )"
+  local included
+  included="$(
+    {
+      harness_opt_in_tus_for "$@"
+    } | sort -u
+  )"
   local tu
   for tu in $(harness_ninja_tus); do
     [ "$tu" = "$HARNESS_DROP_TU" ] && continue
-    if grep -qxF "$tu" <<< "$excluded"; then
+    if grep -qxF "$tu" <<< "$excluded" && ! grep -qxF "$tu" <<< "$included"; then
       continue
     fi
     printf '%s\n' "$tu"
@@ -330,6 +368,50 @@ harness_compile_tus()
   return "$status"
 }
 
+# --- scoped additions -------------------------------------------------------
+# A harness that talks to raw Bullet needs the Bullet headers and must define
+# BT_USE_DOUBLE_PRECISION to match the archive the engine links (btScalar is
+# double there). Kept out of HARNESS_CXXFLAGS on purpose: a global define would
+# change harness_config_stamp() and force every GameNodes object to rebuild for
+# a single harness. Anything not listed here gets exactly the flags above.
+harness_extra_flags()
+{
+  case "$(basename "${1%.*}")" in
+    c1_restitution | c5_constraint_types)
+      printf '%s\n' "-DBT_USE_DOUBLE_PRECISION" "-isystem" "$HARNESS_ROOT/extern/bullet2/src"
+      ;;
+    c6_shape_overlap_bullet | c6_vehicle_wheel_guard)
+      printf '%s\n' "-DBT_USE_DOUBLE_PRECISION" \
+        "-isystem" "$HARNESS_ROOT/extern/bullet2/src" \
+        "-I" "$HARNESS_ROOT/source/gameengine/Physics/Bullet"
+      ;;
+    c6_navmesh_bake)
+      printf '%s\n' \
+        "-isystem" "$HARNESS_ROOT/extern/recastnavigation/Recast/Include" \
+        "-isystem" "$HARNESS_ROOT/extern/recastnavigation/Detour/Include"
+      ;;
+  esac
+}
+
+harness_extra_libs()
+{
+  case "$(basename "${1%.*}")" in
+    c1_restitution | c5_constraint_types)
+      printf '%s\n' "$HARNESS_BUILD_DIR/lib/libextern_bullet.a"
+      ;;
+    c6_shape_overlap_bullet | c6_vehicle_wheel_guard)
+      # Order matters: libge_physics_bullet.a resolves CcdPhysicsEnvironment
+      # symbols out of libextern_bullet.a, so ge must come first.
+      printf '%s\n' \
+        "$HARNESS_BUILD_DIR/lib/libge_physics_bullet.a" \
+        "$HARNESS_BUILD_DIR/lib/libextern_bullet.a"
+      ;;
+    c6_navmesh_bake)
+      printf '%s\n' "$HARNESS_BUILD_DIR/lib/libextern_recastnavigation.a"
+      ;;
+  esac
+}
+
 # Link one harness source against the cached objects.
 harness_build()
 {
@@ -343,8 +425,18 @@ harness_build()
     [ -n "$tu" ] || continue
     objs+=("$dir/${tu%.cpp}.o")
   done <<< "$(harness_resolve_tus "$src" "$@")"
-  "$HARNESS_CXX" "${HARNESS_CXXFLAGS[@]}" "$src" "${objs[@]}" \
-    "${HARNESS_LDFLAGS[@]}" -o "$out"
+  local -a extra_flags=() extra_libs=()
+  local item
+  while read -r item; do
+    [ -n "$item" ] || continue
+    extra_flags+=("$item")
+  done <<< "$(harness_extra_flags "$src")"
+  while read -r item; do
+    [ -n "$item" ] || continue
+    extra_libs+=("$item")
+  done <<< "$(harness_extra_libs "$src")"
+  "$HARNESS_CXX" "${HARNESS_CXXFLAGS[@]}" ${extra_flags[@]+"${extra_flags[@]}"} "$src" "${objs[@]}" \
+    "${HARNESS_LDFLAGS[@]}" ${extra_libs[@]+"${extra_libs[@]}"} -o "$out"
 }
 
 # Fail at BUILD time (not runtime) when a critical TU was left out.

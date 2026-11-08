@@ -252,6 +252,7 @@ void Instance::init(const int2 &output_res,
   volume_probes.init();
   volume.init();
   caustics.init();
+  heightfield.init();
   lookdev.init(&lookdev_rect);
 
   /* Request static shaders */
@@ -341,6 +342,7 @@ void Instance::init_light_bake(Depsgraph *depsgraph, draw::Manager *manager)
   volume_probes.init();
   volume.init();
   caustics.init();
+  heightfield.init();
   lookdev.init(&empty_rect);
 
   needed_shaders = IRRADIANCE_BAKE_SHADERS | SHADOW_SHADERS | SURFEL_SHADERS;
@@ -392,6 +394,7 @@ void Instance::begin_sync()
   lights.begin_sync();
   shadows.begin_sync();
   caustics.sync();
+  heightfield.sync();
   volume.begin_sync();
   pipelines.begin_sync();
   cryptomatte.begin_sync();

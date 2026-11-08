@@ -83,6 +83,9 @@ const char *operationCodeAsString(OperationCode opcode)
       return "RIGIDBODY_SIM";
     case OperationCode::RIGIDBODY_TRANSFORM_COPY:
       return "RIGIDBODY_TRANSFORM_COPY";
+    /* Physics node trees. */
+    case OperationCode::PHYS_SIM:
+      return "PHYS_SIM";
     /* Geometry. */
     case OperationCode::GEOMETRY_EVAL_INIT:
       return "GEOMETRY_EVAL_INIT";

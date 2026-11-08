@@ -145,6 +145,28 @@ void CcdConstraint::SetParam(int param, float value0, float value1)
       }
       break;
     };
+    case PHY_SLIDER_CONSTRAINT: {
+      switch (param) {
+        case 0: {
+          /* param = 0 is the linear travel range along the slider axis. */
+          btSliderConstraint *slider = (btSliderConstraint *)m_constraint;
+          slider->setLowerLinLimit(value0);
+          slider->setUpperLinLimit(value1);
+          break;
+        }
+        case 6: {
+          /* param = 6 is the linear motor: value0 = target velocity, value1 = max force. */
+          btSliderConstraint *slider = (btSliderConstraint *)m_constraint;
+          slider->setTargetLinMotorVelocity(value0);
+          slider->setMaxLinMotorForce(value1);
+          slider->setPoweredLinMotor(value1 > 0.0f);
+          break;
+        }
+        default: {
+        }
+      }
+      break;
+    };
     default: {
     };
   };
@@ -172,6 +194,19 @@ float CcdConstraint::GetParam(int param)
           genCons->calculateTransforms();
           return genCons->getAngle(param - 3);
           break;
+        }
+        default: {
+        }
+      }
+      break;
+    };
+    case PHY_SLIDER_CONSTRAINT: {
+      switch (param) {
+        case 0: {
+          return ((btSliderConstraint *)m_constraint)->getLinearPos();
+        }
+        case 3: {
+          return ((btSliderConstraint *)m_constraint)->getAngularPos();
         }
         default: {
         }

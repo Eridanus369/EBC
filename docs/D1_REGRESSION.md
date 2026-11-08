@@ -11,7 +11,7 @@
 |---|---|
 | 增量重建 `ninja -C build_clean_verify -j4` | **exit=0**；11 个步骤，本次重编 **5 个 TU**（1 个 CXX + 4 个 C，均为 buildinfo / `RAS_Rasterizer`；GameNodes 无 TU 需重编） |
 | 全量 E2E（`tests/run_all_e2e.sh`） | 首跑（25 批、脚本未修复前）原始 `TOTAL assertions=737 failures=3 build_failures=0`，**rc=1** |
-| E2E 最终值（26 批；脚本已修复、新增 `b66_uncovered`） | **assertions=850 failures=1**（唯一真实失败为 `b662_jit` 性能阈值）；不含 b66 的 25 批为 **830** |
+| E2E 最终值（K 冻结，46 批） | **assertions=1456 failures=0 crashes=0**（`RUN_ID=20261106-224926`）；J 块当时 26 批 / 851（含 b66）/ 25 批 831（历史） |
 | JIT 一致性（20 图 × 100 节点） | **identical=yes，failures=0**（逐值 float 位模式相同） |
 | 稳定性 + ASan | `rounds=10 round_failures=0 asan_build_fail=0 asan_reports=0`，**无 leak/UAF** |
 
@@ -63,23 +63,23 @@ E2E_OUTDIR=/tmp/d1_e2e_out tests/run_all_e2e.sh
 | b661 | 19 | 0 | |
 | b661_query | 41 | 0 | |
 | b661_logicgate | 22 | 0 | |
-| **b662_jit** | **17** | **1** | 真实失败：内联性能阈值（见 §2.3） |
+| **b662_jit** | **18** | **0** | 40% 旧阈值已由 J 块改为同窗成对判据：median(off/native)=1.0091 ≤ 1.05（5/6 对偏慢，见 §2.3） |
 | c31_udp | 14 | 0 | C 阶段新增 |
 | c32_rooms | 32 | 0 | C 阶段新增 |
 | c32_nodes | 70 | 0 | C 阶段新增 |
-| **TOTAL（最终值）** | **850** | **1** | `build_failures=0`；不含 b66 的 25 批为 **830** |
+| **TOTAL（K 冻结）** | **1456** | **0** | 46 批；`build_failures=0`；J 块当时为 26 批 / 851 / 831（历史） |
 
-口径备注（实数）：本表**共 26 行**，其中含 `b66_uncovered`；不含它是 **25 行**。`850 − 20 = 830` 与此一致。
+口径备注（实数，J 块历史）：本表**共 26 行**，其中含 `b66_uncovered`；不含它是 **25 行**。`851 − 20 = 831` 与此一致。K 冻结后为 **46 批 / 1456**（`RUN_ID=20261106-224926`），未在上表逐批展开。
 
-- **含 b66 = 26 批 / 850 断言**
-- **不含 b66 = 25 批 / 830 断言**
+- **K 冻结 = 46 批 / 1456 断言 / 0 失败**；J 块当时 = 26 批 / 851 断言（不含 b66 25 批 / 831），属历史。
+- **J 块不含 b66 = 25 批 / 831 断言**（历史）
 - **不存在第 27 批**。先前「27 批」的说法源于审计侧口径笔误，已更正。
 
-脚本侧状态：`tests/run_all_e2e.sh` 的 MANIFEST 当前仍是 **25 条且尚无 `b66_uncovered`**，脚本作者正在补入；补完后脚本批数与本表 26 行对齐。
+脚本侧状态：`tests/run_all_e2e.sh` 的 MANIFEST 已为 **46 条**（K 冻结 46 批）；上表 26 行为 J 块历史视图。
 
 ### 2.1 脚本假红（另一条线脚本的排除表，已修复）
 
-`b61`、`b64` 在**首跑**（脚本未修复）时 `.rc` 为 139（SIGSEGV），日志无任何 PASS/FAIL 输出，因此首跑汇总记为 `assertions=0 failures=1`；下表的 26 / 61 是脚本修复后的最终值。gdb 栈顶：
+`b61`、`b64` 在**首跑**（脚本未修复）时 `.rc` 为 139（SIGSEGV），日志无任何 PASS/FAIL 输出，因此首跑汇总记为 `assertions=0 failures=1`；下表的 26 / 61 是 J 块脚本修复后的值（K 冻结为 **44 / 94**）。gdb 栈顶：
 
 ```text
 b61: FuncCreateVehicle(KX_FunctionNode&, KX_ExecutionContext&)   <- 0x40 null call
@@ -105,12 +105,15 @@ b64: (anonymous namespace)::FuncSaveGameBinary(KX_FunctionNode&, KX_ExecutionCon
 | b61 | 26 | 0 | 0 |
 | b64 | 61 | 0 | 0 |
 
-**最终 E2E 汇总：assertions = `822 − 46(b4_reg) − 36(p44_stability) + 55 + 35 + 20(b66_uncovered) = 850`；failures = 1（仅 b662_jit）。**
+（上表为 J 块脚本修复后的当次值；K 冻结 `RUN_ID=20261106-224926` 后为 **b61 44/0、b64 94/0**。）
+
+**最终 E2E 汇总（J 块历史算式）：assertions = `822 − 46(b4_reg) − 36(p44_stability) + 55 + 35 + 20(b66_uncovered) − 17(b662 旧) + 18(b662 新) = 851`；failures = 0。K 冻结后全量为 **1456 / 46 批**（`RUN_ID=20261106-224926`，见 `NUMBER_CONSISTENCY_AUDIT.md` B.5）。**
 
 - 其中 `822` 是**首跑 25 批修正后的基数**（`735 + 26(b61) + 61(b64)`，见 §2.2 的脚本汇总行修复）。
 - `55` / `35` 是 `b4_reg` 新增 10 条 JSON 值断言、`p44_stability` 去掉 1 条手工汇总句后的真实值。
 - `20` 是新增批 `b66_uncovered`（`ProximitySensor` 10 / `JoystickAxis` 5 / `JoystickButton` 4 + 1 编译检查）。
-- **不含新增 `b66_uncovered` 的 25 批套件为 830。**
+- `−17 + 18` 是 `b662_jit` 把 1 条 40% 断言换成 2 条同窗成对断言（总断言 17 → 18）。
+- **不含新增 `b66_uncovered` 的 25 批套件为 831。**
 
 （历史说明：本批第一次跑 25 批时，脚本尚未修复，b61/b64 因上述两条排除启动即 SIGSEGV；当时的临时办法是用完整 46 TU + `--allow-multiple-definition` 重链以获得 26/61。脚本修复后同一结果直接由脚本产出，上述临时办法已不再需要。）
 
@@ -133,7 +136,9 @@ b64: (anonymous namespace)::FuncSaveGameBinary(KX_FunctionNode&, KX_ExecutionCon
 
 **结论句（写死）**：*断言数只认 `assertions=N` 声明；没有声明时才数行，并同时排除上述两类汇总句。*
 
-### 2.3 b662_jit 真实失败：内联性能阈值
+### 2.3 b662_jit：40% 阈值已由 J 块降级为历史目标，原失败已消除
+
+历史（2026-11-05，旧判据，仅作追溯）：
 
 ```text
 BENCH rows=25 ticks_per_row=400 best_off_ms=0.923 best_on_ms=0.910
@@ -142,9 +147,10 @@ BENCH const100 off_ns_per_tick=1453.4 on_ns_per_tick=1204.9 reduction=17.10%
 FAIL benchmark reduces frame time by at least 40%
 ```
 
-- 100 节点图内联仅带来 **1.42%** 减少，未达到 harness 断言的 **40%**；const100 场景为 17.10%。
-- 这与 A.4 基线（内联开启比关闭慢 3.9%，见 `docs/BENCHMARK_BASELINE.md`）方向/量级一致：**当前内联实现没有 40% 级别的收益**。
-- 这是产品/阈值问题，不是 harness 构建问题；需要 JIT 线评估“修内联”还是“调整断言阈值”。本次按要求未改任何编译器源码。
+- 旧判据要求「内联收益 ≥40%」，实测仅 1.42%，故当时判 FAIL；40% 的不可达性算术见 `docs/B6.8_ACCEPTANCE.md` §2.4.2。
+- **J 块已改判据**（用户拍板）：改为「不应显著变慢」，度量改为**同窗成对比较**；判据跑前写死在 `tests/b662_jit.cpp:8-20`，容差 5% 取自 `tests/a4_interleave.sh` 的跨运行散布 `[0.9613, 1.0212]`。旧 40% 目标保留在源码注释中作为历史注记，不删除。
+- 实跑（`/tmp/j_b662_detail.log:50-56,63-64`）：6 对 `off/native` 比值 `1.0090 / 1.0163 / 0.9995 / 1.0042 / 1.0145 / 1.0092`，**median=1.0091，min=0.9995，max=1.0163，5/6 对偏慢**；`median ≤ 1.05` 通过。偏慢幅度仅 0.91%，小于 5% 容差，方向仍不可判定。
+- 该批现为 **18 断言 / 0 失败**（原 17 断言中 1 条 40% 断言换成 2 条成对断言）。J 块全量复跑 `/tmp/j_full_e2e.log`：**TOTAL assertions=851 failures=0**，rc=0（K 冻结后全量为 1456/46 批）。
 
 ## 3. JIT 一致性（全量）
 
@@ -184,8 +190,8 @@ STABILITY_EXIT=0
 
 ## 5. 未收口项与后续
 
-1. **b662_jit 的 40% 内联性能断言**：真实失败，需 JIT 线决定修复内联实现或调整阈值；本批不处理。
-2. ~~`tests/harness_config.sh` 两处静态排除导致 b61/b64 假红~~：**已修复**（改为 `never` 作用域 + 按 harness 生效），b61/b64 现由脚本直接产出 26/0、61/0。
+1. ~~**b662_jit 的 40% 内联性能断言**~~：**已解决（J 块）**——40% 降级为历史目标，判据改为同窗成对 `median(off/native) ≤ 1.05`，实跑 18/0，J 块全量 851/0（K 冻结 1456/46 批）。
+2. ~~`tests/harness_config.sh` 两处静态排除导致 b61/b64 假红~~：**已修复**（改为 `never` 作用域 + 按 harness 生效），b61/b64 现由脚本直接产出 **44/0、94/0**（K 冻结）。
 3. **`HARNESS_NINJA` 写死 `build_linux`**：本次 TU 清单/DNA 头核对一致，无差异；若后续 C 阶段新增 TU，脚本需要支持指定构建目录，否则会漏 TU。
 4. Benchmark 不在本批（D.3），A.4 基线见 [`docs/BENCHMARK_BASELINE.md`](BENCHMARK_BASELINE.md)。
 

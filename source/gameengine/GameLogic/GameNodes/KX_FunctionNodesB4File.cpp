@@ -934,6 +934,6 @@ void RegisterB4FileFunctionGameNodes()
         spec.type_id,
         std::string("KX_FuncB4_") + spec.type_id,
         MakeB4Signature(*entry),
-        [entry]() { return std::unique_ptr<KX_LogicNodeRuntime>(new KX_FunctionNode(entry)); });
+        [entry]() { return std::unique_ptr<KX_GameNodeRuntime>(new KX_FunctionNode(entry)); });
   }
 }

@@ -1107,6 +1107,7 @@ void DeferredLayer::end_sync(bool is_first_pass,
           inst_.lights.bind_light_shader_resources(sub);
           sub.bind_resources(inst_.sphere_probes);
           sub.bind_resources(inst_.volume_probes);
+          sub.bind_resources(inst_.heightfield);
           uint8_t compare_mask = uint8_t(StencilBits::CLOSURE_COUNT_0) |
                                  uint8_t(StencilBits::CLOSURE_COUNT_1) |
                                  uint8_t(StencilBits::TRANSMISSION);
@@ -1183,6 +1184,7 @@ void DeferredLayer::end_sync(bool is_first_pass,
       pass.bind_resources(inst_.gbuffer);
       pass.bind_resources(inst_.uniform_data);
       pass.bind_resources(inst_.hiz_buffer.front);
+      pass.bind_resources(inst_.heightfield);
       pass.barrier(GPU_BARRIER_TEXTURE_FETCH | GPU_BARRIER_SHADER_IMAGE_ACCESS);
       pass.draw_procedural(GPU_PRIM_TRIS, 1, 3);
     }
@@ -1318,6 +1320,14 @@ gpu::Texture *DeferredLayer::render(View &render_view,
 
   inst_.gbuffer.bind(gbuffer_fb);
   inst_.manager->submit(gbuffer_ps_, render_view);
+
+  /* Heightfield displacement: rebuild the G-Buffer depth of the carrier objects by ray marching
+   * their heightmap. Must run after the G-Buffer pass (which is depth-equal tested against the
+   * carrier plane depth) and before the deferred lighting pass (which reads the position from the
+   * HiZ buffer), hence the forced HiZ rebuild. */
+  if (inst_.heightfield.render(render_view)) {
+    inst_.hiz_buffer.update(true);
+  }
 
   inst_.lights.eval_light_shaders(render_view, extent);
 
@@ -1884,6 +1894,7 @@ void PlanarProbePipeline::end_sync()
     inst_.lights.bind_light_shader_resources(pass);
     pass.bind_resources(inst_.sphere_probes);
     pass.bind_resources(inst_.volume_probes);
+    pass.bind_resources(inst_.heightfield);
     pass.barrier(GPU_BARRIER_TEXTURE_FETCH | GPU_BARRIER_SHADER_IMAGE_ACCESS);
     pass.draw_procedural(GPU_PRIM_TRIS, 1, 3);
   }

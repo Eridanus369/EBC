@@ -38,6 +38,10 @@
 
 #include "KX_GameObject.h"
 
+#include <cstring>
+
+#include "CM_Message.h"
+
 #include "BKE_context.hh"
 #include "BKE_layer.hh"
 #include "BKE_lib_id.hh"
@@ -107,6 +111,7 @@ KX_GameObject::KX_GameObject()
 #ifdef WITH_PYTHON
       ,
       m_components(NULL),
+      m_legacy_logic_warned(false),
       m_attr_dict(nullptr),
       m_collisionCallbacks(nullptr),
       m_removeCallbacks(nullptr)
@@ -1982,6 +1987,16 @@ void KX_GameObject::Update()
   if (!m_logicSuspended) {
     if (m_components) {
       for (KX_PythonComponent *comp : m_components) {
+        blender::PythonProxy *proto = comp->GetPrototype();
+        if (proto && strncmp(proto->module, "nl_", 3) == 0) {
+          if (!m_legacy_logic_warned) {
+            CM_Warning("Object '"
+                       << GetName() << "': component '" << comp->GetName()
+                       << "' uses the old Python logic executor, please re-export as Game Nodes");
+            m_legacy_logic_warned = true;
+          }
+          continue;
+        }
         comp->Update();
       }
     }

@@ -38,7 +38,7 @@
 #include <cstdint>
 #include <string>
 
-#include "KX_LogicNodeRuntime.h"
+#include "KX_GameNodeRuntime.h"
 #include "KX_RuntimeData.h"
 #include "KX_RuntimeValue.h"
 
@@ -87,7 +87,7 @@ struct KX_FunctionSpec {
   /**
    * Optional synchronous per-element sequence hooks. ForEach uses them to run
    * the downstream subtree once per list element inside one frame; the generic
-   * scheduler calls the hooks through KX_LogicNodeRuntime.
+   * scheduler calls the hooks through KX_GameNodeRuntime.
    */
   KX_FuncPendingCount pending_count = nullptr;
   KX_FuncPendingElement pending_element = nullptr;
@@ -103,13 +103,13 @@ struct KX_FunctionSpec {
   bool allow_fewer_outputs = false;
   /**
    * Opt into the scheduler trigger snapshot (see
-   * #KX_LogicNodeRuntime::NeedsTriggerSnapshot). Used by nodes that combine
+   * #KX_GameNodeRuntime::NeedsTriggerSnapshot). Used by nodes that combine
    * several trigger inputs inside one Execute, such as the logic gates.
    */
   bool needs_trigger_snapshot = false;
 };
 
-class KX_FunctionNode final : public KX_LogicNodeRuntime {
+class KX_FunctionNode final : public KX_GameNodeRuntime {
  public:
   explicit KX_FunctionNode(const KX_FunctionSpec *spec) : spec_(spec) {}
 

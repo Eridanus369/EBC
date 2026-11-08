@@ -833,6 +833,28 @@ void ED_area_type_hud_ensure(bContext *C, ScrArea *area);
 ARegion *ED_area_type_hud_redo_region_find(const ScrArea *area, const ARegion *hud_region);
 }  // namespace ui
 
+/* `interface_region_floating_panel.cc` */
+
+namespace ui {
+/**
+ * Stage A floating UI proof of concept: ensure a static, non-interactive floating panel region
+ * exists in the window's screen level region list (#bScreen::regionbase).
+ *
+ * Screen-level regions are not constrained by #ScrArea rectangles, are composited on top of all
+ * areas and do not take part in event context lookups. Called once per window redraw.
+ */
+void ED_screen_floating_panel_ensure(bContext *C, wmWindow *win, bScreen *screen);
+
+/**
+ * Draw the floating panel glass (blurred backdrop + gradient) into the window frame-buffer.
+ *
+ * Must be called from `wm_draw_window_onscreen()` after all areas have been composited and
+ * before the screen-level regions are blended, since that is the only point where the backdrop
+ * exists as pixels and where the result cannot be overwritten by the viewport draw.
+ */
+void ED_screen_floating_panel_overlay_draw(wmWindow *win);
+}  // namespace ui
+
 /**
  * Default key-maps, bit-flags (matches order of evaluation).
  */

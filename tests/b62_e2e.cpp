@@ -3,11 +3,13 @@
 // Runs against the mock adapters so gamepad/touch state can be injected and
 // audio/spatial calls recorded. Every assertion prints PASS/FAIL and the exit
 // code is non zero when something fails.
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <memory>
 #include <string>
+#include <unistd.h>
 #include <vector>
 
 #include "KX_CompiledGraph.h"
@@ -57,7 +59,7 @@ void Check(bool ok, const char *what, double actual = 0.0, double expected = 0.0
 /* Counts how many times a trigger reaches this node. One rack slot per sink. */
 int g_sink_hits[8] = {0, 0, 0, 0, 0, 0, 0, 0};
 
-class TestSinkNode : public KX_LogicNodeRuntime {
+class TestSinkNode : public KX_GameNodeRuntime {
  public:
   explicit TestSinkNode(int slot) : slot_(slot) {}
   KX_ExecResult Execute(KX_ExecutionContext &ctx) override
@@ -167,6 +169,139 @@ const KX_RuntimeValue *ReadOutput(KX_GraphInstance &instance, int node, int port
   return nullptr;
 }
 
+/* The regex guard reports rejections on stderr, so redirect fd 2 to a pipe for
+ * the duration of one graph tick and read the text back. */
+class StderrCapture {
+ public:
+  void Start()
+  {
+    if (pipe(fds_) != 0) {
+      return;
+    }
+    saved_ = dup(STDERR_FILENO);
+    dup2(fds_[1], STDERR_FILENO);
+    close(fds_[1]);
+    fds_[1] = -1;
+  }
+
+  std::string Stop()
+  {
+    if (saved_ < 0) {
+      return {};
+    }
+    std::fflush(stderr);
+    dup2(saved_, STDERR_FILENO);
+    close(saved_);
+    saved_ = -1;
+    std::string text;
+    char buffer[4096];
+    ssize_t read_count = 0;
+    while ((read_count = read(fds_[0], buffer, sizeof(buffer) - 1)) > 0) {
+      text.append(buffer, size_t(read_count));
+    }
+    close(fds_[0]);
+    fds_[0] = -1;
+    return text;
+  }
+
+ private:
+  int fds_[2] = {-1, -1};
+  int saved_ = -1;
+};
+
+int CountOccurrences(const std::string &haystack, const std::string &needle)
+{
+  int count = 0;
+  size_t at = 0;
+  while ((at = haystack.find(needle, at)) != std::string::npos) {
+    ++count;
+    at += needle.size();
+  }
+  return count;
+}
+
+/* StringConst config_json is a JSON string literal, so backslashes in regex
+ * patterns have to be doubled before they reach the IR. */
+std::string JsonEscaped(const std::string &value)
+{
+  std::string escaped;
+  for (char character : value) {
+    if (character == '\\' || character == '"') {
+      escaped.push_back('\\');
+    }
+    escaped.push_back(character);
+  }
+  return escaped;
+}
+
+int AddRegexString(GraphIR &ir, const std::string &name, const std::string &value)
+{
+  const int index = static_cast<int>(ir.nodes.size());
+  MakeNode(ir, "StringConst", name);
+  ir.nodes.back().config_json = "{\"value\": \"" + JsonEscaped(value) + "\"}";
+  return index;
+}
+
+KX_GraphInstance *BuildInstance(GraphIR &ir, KX_MockInputAdapter &input, KX_MockAudioAdapter &audio);
+
+struct RegexProbe {
+  bool compiled = false;
+  bool matched = false;
+  bool rejected = false;
+  int groups = -1;
+  std::string replaced;
+  std::string diagnostics;
+  double elapsed_ms = 0.0;
+};
+
+/* Builds a two-node graph (StringConst -> regex node), ticks it once and
+ * returns every observable effect of the regex guard. */
+RegexProbe RunRegexProbe(KX_MockInputAdapter &input,
+                         KX_MockAudioAdapter &audio,
+                         const std::string &pattern,
+                         const std::string &source,
+                         bool replace,
+                         const std::string &replacement = std::string())
+{
+  RegexProbe probe;
+  GraphIR ir;
+  MakeNode(ir, "OnInit", "init");
+  const int node = static_cast<int>(ir.nodes.size());
+  MakeNode(ir, replace ? "StringRegexReplace" : "StringRegexMatch", "probe");
+  Connect(ir, AddRegexString(ir, "probe_src", source), 0, node, 0);
+  Connect(ir, AddRegexString(ir, "probe_pat", pattern), 0, node, 1);
+  if (replace) {
+    Connect(ir, AddRegexString(ir, "probe_rep", replacement), 0, node, 2);
+  }
+  KX_GraphInstance *instance = BuildInstance(ir, input, audio);
+  if (instance == nullptr) {
+    return probe;
+  }
+  probe.compiled = true;
+  StderrCapture capture;
+  capture.Start();
+  const auto started = std::chrono::steady_clock::now();
+  instance->Tick(0.016f);
+  const auto finished = std::chrono::steady_clock::now();
+  probe.diagnostics = capture.Stop();
+  probe.elapsed_ms = std::chrono::duration<double, std::milli>(finished - started).count();
+  const KX_RuntimeValue *value = ReadOutput(*instance, node, 0);
+  if (replace) {
+    probe.replaced = value != nullptr ? std::string(value->AsString()) : std::string();
+    const KX_RuntimeValue *rejected = ReadOutput(*instance, node, 1);
+    probe.rejected = rejected != nullptr && rejected->AsBool();
+  }
+  else {
+    probe.matched = value != nullptr && value->AsBool();
+    const KX_ValueList *groups = AsListOf(ReadOutput(*instance, node, 1));
+    probe.groups = groups != nullptr ? static_cast<int>(groups->size()) : -1;
+    const KX_RuntimeValue *rejected = ReadOutput(*instance, node, 2);
+    probe.rejected = rejected != nullptr && rejected->AsBool();
+  }
+  delete instance;
+  return probe;
+}
+
 KX_GraphInstance *BuildInstance(GraphIR &ir, KX_MockInputAdapter &input, KX_MockAudioAdapter &audio)
 {
   KX_GraphInstance *instance = new KX_GraphInstance(nullptr, nullptr, nullptr);
@@ -196,6 +331,13 @@ struct InputGraph {
   int map = 0;
   int get_value = 0;
   int vibrate = 0;
+  int button_dz = 0;
+  int axis_dz = 0;
+  int trigger_dz = 0;
+  int vibrate_dz = 0;
+  int gamepad_count = 0;
+  int gesture = 0;
+  int touch_get = 0;
 };
 
 GraphIR BuildInputGraph(InputGraph *out)
@@ -257,6 +399,37 @@ GraphIR BuildInputGraph(InputGraph *out)
   Connect(ir, AddFloat(ir, "vib_intensity", 0.5f), 0, ids.vibrate, 2);
   Connect(ir, AddFloat(ir, "vib_duration", 0.3f), 0, ids.vibrate, 3);
 
+  /* I-1 deadzone / pad count. */
+  ids.button_dz = static_cast<int>(ir.nodes.size());
+  MakeNode(ir, "GamepadButton", "button_dz");
+  ir.nodes.back().config_json = "{\"pad\": 0, \"button\": 3, \"edge\": 0, \"deadzone\": 0.4}";
+  ids.axis_dz = static_cast<int>(ir.nodes.size());
+  MakeNode(ir, "GamepadAxis", "axis_dz");
+  ir.nodes.back().config_json = "{\"pad\": 1, \"axis\": 0, \"deadzone\": 0.2}";
+  ids.trigger_dz = static_cast<int>(ir.nodes.size());
+  MakeNode(ir, "GamepadTrigger", "trigger_dz");
+  ir.nodes.back().config_json = "{\"pad\": 1, \"trigger\": 0, \"deadzone\": 0.2}";
+  ids.vibrate_dz = static_cast<int>(ir.nodes.size());
+  MakeNode(ir, "VibrateGamepad", "vibrate_dz");
+  ir.nodes.back().config_json = "{\"deadzone\": 0.5}";
+  Connect(ir, 0, 0, ids.vibrate_dz, 0);
+  Connect(ir, AddFloat(ir, "vib_dz_intensity", 0.2f), 0, ids.vibrate_dz, 2);
+  Connect(ir, AddFloat(ir, "vib_dz_duration", 0.1f), 0, ids.vibrate_dz, 3);
+  ids.gamepad_count = static_cast<int>(ir.nodes.size());
+  MakeNode(ir, "GamepadCount", "gamepad_count");
+
+  /* I-2 two-finger pinch / rotate. */
+  ids.gesture = static_cast<int>(ir.nodes.size());
+  MakeNode(ir, "TouchGesture", "gesture");
+  ids.touch_get = static_cast<int>(ir.nodes.size());
+  MakeNode(ir, "TouchGet", "touch_get");
+  {
+    const int index_two = static_cast<int>(ir.nodes.size());
+    MakeNode(ir, "ConstInt", "touch_get_index");
+    ir.nodes.back().config_json = "{\"value\": 2}";
+    Connect(ir, index_two, 0, ids.touch_get, 0);
+  }
+
   *out = ids;
   return ir;
 }
@@ -275,6 +448,10 @@ struct StringGraph {
   int join = 0;
   int match = 0;
   int replace = 0;
+  int replace_all = 0;
+  int replace_nomatch = 0;
+  int replace_long = 0;
+  int match_long = 0;
   int trim = 0;
   int pad = 0;
   int len_chars = 0;
@@ -286,6 +463,11 @@ struct StringGraph {
   int find = 0;
   int slice = 0;
   int concat = 0;
+  int list_src = 0;
+  int reverse = 0;
+  int unique = 0;
+  int index_of = 0;
+  int index_missing = 0;
 };
 
 GraphIR BuildStringGraph(StringGraph *out)
@@ -349,6 +531,31 @@ GraphIR BuildStringGraph(StringGraph *out)
   Connect(ir, AddString(ir, "replace_src", "abc123"), 0, ids.replace, 0);
   Connect(ir, AddString(ir, "replace_pat", "[0-9]+"), 0, ids.replace, 1);
   Connect(ir, AddString(ir, "replace_rep", "X"), 0, ids.replace, 2);
+
+  ids.replace_all = static_cast<int>(ir.nodes.size());
+  MakeNode(ir, "StringRegexReplace", "replace_all");
+  Connect(ir, AddString(ir, "replace_all_src", "a1b2"), 0, ids.replace_all, 0);
+  Connect(ir, AddString(ir, "replace_all_pat", "[0-9]"), 0, ids.replace_all, 1);
+  Connect(ir, AddString(ir, "replace_all_rep", "#"), 0, ids.replace_all, 2);
+
+  ids.replace_nomatch = static_cast<int>(ir.nodes.size());
+  MakeNode(ir, "StringRegexReplace", "replace_nomatch");
+  Connect(ir, AddString(ir, "replace_nomatch_src", "abc"), 0, ids.replace_nomatch, 0);
+  Connect(ir, AddString(ir, "replace_nomatch_pat", "[0-9]"), 0, ids.replace_nomatch, 1);
+  Connect(ir, AddString(ir, "replace_nomatch_rep", "X"), 0, ids.replace_nomatch, 2);
+
+  /* 3.3 length guard: 4097 > 4096 source bytes, so both regex nodes reject. */
+  const std::string long_source(4097, 'a');
+  ids.replace_long = static_cast<int>(ir.nodes.size());
+  MakeNode(ir, "StringRegexReplace", "replace_long");
+  Connect(ir, AddString(ir, "replace_long_src", long_source), 0, ids.replace_long, 0);
+  Connect(ir, AddString(ir, "replace_long_pat", "a"), 0, ids.replace_long, 1);
+  Connect(ir, AddString(ir, "replace_long_rep", "b"), 0, ids.replace_long, 2);
+
+  ids.match_long = static_cast<int>(ir.nodes.size());
+  MakeNode(ir, "StringRegexMatch", "match_long");
+  Connect(ir, AddString(ir, "match_long_src", long_source), 0, ids.match_long, 0);
+  Connect(ir, AddString(ir, "match_long_pat", "a"), 0, ids.match_long, 1);
 
   ids.trim = static_cast<int>(ir.nodes.size());
   MakeNode(ir, "StringTrim", "trim");
@@ -428,6 +635,45 @@ GraphIR BuildStringGraph(StringGraph *out)
   MakeNode(ir, "ListConcat", "concat");
   Connect(ir, add2, 0, ids.concat, 0);
   Connect(ir, add2, 0, ids.concat, 1);
+
+  /* [1, 2, 1, 3, 2] feeds the reverse/unique/index-of tail. */
+  const int list_1 = static_cast<int>(ir.nodes.size());
+  MakeNode(ir, "ListAdd", "list_1");
+  Connect(ir, AddFloat(ir, "list_1_value", 1.0f), 0, list_1, 1);
+  const int list_2 = static_cast<int>(ir.nodes.size());
+  MakeNode(ir, "ListAdd", "list_2");
+  Connect(ir, list_1, 0, list_2, 0);
+  Connect(ir, AddFloat(ir, "list_2_value", 2.0f), 0, list_2, 1);
+  const int list_3 = static_cast<int>(ir.nodes.size());
+  MakeNode(ir, "ListAdd", "list_3");
+  Connect(ir, list_2, 0, list_3, 0);
+  Connect(ir, AddFloat(ir, "list_3_value", 1.0f), 0, list_3, 1);
+  const int list_4 = static_cast<int>(ir.nodes.size());
+  MakeNode(ir, "ListAdd", "list_4");
+  Connect(ir, list_3, 0, list_4, 0);
+  Connect(ir, AddFloat(ir, "list_4_value", 3.0f), 0, list_4, 1);
+  ids.list_src = static_cast<int>(ir.nodes.size());
+  MakeNode(ir, "ListAdd", "list_5");
+  Connect(ir, list_4, 0, ids.list_src, 0);
+  Connect(ir, AddFloat(ir, "list_5_value", 2.0f), 0, ids.list_src, 1);
+
+  ids.reverse = static_cast<int>(ir.nodes.size());
+  MakeNode(ir, "ListReverse", "reverse");
+  Connect(ir, ids.list_src, 0, ids.reverse, 0);
+
+  ids.unique = static_cast<int>(ir.nodes.size());
+  MakeNode(ir, "ListUnique", "unique");
+  Connect(ir, ids.list_src, 0, ids.unique, 0);
+
+  ids.index_of = static_cast<int>(ir.nodes.size());
+  MakeNode(ir, "ListIndexOf", "index_of");
+  Connect(ir, ids.list_src, 0, ids.index_of, 0);
+  Connect(ir, AddFloat(ir, "index_of_value", 1.0f), 0, ids.index_of, 1);
+
+  ids.index_missing = static_cast<int>(ir.nodes.size());
+  MakeNode(ir, "ListIndexOf", "index_missing");
+  Connect(ir, ids.list_src, 0, ids.index_missing, 0);
+  Connect(ir, AddFloat(ir, "index_missing_value", 9.0f), 0, ids.index_missing, 1);
 
   *out = ids;
   return ir;
@@ -577,7 +823,7 @@ int main()
         type_id,
         type_id,
         SinkSignature(),
-        [captured]() { return std::unique_ptr<KX_LogicNodeRuntime>(new TestSinkNode(captured)); });
+        [captured]() { return std::unique_ptr<KX_GameNodeRuntime>(new TestSinkNode(captured)); });
   }
 
   std::printf("INFO harness start\n");
@@ -600,6 +846,8 @@ int main()
     input.SetGamepadButton(0, 2, true);
     input.SetGamepadAxis(0, 0, 0.5f, -0.25f);
     input.SetGamepadTrigger(0, 0, 0.75f);
+    /* I-1: analog button value below the 0.4 deadzone. */
+    input.SetGamepadButtonValue(0, 3, 0.3f);
     input.SetTouch(0, 0.25f, 0.5f, true);
     input.SetTouch(1, 0.75f, 0.9f, false);
     instance->Tick(0.016f);
@@ -654,6 +902,96 @@ int main()
           touch0 != nullptr ? touch0->AsFloat() : 0.0f,
           0.25f);
     Check(down0 != nullptr && down0->AsBool(), "TouchInput Down0");
+
+    /* I-1 deadzone: button below 0.4 is not pressed, above it is. */
+    const KX_RuntimeValue *button_dz_down = ReadOutput(*instance, ids.button_dz, 1);
+    Check(button_dz_down != nullptr && !button_dz_down->AsBool(),
+          "GamepadButton inside deadzone not pressed");
+    input.SetGamepadButtonValue(0, 3, 0.8f);
+    instance->Tick(0.016f);
+    button_dz_down = ReadOutput(*instance, ids.button_dz, 1);
+    Check(button_dz_down != nullptr && button_dz_down->AsBool(),
+          "GamepadButton outside deadzone pressed");
+
+    /* I-1: pad 1 lives inside / outside the 0.2 deadzone. */
+    input.SetGamepadAxis(1, 0, 0.1f, 0.0f);
+    input.SetGamepadTrigger(1, 0, 0.1f);
+    instance->Tick(0.016f);
+    const KX_RuntimeValue *axis_dz_x = ReadOutput(*instance, ids.axis_dz, 0);
+    const KX_RuntimeValue *trigger_dz = ReadOutput(*instance, ids.trigger_dz, 0);
+    Check(axis_dz_x != nullptr && axis_dz_x->AsFloat() == 0.0f,
+          "GamepadAxis inside deadzone reads 0",
+          axis_dz_x != nullptr ? axis_dz_x->AsFloat() : 1.0f, 0.0);
+    Check(trigger_dz != nullptr && trigger_dz->AsFloat() == 0.0f,
+          "GamepadTrigger inside deadzone reads 0",
+          trigger_dz != nullptr ? trigger_dz->AsFloat() : 1.0f, 0.0);
+
+    input.SetGamepadAxis(1, 0, 0.6f, 0.0f);
+    input.SetGamepadTrigger(1, 0, 0.75f);
+    instance->Tick(0.016f);
+    axis_dz_x = ReadOutput(*instance, ids.axis_dz, 0);
+    trigger_dz = ReadOutput(*instance, ids.trigger_dz, 0);
+    Check(axis_dz_x != nullptr && std::fabs(axis_dz_x->AsFloat() - 0.5f) < 1e-5f,
+          "GamepadAxis linear remap outside deadzone",
+          axis_dz_x != nullptr ? axis_dz_x->AsFloat() : 0.0f, 0.5);
+    Check(trigger_dz != nullptr && std::fabs(trigger_dz->AsFloat() - 0.6875f) < 1e-5f,
+          "GamepadTrigger linear remap outside deadzone",
+          trigger_dz != nullptr ? trigger_dz->AsFloat() : 0.0f, 0.6875);
+    const KX_RuntimeValue *pad_count = ReadOutput(*instance, ids.gamepad_count, 0);
+    Check(pad_count != nullptr && pad_count->AsInt() == 2, "GamepadCount detects two pads",
+          pad_count != nullptr ? pad_count->AsInt() : 0.0, 2.0);
+
+    /* I-2: two-finger pinch, then rotate, then a third finger. */
+    input.SetTouch(0, 0.2f, 0.5f, true, 0.6f);
+    input.SetTouch(1, 0.4f, 0.5f, true, 0.9f);
+    instance->Tick(0.016f);
+    const KX_RuntimeValue *scale = ReadOutput(*instance, ids.gesture, 0);
+    const KX_RuntimeValue *rotation = ReadOutput(*instance, ids.gesture, 1);
+    const KX_RuntimeValue *active = ReadOutput(*instance, ids.gesture, 2);
+    const KX_RuntimeValue *pressure0 = ReadOutput(*instance, ids.touch, 4);
+    const KX_RuntimeValue *pressure1 = ReadOutput(*instance, ids.touch, 5);
+    const KX_RuntimeValue *down1 = ReadOutput(*instance, ids.touch, 6);
+    Check(active != nullptr && active->AsBool(), "TouchGesture active with two fingers");
+    Check(scale != nullptr && std::fabs(scale->AsFloat() - 1.0f) < 1e-5f,
+          "TouchGesture baseline scale 1", scale != nullptr ? scale->AsFloat() : 0.0f, 1.0);
+    Check(rotation != nullptr && std::fabs(rotation->AsFloat()) < 1e-5f,
+          "TouchGesture baseline rotation 0", rotation != nullptr ? rotation->AsFloat() : 1.0f, 0.0);
+    Check(pressure0 != nullptr && std::fabs(pressure0->AsFloat() - 0.6f) < 1e-5f,
+          "TouchInput Pressure0", pressure0 != nullptr ? pressure0->AsFloat() : 0.0f, 0.6);
+    Check(pressure1 != nullptr && std::fabs(pressure1->AsFloat() - 0.9f) < 1e-5f,
+          "TouchInput Pressure1", pressure1 != nullptr ? pressure1->AsFloat() : 0.0f, 0.9);
+    Check(down1 != nullptr && down1->AsBool(), "TouchInput Down1");
+
+    input.SetTouch(1, 0.5f, 0.5f, true, 0.9f);
+    instance->Tick(0.016f);
+    scale = ReadOutput(*instance, ids.gesture, 0);
+    Check(scale != nullptr && std::fabs(scale->AsFloat() - 1.5f) < 1e-5f,
+          "TouchGesture pinch scale 1.5", scale != nullptr ? scale->AsFloat() : 0.0f, 1.5);
+
+    input.SetTouch(0, 0.2f, 0.3f, true, 0.6f);
+    input.SetTouch(1, 0.2f, 0.5f, true, 0.9f);
+    instance->Tick(0.016f);
+    rotation = ReadOutput(*instance, ids.gesture, 1);
+    Check(rotation != nullptr && std::fabs(rotation->AsFloat() - 90.0f) < 1e-4f,
+          "TouchGesture rotation 90 degrees",
+          rotation != nullptr ? rotation->AsFloat() : 0.0f, 90.0);
+
+    input.SetTouch(2, 0.8f, 0.8f, true, 0.2f);
+    instance->Tick(0.016f);
+    const KX_RuntimeValue *touch_count = ReadOutput(*instance, ids.touch, 0);
+    active = ReadOutput(*instance, ids.gesture, 2);
+    Check(touch_count != nullptr && touch_count->AsInt() == 3,
+          "TouchInput three fingers", touch_count != nullptr ? touch_count->AsInt() : 0.0, 3.0);
+    Check(active != nullptr && active->AsBool(), "TouchGesture active with three fingers");
+    const KX_RuntimeValue *third_pos = ReadOutput(*instance, ids.touch_get, 0);
+    const KX_RuntimeValue *third_pressure = ReadOutput(*instance, ids.touch_get, 1);
+    const KX_RuntimeValue *third_down = ReadOutput(*instance, ids.touch_get, 2);
+    Check(third_pos != nullptr && std::fabs(third_pos->AsFloat() - 0.8f) < 1e-5f,
+          "TouchGet index 2 position.x", third_pos != nullptr ? third_pos->AsFloat() : 0.0f, 0.8);
+    Check(third_pressure != nullptr && std::fabs(third_pressure->AsFloat() - 0.2f) < 1e-5f,
+          "TouchGet index 2 pressure",
+          third_pressure != nullptr ? third_pressure->AsFloat() : 0.0f, 0.2);
+    Check(third_down != nullptr && third_down->AsBool(), "TouchGet index 2 down");
 
     /* KeyCombo uses the mock keyboard state and is pressed on the next frame. */
     input.SetKeyDown("ctrl", true);
@@ -784,6 +1122,20 @@ int main()
     const KX_RuntimeValue *replaced = ReadOutput(*instance, ids.replace, 0);
     Check(replaced != nullptr && std::string(replaced->AsString()) == "abcX",
           "StringRegexReplace result");
+    const KX_RuntimeValue *replaced_all = ReadOutput(*instance, ids.replace_all, 0);
+    Check(replaced_all != nullptr && std::string(replaced_all->AsString()) == "a#b#",
+          "StringRegexReplace replaces every match");
+    const KX_RuntimeValue *replaced_nomatch = ReadOutput(*instance, ids.replace_nomatch, 0);
+    Check(replaced_nomatch != nullptr && std::string(replaced_nomatch->AsString()) == "abc",
+          "StringRegexReplace no match keeps source");
+    const KX_RuntimeValue *replaced_long = ReadOutput(*instance, ids.replace_long, 0);
+    Check(replaced_long != nullptr &&
+              std::string(replaced_long->AsString()).size() == 4097 &&
+              std::string(replaced_long->AsString())[0] == 'a',
+          "StringRegexReplace rejects source longer than 4096 bytes");
+    const KX_RuntimeValue *matched_long = ReadOutput(*instance, ids.match_long, 0);
+    Check(matched_long != nullptr && !matched_long->AsBool(),
+          "StringRegexMatch rejects source longer than 4096 bytes");
 
     const KX_RuntimeValue *trimmed = ReadOutput(*instance, ids.trim, 0);
     Check(trimmed != nullptr && std::string(trimmed->AsString()) == "hi",
@@ -838,7 +1190,219 @@ int main()
     Check(concat != nullptr && concat->size() == 6, "ListConcat 3 + 3",
           concat != nullptr ? static_cast<double>(concat->size()) : 0.0, 6.0);
 
+    const KX_ValueList *src = AsListOf(ReadOutput(*instance, ids.list_src, 0));
+    Check(src != nullptr && src->size() == 5, "ListAdd chain [1,2,1,3,2] has 5 elements",
+          src != nullptr ? static_cast<double>(src->size()) : 0.0, 5.0);
+
+    const KX_ValueList *rev = AsListOf(ReadOutput(*instance, ids.reverse, 0));
+    Check(rev != nullptr && rev->size() == 5 &&
+              (*rev)[0].AsFloat() == 2.0f && (*rev)[1].AsFloat() == 3.0f &&
+              (*rev)[2].AsFloat() == 1.0f && (*rev)[3].AsFloat() == 2.0f &&
+              (*rev)[4].AsFloat() == 1.0f,
+          "ListReverse [1,2,1,3,2] -> [2,3,1,2,1]",
+          rev != nullptr ? static_cast<double>(rev->size()) : 0.0, 5.0);
+
+    const KX_ValueList *uniq = AsListOf(ReadOutput(*instance, ids.unique, 0));
+    Check(uniq != nullptr && uniq->size() == 3 &&
+              (*uniq)[0].AsFloat() == 1.0f && (*uniq)[1].AsFloat() == 2.0f &&
+              (*uniq)[2].AsFloat() == 3.0f,
+          "ListUnique keeps first occurrence order [1,2,3]",
+          uniq != nullptr ? static_cast<double>(uniq->size()) : 0.0, 3.0);
+
+    Check(src != nullptr && src->size() == 5 &&
+              (*src)[0].AsFloat() == 1.0f && (*src)[4].AsFloat() == 2.0f,
+          "ListReverse/ListUnique do not mutate the input list");
+
+    const KX_RuntimeValue *index_hit = ReadOutput(*instance, ids.index_of, 0);
+    Check(index_hit != nullptr && index_hit->AsInt() == 0,
+          "ListIndexOf first 1 -> 0",
+          index_hit != nullptr ? static_cast<double>(index_hit->AsInt()) : -2.0, 0.0);
+
+    const KX_RuntimeValue *index_miss = ReadOutput(*instance, ids.index_missing, 0);
+    Check(index_miss != nullptr && index_miss->AsInt() == -1,
+          "ListIndexOf absent 9 -> -1",
+          index_miss != nullptr ? static_cast<double>(index_miss->AsInt()) : -2.0, -1.0);
+
     delete instance;
+  }
+
+  /* ---------------------------------------------------- regex safety guard */
+  {
+    const std::string rejected = "[Regex] unsafe pattern rejected: nested quantifier";
+
+    /* (a+)+b against 30 a's: without the guard std::regex backtracks ~2^30. */
+    const RegexProbe nested = RunRegexProbe(input, audio, "(a+)+b", std::string(30, 'a'), false);
+    Check(nested.compiled, "nested-quantifier probe graph compiled",
+          nested.compiled ? 1.0 : 0.0, 1.0);
+    Check(!nested.matched, "(a+)+b is rejected instead of matching 30 a's",
+          nested.matched ? 1.0 : 0.0, 0.0);
+    Check(CountOccurrences(nested.diagnostics, rejected) == 1,
+          "(a+)+b wrote the nested-quantifier diagnostic once",
+          static_cast<double>(CountOccurrences(nested.diagnostics, rejected)), 1.0);
+    Check(nested.elapsed_ms < 200.0,
+          "(a+)+b tick returned without backtracking (ms upper bound)",
+          nested.elapsed_ms, 200.0);
+
+    const RegexProbe star = RunRegexProbe(input, audio, "(a*)*", "aaa", false);
+    Check(!star.matched, "(a*)* is rejected", star.matched ? 1.0 : 0.0, 0.0);
+    Check(CountOccurrences(star.diagnostics, rejected) == 1,
+          "(a*)* wrote the nested-quantifier diagnostic once",
+          static_cast<double>(CountOccurrences(star.diagnostics, rejected)), 1.0);
+
+    const RegexProbe doubled = RunRegexProbe(input, audio, "a**", "aaa", false);
+    Check(!doubled.matched, "a** is rejected", doubled.matched ? 1.0 : 0.0, 0.0);
+    Check(CountOccurrences(doubled.diagnostics, rejected) == 1,
+          "a** wrote the nested-quantifier diagnostic once",
+          static_cast<double>(CountOccurrences(doubled.diagnostics, rejected)), 1.0);
+
+    const RegexProbe brace = RunRegexProbe(input, audio, "(a+){2,}", "aaa", false);
+    Check(!brace.matched, "(a+){2,} is rejected", brace.matched ? 1.0 : 0.0, 0.0);
+    Check(CountOccurrences(brace.diagnostics, rejected) == 1,
+          "(a+){2,} wrote the nested-quantifier diagnostic once",
+          static_cast<double>(CountOccurrences(brace.diagnostics, rejected)), 1.0);
+
+    /* Replace shares the same guard: no std::regex construction, source kept. */
+    const RegexProbe replace_rejected = RunRegexProbe(input, audio, "(a+)+", "aaaa", true, "X");
+    Check(replace_rejected.replaced.size() == 4,
+          "StringRegexReplace keeps the source when (a+)+ is rejected",
+          static_cast<double>(replace_rejected.replaced.size()), 4.0);
+    Check(CountOccurrences(replace_rejected.diagnostics, rejected) == 1,
+          "StringRegexReplace wrote the nested-quantifier diagnostic once",
+          static_cast<double>(CountOccurrences(replace_rejected.diagnostics, rejected)), 1.0);
+
+    /* Patterns the guard must not touch. */
+    const RegexProbe plain = RunRegexProbe(input, audio, "abc123", "abc123", false);
+    Check(plain.matched, "abc123 still matches", plain.matched ? 1.0 : 0.0, 1.0);
+
+    const RegexProbe classes = RunRegexProbe(input, audio, "[a-z]+\\d+", "abc123", false);
+    Check(classes.matched, "[a-z]+\\d+ still matches abc123",
+          classes.matched ? 1.0 : 0.0, 1.0);
+
+    const RegexProbe lazy = RunRegexProbe(input, audio, "a+?", "aaa", false);
+    Check(lazy.matched, "lazy a+? is accepted as one quantifier",
+          lazy.matched ? 1.0 : 0.0, 1.0);
+
+    const RegexProbe class_meta = RunRegexProbe(input, audio, "[+*?]", "+", false);
+    Check(class_meta.matched, "[+*?] is accepted (meta characters inside a class)",
+          class_meta.matched ? 1.0 : 0.0, 1.0);
+
+    const RegexProbe escaped = RunRegexProbe(input, audio, "\\+", "+", false);
+    Check(escaped.matched, "\\+ is accepted as an escaped literal",
+          escaped.matched ? 1.0 : 0.0, 1.0);
+
+    const RegexProbe grouped = RunRegexProbe(input, audio, "(ab)+", "ababab", false);
+    Check(grouped.matched, "(ab)+ is accepted (group without inner quantifier)",
+          grouped.matched ? 1.0 : 0.0, 1.0);
+
+    const RegexProbe alternation = RunRegexProbe(input, audio, "(a|b)*", "abab", false);
+    Check(alternation.matched, "(a|b)* is accepted (alternation inside a group)",
+          alternation.matched ? 1.0 : 0.0, 1.0);
+
+    const RegexProbe anchored = RunRegexProbe(input, audio, "^abc$", "abc", false);
+    Check(anchored.matched, "^abc$ is accepted (anchors)",
+          anchored.matched ? 1.0 : 0.0, 1.0);
+
+    const RegexProbe non_capturing = RunRegexProbe(input, audio, "(?:ab)+", "abab", false);
+    Check(non_capturing.matched, "(?:ab)+ is accepted ((? is a group prefix, not a quantifier)",
+          non_capturing.matched ? 1.0 : 0.0, 1.0);
+
+    /* No residual state: a normal pattern runs right after the rejections. */
+    const RegexProbe after = RunRegexProbe(input, audio, "[a-z]+", "abc", false);
+    Check(after.compiled, "normal pattern after rejections still compiles",
+          after.compiled ? 1.0 : 0.0, 1.0);
+    Check(after.matched, "normal pattern after rejections still matches",
+          after.matched ? 1.0 : 0.0, 1.0);
+
+    /* ---- user acceptance table (2026-11-06), rows 1..10 -------------------- *
+     * `flag` packs Matched=2 and Rejected=1 so one assertion covers both.      */
+    auto flag = [](const RegexProbe &probe) {
+      return (probe.matched ? 2.0 : 0.0) + (probe.rejected ? 1.0 : 0.0);
+    };
+
+    /* 1 */ const RegexProbe row1 = RunRegexProbe(input, audio, "(\\d+,)+", "1,2,3,", false);
+    Check(flag(row1) == 2.0,
+          "row1 (\\d+,)+ on 1,2,3, -> Matched=true Rejected=false",
+          flag(row1), 2.0);
+
+    /* 2 */ const RegexProbe row2 = RunRegexProbe(input, audio, "(ab?)+", "abab", false);
+    Check(flag(row2) == 2.0,
+          "row2 (ab?)+ on abab -> Matched=true Rejected=false",
+          flag(row2), 2.0);
+
+    /* 3 */ const RegexProbe row3 = RunRegexProbe(input, audio, "(a+)+b", std::string(30, 'a'), false);
+    Check(flag(row3) == 1.0,
+          "row3 (a+)+b -> Rejected=true Matched=false",
+          flag(row3), 1.0);
+
+    /* 4 */ const RegexProbe row4 = RunRegexProbe(input, audio, "(a*)*", "aaa", false);
+    Check(flag(row4) == 1.0,
+          "row4 (a*)* -> Rejected=true",
+          flag(row4), 1.0);
+
+    /* 5 */ const RegexProbe row5 = RunRegexProbe(input, audio, "(.*)*", "aaa", false);
+    Check(flag(row5) == 1.0,
+          "row5 (.*)* -> Rejected=true",
+          flag(row5), 1.0);
+
+    /* 6 */ const RegexProbe row6 = RunRegexProbe(input, audio, "(a?)+", "aaa", false);
+    Check(flag(row6) == 1.0,
+          "row6 (a?)+ -> Rejected=true",
+          flag(row6), 1.0);
+
+    /* 7 */ const RegexProbe row7 = RunRegexProbe(input, audio, "abc", "xyz", false);
+    Check(flag(row7) == 0.0,
+          "row7 abc on xyz -> Rejected=false Matched=false",
+          flag(row7), 0.0);
+
+    /* 8 */ const RegexProbe row8 = RunRegexProbe(input, audio, "abc", "abc", false);
+    Check(flag(row8) == 2.0,
+          "row8 abc on abc -> Rejected=false Matched=true",
+          flag(row8), 2.0);
+
+    /* 9: a rejected frame must not break the normal pattern on the next frame. */
+    {
+      GraphIR ir;
+      MakeNode(ir, "OnInit", "init");
+      const int bad_node = static_cast<int>(ir.nodes.size());
+      MakeNode(ir, "StringRegexMatch", "bad");
+      Connect(ir, AddRegexString(ir, "bad_src", std::string(30, 'a')), 0, bad_node, 0);
+      Connect(ir, AddRegexString(ir, "bad_pat", "(a+)+b"), 0, bad_node, 1);
+      const int good_node = static_cast<int>(ir.nodes.size());
+      MakeNode(ir, "StringRegexMatch", "good");
+      Connect(ir, AddRegexString(ir, "good_src", "abc"), 0, good_node, 0);
+      Connect(ir, AddRegexString(ir, "good_pat", "[a-z]+"), 0, good_node, 1);
+      KX_GraphInstance *instance = BuildInstance(ir, input, audio);
+      double good_matched_second_frame = 0.0;
+      bool bad_rejected = false;
+      if (instance == nullptr) {
+        Check(false, "row9 two-pattern graph compiled", 0.0, 1.0);
+      }
+      else {
+        StderrCapture capture;
+        capture.Start();
+        instance->Tick(0.016f);
+        instance->Tick(0.016f);
+        capture.Stop();
+        const KX_RuntimeValue *bad = ReadOutput(*instance, bad_node, 2);
+        bad_rejected = bad != nullptr && bad->AsBool();
+        const KX_RuntimeValue *good = ReadOutput(*instance, good_node, 0);
+        good_matched_second_frame = good != nullptr && good->AsBool() ? 1.0 : 0.0;
+        delete instance;
+      }
+      Check(bad_rejected && good_matched_second_frame == 1.0,
+            "row9 after a rejected frame the normal pattern still compiles and matches on frame 2",
+            good_matched_second_frame, 1.0);
+    }
+
+    /* 10: only proves the allowed pattern finishes a SHORT input. It does not
+     * prove long inputs cannot stall: (a|aa)+$ stays unprotected and a 40-char
+     * input measured ~29.7 s before this change. */
+    const RegexProbe row10 =
+        RunRegexProbe(input, audio, "(a|aa)+$", std::string(21, 'a') + "b", false);
+    const bool row10_allowed = !row10.rejected && !row10.matched;
+    Check(row10_allowed && row10.elapsed_ms < 100.0,
+          "row10 (a|aa)+$ on 22 chars is allowed and finishes <100ms (short input only; long input still unprotected)",
+          row10_allowed ? row10.elapsed_ms : -1.0, 100.0);
   }
 
   /* --------------------------------------------------------------- audio E2E */
@@ -921,6 +1485,21 @@ int main()
           "object B attenuation and volume unchanged",
           audio.SettingsOf(handle_b).reference_distance,
           b_ref_before);
+
+    audio.SetAttenuation(object_b, 0, 4.0f, 20.0f);
+    Check(std::fabs(audio.SettingsOf(handle_b).reference_distance - 4.0f) < 1e-5f &&
+              std::fabs(audio.SettingsOf(handle_b).maximum_distance - 20.0f) < 1e-5f,
+          "object B attenuation applied independently",
+          audio.SettingsOf(handle_b).reference_distance,
+          4.0f);
+    Check(std::fabs(audio.SettingsOf(handle_a).reference_distance - 2.0f) < 1e-5f &&
+              std::fabs(audio.SettingsOf(handle_a).maximum_distance - 5.0f) < 1e-5f,
+          "object A attenuation unchanged by object B",
+          audio.SettingsOf(handle_a).reference_distance,
+          2.0f);
+    Check(std::fabs(audio.SettingsOf(handle_a).reference_distance -
+                    audio.SettingsOf(handle_b).reference_distance) > 1e-5f,
+          "two handles keep different attenuation values");
 
     audio.SetDopplerFactor(object_a, 3.0f);
     Check(std::fabs(audio.SettingsOf(handle_a).doppler - 3.0f) < 1e-5f,

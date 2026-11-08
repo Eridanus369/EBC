@@ -240,6 +240,6 @@ void RegisterB6LegacyQueryFunctionGameNodes()
         spec.type_id,
         std::string("KX_FuncB6LQ_") + spec.type_id,
         signature,
-        [entry]() { return std::unique_ptr<KX_LogicNodeRuntime>(new KX_FunctionNode(entry)); });
+        [entry]() { return std::unique_ptr<KX_GameNodeRuntime>(new KX_FunctionNode(entry)); });
   }
 }

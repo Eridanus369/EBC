@@ -29,6 +29,10 @@
 
 #include "KX_GameAdapters.h"
 
+#include <cmath>
+#include <cstdlib>
+#include <string>
+
 #include "KX_GameObject.h"
 
 namespace {
@@ -527,13 +531,54 @@ std::vector<KX_Message> KX_MockMessageAdapter::Receive(const std::string &to,
   return result;
 }
 
+void KX_MockMessageAdapter::SendDelayed(const std::string &to,
+                                         KX_GameObject *from,
+                                         const std::string &subject,
+                                         const std::string &body,
+                                         float delay_seconds)
+{
+  if (!(delay_seconds > 0.0f)) {
+    Send(to, from, subject, body);
+    return;
+  }
+  DelayedMessage entry;
+  entry.message.to = to;
+  entry.message.from = from != nullptr ? from->GetName() : std::string();
+  entry.message.subject = subject;
+  entry.message.body = body;
+  entry.from = from;
+  entry.remaining = delay_seconds;
+  delayed.push_back(entry);
+}
+
+void KX_MockMessageAdapter::TickDelayed(float delta_time)
+{
+  if (delta_time <= 0.0f) {
+    return;
+  }
+  for (size_t index = 0; index < delayed.size();) {
+    delayed[index].remaining -= delta_time;
+    if (delayed[index].remaining > 0.0f) {
+      ++index;
+      continue;
+    }
+    const DelayedMessage entry = delayed[index];
+    delayed.erase(delayed.begin() + static_cast<std::ptrdiff_t>(index));
+    ++delayed_send_calls;
+    Send(entry.message.to, entry.from, entry.message.subject, entry.message.body);
+  }
+}
+
 void KX_MockMessageAdapter::Reset()
 {
+  dropped_delayed += static_cast<uint32_t>(delayed.size());
+  delayed.clear();
   sent.clear();
   mailbox.clear();
   delivered.clear();
   send_calls = 0;
   receive_calls = 0;
+  delayed_send_calls = 0;
 }
 
 uint64_t KX_MockAudioAdapter::PlaySound(const std::string &filepath,
@@ -799,25 +844,95 @@ bool ParseIntStrict(const std::string &text, int &out)
   return true;
 }
 
-bool SplitColon(const std::string &text, std::string *parts, size_t count)
+/** Split "a:b[:c]" into up to three parts; the third may be empty. */
+bool SplitOptionalThird(const std::string &text, std::string *parts)
 {
-  size_t start = 0;
-  for (size_t i = 0; i < count; ++i) {
-    const size_t colon = text.find(':', start);
-    if (i + 1 == count) {
-      parts[i] = text.substr(start);
-      return !parts[i].empty();
-    }
-    if (colon == std::string::npos) {
-      return false;
-    }
-    parts[i] = text.substr(start, colon - start);
-    start = colon + 1;
+  const size_t first = text.find(':');
+  if (first == std::string::npos) {
+    return false;
   }
-  return false;
+  parts[0] = text.substr(0, first);
+  const size_t second = text.find(':', first + 1);
+  if (second == std::string::npos) {
+    parts[1] = text.substr(first + 1);
+    parts[2].clear();
+  }
+  else {
+    parts[1] = text.substr(first + 1, second - first - 1);
+    parts[2] = text.substr(second + 1);
+  }
+  return !parts[0].empty() && !parts[1].empty();
+}
+
+bool ParseFloatStrict(const std::string &text, float &out)
+{
+  if (text.empty()) {
+    return false;
+  }
+  char *end = nullptr;
+  const float value = std::strtof(text.c_str(), &end);
+  if (end == nullptr || *end != '\0') {
+    return false;
+  }
+  out = value;
+  return true;
+}
+
+float ClampUnit(float value)
+{
+  return value < 0.0f ? 0.0f : (value > 1.0f ? 1.0f : value);
+}
+
+/** Remap a stick pair after a radial deadzone; inside the zone both read 0. */
+void ApplyRadialDeadzone(float &x, float &y, float deadzone)
+{
+  deadzone = ClampUnit(deadzone);
+  if (deadzone <= 0.0f) {
+    return;
+  }
+  float magnitude = std::sqrt(x * x + y * y);
+  if (magnitude > 1.0f) {
+    x /= magnitude;
+    y /= magnitude;
+    magnitude = 1.0f;
+  }
+  if (magnitude <= deadzone) {
+    x = 0.0f;
+    y = 0.0f;
+    return;
+  }
+  const float scale = ((magnitude - deadzone) / (1.0f - deadzone)) / magnitude;
+  x *= scale;
+  y *= scale;
+}
+
+/** Remap a 0..1 scalar after a deadzone; inside the zone it reads 0. */
+float ApplyScalarDeadzone(float value, float deadzone)
+{
+  value = ClampUnit(value);
+  deadzone = ClampUnit(deadzone);
+  if (value <= deadzone) {
+    return 0.0f;
+  }
+  if (deadzone <= 0.0f) {
+    return value;
+  }
+  return (value - deadzone) / (1.0f - deadzone);
 }
 
 }  // namespace
+
+void KX_InputAdapter::SetInputMap(const std::string &name,
+                                  const std::string &binding,
+                                  int priority)
+{
+  std::map<std::string, int>::const_iterator it = input_map_priority_.find(name);
+  if (it != input_map_priority_.end() && priority < it->second) {
+    return;
+  }
+  input_map_[name] = binding;
+  input_map_priority_[name] = priority;
+}
 
 bool KX_InputAdapter::ReadInputMap(const std::string &name, float &value, bool &down)
 {
@@ -859,47 +974,54 @@ bool KX_InputAdapter::ReadInputMap(const std::string &name, float &value, bool &
     return true;
   }
   if (kind == "gamepad_button") {
-    std::string parts[2];
+    std::string parts[3];
     int pad = 0;
     int button = 0;
-    if (!SplitColon(rest, parts, 2) || !ParseIntStrict(parts[0], pad) ||
-        !ParseIntStrict(parts[1], button))
+    float deadzone = 0.0f;
+    if (!SplitOptionalThird(rest, parts) || !ParseIntStrict(parts[0], pad) ||
+        !ParseIntStrict(parts[1], button) ||
+        (!parts[2].empty() && !ParseFloatStrict(parts[2], deadzone)))
     {
       return false;
     }
-    down = IsGamepadButtonDown(pad, button);
-    value = down ? 1.0f : 0.0f;
+    value = ApplyScalarDeadzone(GetGamepadButtonValue(pad, button), deadzone);
+    down = value > 0.0f;
     return true;
   }
   if (kind == "gamepad_axis") {
-    std::string parts[2];
+    std::string parts[3];
     int pad = 0;
     int axis = 0;
-    if (!SplitColon(rest, parts, 2) || !ParseIntStrict(parts[0], pad) ||
-        !ParseIntStrict(parts[1], axis))
+    float deadzone = 0.0f;
+    if (!SplitOptionalThird(rest, parts) || !ParseIntStrict(parts[0], pad) ||
+        !ParseIntStrict(parts[1], axis) ||
+        (!parts[2].empty() && !ParseFloatStrict(parts[2], deadzone)))
     {
       return false;
     }
     float x = 0.0f;
     float y = 0.0f;
     GetGamepadAxis(pad, axis, x, y);
+    ApplyRadialDeadzone(x, y, deadzone);
     value = x;
-    down = x > 0.15f || x < -0.15f || y > 0.15f || y < -0.15f;
+    down = x != 0.0f || y != 0.0f;
     return true;
   }
   if (kind == "gamepad_trigger") {
-    std::string parts[2];
+    std::string parts[3];
     int pad = 0;
     int trigger = 0;
-    if (!SplitColon(rest, parts, 2) || !ParseIntStrict(parts[0], pad) ||
-        !ParseIntStrict(parts[1], trigger))
+    float deadzone = 0.0f;
+    if (!SplitOptionalThird(rest, parts) || !ParseIntStrict(parts[0], pad) ||
+        !ParseIntStrict(parts[1], trigger) ||
+        (!parts[2].empty() && !ParseFloatStrict(parts[2], deadzone)))
     {
       return false;
     }
     float amount = 0.0f;
     GetGamepadTrigger(pad, trigger, amount);
-    value = amount;
-    down = amount > 0.05f;
+    value = ApplyScalarDeadzone(amount, deadzone);
+    down = value > 0.0f;
     return true;
   }
   return false;
@@ -908,6 +1030,16 @@ bool KX_InputAdapter::ReadInputMap(const std::string &name, float &value, bool &
 void KX_MockInputAdapter::SetGamepadButton(int pad, int button, bool down)
 {
   gamepad_buttons[std::make_pair(pad, button)] = down;
+}
+
+void KX_MockInputAdapter::SetGamepadButtonValue(int pad, int button, float value)
+{
+  gamepad_button_values[std::make_pair(pad, button)] = value;
+}
+
+void KX_MockInputAdapter::SetGamepadCount(int count)
+{
+  gamepad_count = count < 0 ? 0 : count;
 }
 
 void KX_MockInputAdapter::SetGamepadAxis(int pad, int axis, float x, float y)
@@ -920,7 +1052,7 @@ void KX_MockInputAdapter::SetGamepadTrigger(int pad, int trigger, float value)
   gamepad_triggers[std::make_pair(pad, trigger)] = value;
 }
 
-void KX_MockInputAdapter::SetTouch(int index, float x, float y, bool down)
+void KX_MockInputAdapter::SetTouch(int index, float x, float y, bool down, float pressure)
 {
   if (index < 0) {
     return;
@@ -931,6 +1063,7 @@ void KX_MockInputAdapter::SetTouch(int index, float x, float y, bool down)
   touches[static_cast<size_t>(index)].x = x;
   touches[static_cast<size_t>(index)].y = y;
   touches[static_cast<size_t>(index)].down = down;
+  touches[static_cast<size_t>(index)].pressure = pressure;
 }
 
 void KX_MockInputAdapter::SetKeyDown(const std::string &key, bool down)
@@ -943,6 +1076,42 @@ bool KX_MockInputAdapter::IsGamepadButtonDown(int pad, int button)
   std::map<std::pair<int, int>, bool>::const_iterator it =
       gamepad_buttons.find(std::make_pair(pad, button));
   return it != gamepad_buttons.end() && it->second;
+}
+
+float KX_MockInputAdapter::GetGamepadButtonValue(int pad, int button)
+{
+  std::map<std::pair<int, int>, float>::const_iterator it =
+      gamepad_button_values.find(std::make_pair(pad, button));
+  if (it != gamepad_button_values.end()) {
+    return ClampUnit(it->second);
+  }
+  return IsGamepadButtonDown(pad, button) ? 1.0f : 0.0f;
+}
+
+int KX_MockInputAdapter::GetGamepadCount()
+{
+  if (gamepad_count > 0) {
+    return gamepad_count;
+  }
+  int highest = -1;
+  const auto note_pad = [&highest](const std::pair<int, int> &key) {
+    if (key.first > highest) {
+      highest = key.first;
+    }
+  };
+  for (const auto &entry : gamepad_buttons) {
+    note_pad(entry.first);
+  }
+  for (const auto &entry : gamepad_button_values) {
+    note_pad(entry.first);
+  }
+  for (const auto &entry : gamepad_axes) {
+    note_pad(entry.first);
+  }
+  for (const auto &entry : gamepad_triggers) {
+    note_pad(entry.first);
+  }
+  return highest + 1;
 }
 
 void KX_MockInputAdapter::GetGamepadAxis(int pad, int axis, float &x, float &y)
@@ -984,6 +1153,14 @@ int KX_MockInputAdapter::GetTouchCount()
   return static_cast<int>(touches.size());
 }
 
+float KX_MockInputAdapter::GetTouchPressure(int index)
+{
+  if (index < 0 || static_cast<size_t>(index) >= touches.size()) {
+    return 0.0f;
+  }
+  return ClampUnit(touches[static_cast<size_t>(index)].pressure);
+}
+
 bool KX_MockInputAdapter::IsKeyComboDown(const std::string &keys)
 {
   const std::string trimmed = TrimSpaces(keys);
@@ -1021,6 +1198,7 @@ bool KX_MockInputAdapter::VibrateGamepad(int pad, float intensity, float duratio
 void KX_MockInputAdapter::Reset()
 {
   gamepad_buttons.clear();
+  gamepad_button_values.clear();
   gamepad_axes.clear();
   gamepad_triggers.clear();
   touches.clear();
@@ -1028,7 +1206,9 @@ void KX_MockInputAdapter::Reset()
   vibration_requests.clear();
   vibrate_calls = 0;
   vibrate_result = true;
+  gamepad_count = 0;
   input_map_.clear();
+  input_map_priority_.clear();
 }
 
 /* ------------------------------------------------------------------------- */
@@ -1325,6 +1505,11 @@ bool KX_MockNetworkAdapter::PollEvent(KX_NetworkEvent &out)
   out = events.front();
   events.erase(events.begin());
   return true;
+}
+
+void KX_MockNetworkAdapter::RequeueEvent(const KX_NetworkEvent &event)
+{
+  events.insert(events.begin(), event);
 }
 
 bool KX_MockNetworkAdapter::ListRooms(const std::string &host,

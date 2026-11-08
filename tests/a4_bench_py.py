@@ -5,7 +5,7 @@
 #   build_clean_verify/bin/blender -b --python /tmp/a4_bench_py.py
 #
 # This is the "pure Python" comparison point. The legacy in-engine Python node
-# executor (uplogic/bge_netlogic) is not installed, so it cannot be launched.
+# executor (uplogic/bge_gamenodes) is not installed, so it cannot be launched.
 import os
 import time
 

@@ -294,7 +294,7 @@ void RegisterTestSpec(const KX_FunctionSpec &spec)
   const KX_FunctionSpec *entry = &spec;
   KX_NodeRegistry::Get().RegisterType(
       spec.type_id, std::string("KX_Test_") + spec.type_id, signature, [entry]() {
-        return std::unique_ptr<KX_LogicNodeRuntime>(new KX_FunctionNode(entry));
+        return std::unique_ptr<KX_GameNodeRuntime>(new KX_FunctionNode(entry));
       });
 }
 

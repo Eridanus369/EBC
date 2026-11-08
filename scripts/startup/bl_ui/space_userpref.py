@@ -5,6 +5,7 @@ import struct
 # SPDX-License-Identifier: GPL-2.0-or-later
 
 import bpy
+import sys
 from bpy.types import (
     Header,
     Menu,
@@ -3280,6 +3281,46 @@ class USERPREF_PT_translation_manager(Panel):
         box = layout.box()
         box.operator("userpref.edit_translations", icon='TEXT', text="打开翻译列表 / 添加修改...")
 
+class USERPREF_PT_game_gamenodes(Panel):
+    bl_label = "Game Nodes"
+    bl_space_type = 'PREFERENCES'
+    bl_region_type = 'WINDOW'
+    bl_context = "game"
+
+    def draw(self, context):
+        layout = self.layout
+        prefs = context.preferences.game_nodes
+
+        box = layout.box()
+        col = box.column()
+        col.label(
+            text='Game Nodes require the uplogic module, please install if missing.',
+            icon='CHECKMARK' if 'uplogic' in sys.modules else 'ERROR'
+        )
+        row = col.row(align=True)
+        row.operator('game_nodes.install_uplogic', icon='IMPORT')
+        row.prop(prefs, 'uplogic_version', text='')
+
+        col = layout.column()
+        col.prop(prefs, 'use_reload_text', text="Reload Scripts on Game Start")
+        col.prop(prefs, 'auto_switch_trees', text="Auto-switch logic trees")
+        col.prop(prefs, 'use_node_notify', text="Notifications")
+        col.prop(prefs, 'use_node_debug', text="Debug Mode (Print Errors to Console)")
+
+        col.separator()
+        col.label(text='Additional Nodes')
+        box = col.box()
+        row = box.row(align=True)
+        row.prop(prefs, 'use_fmod_nodes')
+        if prefs.use_fmod_nodes:
+            row.operator('game_nodes.install_pyfmodex', icon='URL', text='Install')
+
+        col.separator()
+        link_row = col.row(align=True)
+        link_row.operator("game_nodes.open_github", icon="URL")
+        link_row.operator("game_nodes.open_donate", icon="FUND")
+
+
 classes = (
     USERPREF_PT_theme_user_interface,
     *ThemeGenericClassGenerator.generate_panel_classes_for_wcols(),
@@ -3296,6 +3337,7 @@ classes = (
     USERPREF_PT_interface_statusbar,
     USERPREF_PT_interface_translation,
     USERPREF_PT_translation_manager,
+    USERPREF_PT_game_gamenodes,
     USERPREF_UL_translations,
     USERPREF_OT_toggle_language,
     USERPREF_OT_edit_translations,

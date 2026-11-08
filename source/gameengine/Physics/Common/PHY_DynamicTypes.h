@@ -78,6 +78,7 @@ typedef enum PHY_ConstraintType {
   PHY_CONE_TWIST_CONSTRAINT = 4,
   PHY_VEHICLE_CONSTRAINT = 11,       // complex 'constraint' that turns a rigidbody into a vehicle
   PHY_GENERIC_6DOF_CONSTRAINT = 12,  // can leave any of the 6 degree of freedom 'free' or 'locked'
+  PHY_SLIDER_CONSTRAINT = 13,        // one free linear axis (X of frameInA), rotations locked
 
 } PHY_ConstraintType;
 

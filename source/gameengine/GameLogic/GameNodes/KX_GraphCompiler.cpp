@@ -191,7 +191,7 @@ KX_CompileResult CompileGraph(const GraphIR &ir)
   /* Stage 1: Resolve                                                       */
   /* ---------------------------------------------------------------------- */
 
-  std::vector<std::unique_ptr<KX_LogicNodeRuntime>> runtime_nodes;
+  std::vector<std::unique_ptr<KX_GameNodeRuntime>> runtime_nodes;
   std::vector<KX_NodeSignature> signatures;
   runtime_nodes.reserve(node_count);
   signatures.reserve(node_count);
@@ -210,7 +210,7 @@ KX_CompileResult CompileGraph(const GraphIR &ir)
     }
 
     const KX_NodeSignature *registered = KX_NodeRegistry::Get().GetSignature(type_id);
-    std::unique_ptr<KX_LogicNodeRuntime> node = KX_NodeRegistry::Get().Create(type_id);
+    std::unique_ptr<KX_GameNodeRuntime> node = KX_NodeRegistry::Get().Create(type_id);
     if (registered == nullptr || !node) {
       AddDiagnostic(diagnostics,
                     KX_CompileDiagnostic::Severity::Error,
@@ -401,7 +401,7 @@ KX_CompileResult CompileGraph(const GraphIR &ir)
   KX_AssetRegistry &asset_registry = KX_AssetRegistry::Get();
 
   for (uint32_t node_index = 0; node_index < node_count; ++node_index) {
-    KX_LogicNodeRuntime &node = *runtime_nodes[node_index];
+    KX_GameNodeRuntime &node = *runtime_nodes[node_index];
     const IRNode &ir_node = ir.nodes[node_index];
     KX_NodeSignature &signature = signatures[node_index];
 
@@ -753,7 +753,7 @@ KX_CompileResult CompileGraph(const GraphIR &ir)
   }
 
   for (uint32_t node_index = 0; node_index < node_count; ++node_index) {
-    KX_LogicNodeRuntime &node = *runtime_nodes[node_index];
+    KX_GameNodeRuntime &node = *runtime_nodes[node_index];
     const uint32_t input_count = static_cast<uint32_t>(input_offsets[node_index].size());
     const uint32_t output_count = static_cast<uint32_t>(output_offsets[node_index].size());
 

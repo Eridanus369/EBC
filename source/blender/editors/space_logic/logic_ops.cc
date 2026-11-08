@@ -64,8 +64,6 @@
 #include "UI_interface.hh"
 #include "UI_view2d.hh"
 
-#include "logic_intern.hh"
-
 namespace blender {
 
 /* ************* Generic Operator Helpers ************* */
@@ -779,81 +777,6 @@ static void LOGIC_OT_actuator_move(wmOperatorType *ot)
       ot->srna, "direction", logicbricks_move_direction, 1, "Direction", "Move Up or Down");
 }
 
-/* ************************ view ********************* */
-
-static wmOperatorStatus logic_view_all_exec(bContext *C, wmOperator *op)
-{
-  using namespace blender::ui;
-  ARegion *region = CTX_wm_region(C);
-  rctf cur_new = region->v2d.tot;
-  float aspect = BLI_rctf_size_y(&region->v2d.cur) / BLI_rctf_size_x(&region->v2d.cur);
-  const int smooth_viewtx = WM_operator_smooth_viewtx_get(op);
-
-  /* force the view2d code to zoom to width, not height */
-  cur_new.ymin = cur_new.ymax - BLI_rctf_size_x(&cur_new) * aspect;
-
-  view2d_smooth_view(C, region, &cur_new, smooth_viewtx);
-
-  return OPERATOR_FINISHED;
-}
-
-static void LOGIC_OT_view_all(wmOperatorType *ot)
-{
-  /* identifiers */
-  ot->name = "View All";
-  ot->idname = "LOGIC_OT_view_all";
-  ot->description = "Resize view so you can see all logic bricks";
-
-  /* api callbacks */
-  ot->exec = logic_view_all_exec;
-  ot->poll = ED_operator_logic_active;
-
-  /* flags */
-  ot->flag = 0;
-}
-
-/* ********** flip a region alignment ********************* */
-
-static wmOperatorStatus logic_region_flip_exec(bContext *C, wmOperator */*op*/)
-{
-  ScrArea *sa = CTX_wm_area(C);
-  blender::ARegion *region = logic_has_buttons_region(sa);
-
-  if (region == nullptr)
-    return OPERATOR_CANCELLED;
-
-  if (region->alignment == RGN_ALIGN_RIGHT) {
-    ED_region_toggle_hidden(C, region);
-    region->alignment = RGN_ALIGN_LEFT;
-  }
-  else if (region->alignment == RGN_ALIGN_LEFT) {
-    ED_region_toggle_hidden(C, region);
-    region->alignment = RGN_ALIGN_RIGHT;
-  }
-
-  ED_area_tag_redraw(CTX_wm_area(C));
-  WM_event_add_mousemove(CTX_wm_window(C));
-  WM_event_add_notifier(C, NC_LOGIC, nullptr);
-  ED_region_toggle_hidden(C, region);
-
-  return OPERATOR_FINISHED;
-}
-
-static void LOGIC_OT_region_flip(wmOperatorType *ot)
-{
-  /* identifiers */
-  ot->name = "Region flip";
-  ot->idname = "LOGIC_OT_region_flip";
-  ot->description = "Toggle the properties region's alignment (left/right)";
-
-  /* api callbacks */
-  ot->exec = logic_region_flip_exec;
-  ot->poll = ED_operator_logic_active;
-
-  /* flags */
-  ot->flag = 0;
-}
-
 /* Custom object operators */
 static wmOperatorStatus python_class_new_invoke(bContext *C, wmOperator *op, const wmEvent */*event*/)
 {
@@ -1404,8 +1327,6 @@ void ED_operatortypes_logic()
   WM_operatortype_append(LOGIC_OT_python_component_remove);
   WM_operatortype_append(LOGIC_OT_python_component_move_up);
   WM_operatortype_append(LOGIC_OT_python_component_move_down);
-  WM_operatortype_append(LOGIC_OT_view_all);
-  WM_operatortype_append(LOGIC_OT_region_flip);
 }
 
 }  // namespace blender

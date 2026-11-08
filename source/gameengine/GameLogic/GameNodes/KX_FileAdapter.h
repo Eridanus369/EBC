@@ -41,9 +41,11 @@
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 class KX_Scene;
+struct KX_DirectoryEntry;
 
 /** Save game and generic file IO service used by the B4 file nodes. */
 class KX_FileAdapter {
@@ -128,7 +130,99 @@ class KX_FileAdapter {
     (void)path;
     return false;
   }
+
+  /* ---------------------------------------------------------------------- */
+  /* B6.9 Fi-1/Fi-2: streaming IO and directory operations (appended).       */
+  /* ---------------------------------------------------------------------- */
+
+  /**
+   * Read a byte range. @p out receives `[offset, offset + length)` clamped to
+   * the file end. @p eof is true when the range reached the end of the file.
+   *
+   * `offset == size` is valid and returns an empty chunk with `eof=true`;
+   * `offset > size` is rejected so a corrupt cursor cannot silently wrap.
+   */
+  virtual bool ReadFileRange(const std::string &path,
+                             size_t offset,
+                             size_t length,
+                             std::string *out,
+                             bool *eof)
+  {
+    (void)path;
+    (void)offset;
+    (void)length;
+    (void)out;
+    (void)eof;
+    return false;
+  }
+
+  /**
+   * Write one chunk. `truncate=true` replaces the file, false appends.
+   * Parent directories are created. There is no inter-process locking: two
+   * independent writers appending the same file interleave chunks in call
+   * order, and a truncating call discards what was written before it.
+   */
+  virtual bool WriteFileRange(const std::string &path, const std::string &data, bool truncate)
+  {
+    (void)path;
+    (void)data;
+    (void)truncate;
+    return false;
+  }
+
+  /**
+   * List the entries of a directory. Names are sorted ascending; each entry
+   * reports whether it is a directory. Only direct children are returned.
+   */
+  virtual bool ListDirectory(const std::string &path,
+                             std::vector<KX_DirectoryEntry> *entries,
+                             std::string *error)
+  {
+    (void)path;
+    (void)entries;
+    (void)error;
+    return false;
+  }
+
+  /** Create a directory; @p parents also creates missing ancestors. */
+  virtual bool CreateDirectory(const std::string &path, bool parents, std::string *error)
+  {
+    (void)path;
+    (void)parents;
+    (void)error;
+    return false;
+  }
+
+  /**
+   * Remove a directory. `recursive=false` refuses a non-empty directory;
+   * `recursive=true` removes its whole subtree first. The root is never
+   * removable (empty path is rejected).
+   */
+  virtual bool RemoveDirectory(const std::string &path, bool recursive, std::string *error)
+  {
+    (void)path;
+    (void)recursive;
+    (void)error;
+    return false;
+  }
 };
+
+/** One direct child of a directory, returned by #KX_FileAdapter::ListDirectory. */
+struct KX_DirectoryEntry {
+  std::string name;
+  bool directory = false;
+};
+
+/**
+ * Validate a directory path. Directory operations are rooted at the blend
+ * directory: absolute paths, `..` and `.` components, backslashes and control
+ * characters are rejected. An empty path means "the blend directory root" and
+ * is only accepted when @p allow_root is true.
+ */
+bool KX_FileAdapterDirectoryPathIsSafe(const std::string &path,
+                                       bool allow_root,
+                                       std::string *sanitized,
+                                       std::string *error = nullptr);
 
 /**
  * In-memory adapter used by unit tests and the B4 E2E probe.
@@ -152,6 +246,14 @@ class KX_MockFileAdapter : public KX_FileAdapter {
   size_t write_calls = 0;
   size_t exists_calls = 0;
   size_t delete_calls = 0;
+  size_t read_range_calls = 0;
+  size_t write_range_calls = 0;
+  size_t list_directory_calls = 0;
+  size_t create_directory_calls = 0;
+  size_t remove_directory_calls = 0;
+
+  /** Directories tracked by the mock; the root is implicit (`""`). */
+  std::unordered_set<std::string> directories;
 
   bool SaveGame(const std::string &slot, const std::string &json_data) override;
   bool LoadGame(const std::string &slot, std::string *json_out) override;
@@ -165,6 +267,17 @@ class KX_MockFileAdapter : public KX_FileAdapter {
                  size_t len) override;
   bool FileExists(const std::string &path) override;
   bool DeleteFile(const std::string &path) override;
+  bool ReadFileRange(const std::string &path,
+                     size_t offset,
+                     size_t length,
+                     std::string *out,
+                     bool *eof) override;
+  bool WriteFileRange(const std::string &path, const std::string &data, bool truncate) override;
+  bool ListDirectory(const std::string &path,
+                     std::vector<KX_DirectoryEntry> *entries,
+                     std::string *error) override;
+  bool CreateDirectory(const std::string &path, bool parents, std::string *error) override;
+  bool RemoveDirectory(const std::string &path, bool recursive, std::string *error) override;
 
   /** Clear every stored file, reset the counters and restore `result = true`. */
   void Reset();
@@ -193,6 +306,17 @@ class KX_FileAdapterEngine : public KX_FileAdapter {
                  size_t len) override;
   bool FileExists(const std::string &path) override;
   bool DeleteFile(const std::string &path) override;
+  bool ReadFileRange(const std::string &path,
+                     size_t offset,
+                     size_t length,
+                     std::string *out,
+                     bool *eof) override;
+  bool WriteFileRange(const std::string &path, const std::string &data, bool truncate) override;
+  bool ListDirectory(const std::string &path,
+                     std::vector<KX_DirectoryEntry> *entries,
+                     std::string *error) override;
+  bool CreateDirectory(const std::string &path, bool parents, std::string *error) override;
+  bool RemoveDirectory(const std::string &path, bool recursive, std::string *error) override;
 
   /** Blend directory this adapter resolves relative paths against. */
   const std::string &BlendDir() const

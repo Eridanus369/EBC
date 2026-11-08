@@ -91,9 +91,9 @@ void HiZBuffer::sync()
   }
 }
 
-void HiZBuffer::update()
+void HiZBuffer::update(bool force)
 {
-  if (!is_dirty_) {
+  if (!is_dirty_ && !force) {
     return;
   }
 

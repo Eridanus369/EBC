@@ -37,7 +37,9 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -326,14 +328,50 @@ const KX_FuncPort kSequenceOutputs[] = {
     TP("Out3"),
 };
 
-void FuncSequence(KX_FunctionNode &node, KX_ExecutionContext &ctx)
+/* Full Sequence: one OnEnter drives every branch.
+ *
+ *   mode=serial   (default) Out0 -> subtree -> Out1 -> subtree -> ...
+ *                 The scheduler runs the whole downstream subtree of one
+ *                 element before raising the next, so a consumer observes the
+ *                 branch order exactly as written.
+ *   mode=parallel          out0..outN are raised together and the scheduler
+ *                 drains their subtrees in output order.
+ *
+ * The pre-B6.9 node advanced one output per OnEnter; that erased the branch
+ * order whenever a single trigger was meant to drive the sequence. */
+struct KX_SequenceState {
+  uint32_t count = 0;
+};
+
+void FuncSequenceExec(KX_FunctionNode &node, KX_ExecutionContext &ctx)
 {
+  KX_SequenceState *state = node.StateBlock<KX_SequenceState>(ctx);
+  state->count = 0;
   if (!node.InTrigger(ctx, 0)) {
     return;
   }
-  uint32_t *index = node.StateBlock<uint32_t>(ctx);
-  node.OutTrigger(ctx, *index, true);
-  *index = (*index + 1u) % node.Spec().output_count;
+  if (node.ConfigString("mode") == "parallel") {
+    for (uint32_t index = 0; index < node.Spec().output_count; ++index) {
+      node.OutTrigger(ctx, index, true);
+    }
+    return;
+  }
+  state->count = node.Spec().output_count;
+}
+
+uint32_t FuncSequencePending(KX_FunctionNode &node, KX_ExecutionContext &ctx)
+{
+  return node.StateBlock<KX_SequenceState>(ctx)->count;
+}
+
+void FuncSequenceElement(KX_FunctionNode &node, KX_ExecutionContext &ctx, uint32_t index)
+{
+  node.OutTrigger(ctx, index, true);
+}
+
+void FuncSequenceFinish(KX_FunctionNode &node, KX_ExecutionContext &ctx)
+{
+  node.StateBlock<KX_SequenceState>(ctx)->count = 0;
 }
 
 const KX_FuncPort kFrameTimeOutputs[] = {
@@ -382,8 +420,15 @@ void FuncPrint(KX_FunctionNode &node, KX_ExecutionContext &ctx)
     return;
   }
   /* Print accepts any value type: format by the runtime tag instead of
-   * forcing a String conversion. */
-  const std::string text = FormatRuntimeValue(node.In(ctx, 1), ctx.Objects());
+   * forcing a String conversion.
+   *
+   * An unbound slot stays KX_VALUE_NONE (IR emitted by an older exporter has
+   * no ConstString for the input). Never report that as the literal string
+   * "None": say explicitly that the input is unset. */
+  const KX_RuntimeValue value = node.In(ctx, 1);
+  const std::string text = (value.type == KX_VALUE_NONE) ?
+                               std::string("<Print: Value input unset>") :
+                               FormatRuntimeValue(value, ctx.Objects());
   std::printf("%s\n", text.c_str());
   node.OutTrigger(ctx, 0, true);
 }
@@ -407,6 +452,9 @@ const KX_FuncPort kSetGravityInputs[] = {
     FP("Gravity", KX_VALUE_VECTOR),
 };
 
+/** Largest per-component gravity accepted by SetGravity (1000 m/s^2). */
+const float kMaxGravityComponent = 1000.0f;
+
 void FuncSetGravity(KX_FunctionNode &node, KX_ExecutionContext &ctx)
 {
   if (!node.InTrigger(ctx, 0)) {
@@ -414,6 +462,20 @@ void FuncSetGravity(KX_FunctionNode &node, KX_ExecutionContext &ctx)
   }
   float gravity[3];
   node.InVector(ctx, 1, gravity);
+  for (int i = 0; i < 3; ++i) {
+    if (!std::isfinite(gravity[i]) ||
+        std::fabs(gravity[i]) > kMaxGravityComponent) {
+      fprintf(stderr,
+              "[SetGravity] rejected gravity (%g,%g,%g): components must be finite "
+              "and within +/-%g\n",
+              double(gravity[0]),
+              double(gravity[1]),
+              double(gravity[2]),
+              double(kMaxGravityComponent));
+      node.OutTrigger(ctx, 0, true);
+      return;
+    }
+  }
   ctx.Physics().SetGravity(gravity);
   node.OutTrigger(ctx, 0, true);
 }
@@ -1226,6 +1288,412 @@ void FuncListLength(KX_FunctionNode &node, KX_ExecutionContext &ctx)
   node.OutInt(ctx, 0, values != nullptr ? static_cast<int>(values->size()) : 0);
 }
 
+/* --- While ---------------------------------------------------------------- */
+
+/* Bounded synchronous loop.
+ *
+ * The condition is a floating point expression evaluated against the loop
+ * counter `i` and any numeric input port of this node ("i<2.5",
+ * "i*Step<10", "i < Threshold"). Because the scheduler expands the whole
+ * sequence inside one frame, input port values are captured when OnEnter
+ * fires and cannot change between iterations; that restriction is documented
+ * in the node docs.
+ *
+ * `max_iterations` is the hard guard. A condition that never turns false stops
+ * at that bound and prints one diagnostic to stderr instead of spinning.
+ */
+struct KX_WhileState {
+  uint32_t count = 0;
+};
+
+using KX_WhileVars = std::map<std::string, double>;
+
+class KX_WhileCondition {
+ public:
+  KX_WhileCondition(const std::string &text, const KX_WhileVars *vars)
+      : text_(text), vars_(vars)
+  {
+  }
+  bool Evaluate(int index, bool *valid)
+  {
+    pos_ = 0;
+    valid_ = true;
+    const bool result = Additive(index) != 0.0;
+    Skip();
+    if (pos_ < text_.size()) {
+      valid_ = false;
+    }
+    *valid = valid_;
+    return result;
+  }
+
+  bool EvaluateBool(int index, bool *valid)
+  {
+    pos_ = 0;
+    valid_ = true;
+    const double left = Additive(index);
+    Skip();
+    if (pos_ >= text_.size()) {
+      *valid = valid_;
+      return left != 0.0;
+    }
+    const char *op = MatchOperator();
+    if (op == nullptr) {
+      valid_ = false;
+      *valid = false;
+      return false;
+    }
+    const double right = Additive(index);
+    Skip();
+    if (pos_ < text_.size()) {
+      valid_ = false;
+      *valid = false;
+      return false;
+    }
+    bool result = false;
+    if (std::strcmp(op, "==") == 0) {
+      result = left == right;
+    }
+    else if (std::strcmp(op, "!=") == 0) {
+      result = left != right;
+    }
+    else if (std::strcmp(op, "<") == 0) {
+      result = left < right;
+    }
+    else if (std::strcmp(op, "<=") == 0) {
+      result = left <= right;
+    }
+    else if (std::strcmp(op, ">") == 0) {
+      result = left > right;
+    }
+    else {
+      result = left >= right;
+    }
+    *valid = valid_;
+    return result;
+  }
+
+ private:
+  void Skip()
+  {
+    while (pos_ < text_.size() && std::isspace(static_cast<unsigned char>(text_[pos_]))) {
+      ++pos_;
+    }
+  }
+
+  bool Peek(char c)
+  {
+    Skip();
+    return pos_ < text_.size() && text_[pos_] == c;
+  }
+
+  const char *MatchOperator()
+  {
+    Skip();
+    if (pos_ + 1 < text_.size()) {
+      const std::string two = text_.substr(pos_, 2);
+      if (two == "==" || two == "!=" || two == "<=" || two == ">=") {
+        pos_ += 2;
+        return two == "==" ? "==" : two == "!=" ? "!=" : two == "<=" ? "<=" : ">=";
+      }
+    }
+    if (pos_ < text_.size()) {
+      const char c = text_[pos_];
+      if (c == '<' || c == '>') {
+        ++pos_;
+        return c == '<' ? "<" : ">";
+      }
+    }
+    return nullptr;
+  }
+
+  double Additive(int index)
+  {
+    double value = Term(index);
+    while (true) {
+      Skip();
+      if (pos_ < text_.size() && (text_[pos_] == '+' || text_[pos_] == '-')) {
+        const char op = text_[pos_++];
+        const double right = Term(index);
+        value = op == '+' ? value + right : value - right;
+      }
+      else {
+        break;
+      }
+    }
+    return value;
+  }
+
+  double Term(int index)
+  {
+    double value = Factor(index);
+    while (true) {
+      Skip();
+      if (pos_ < text_.size() && (text_[pos_] == '*' || text_[pos_] == '/')) {
+        const char op = text_[pos_++];
+        const double right = Factor(index);
+        if (op == '/') {
+          if (right == 0.0) {
+            valid_ = false;
+            return 0.0;
+          }
+          value /= right;
+        }
+        else {
+          value *= right;
+        }
+      }
+      else {
+        break;
+      }
+    }
+    return value;
+  }
+
+  double Factor(int index)
+  {
+    Skip();
+    if (pos_ < text_.size() && text_[pos_] == '-') {
+      ++pos_;
+      return -Factor(index);
+    }
+    if (pos_ < text_.size() && text_[pos_] == '+') {
+      ++pos_;
+      return Factor(index);
+    }
+    if (Peek('(')) {
+      ++pos_;
+      const double value = Additive(index);
+      Skip();
+      if (pos_ < text_.size() && text_[pos_] == ')') {
+        ++pos_;
+      }
+      else {
+        valid_ = false;
+      }
+      return value;
+    }
+    if (pos_ < text_.size() &&
+        (std::isalpha(static_cast<unsigned char>(text_[pos_])) || text_[pos_] == '_')) {
+      size_t begin = pos_;
+      while (pos_ < text_.size() &&
+             (std::isalnum(static_cast<unsigned char>(text_[pos_])) || text_[pos_] == '_')) {
+        ++pos_;
+      }
+      std::string name = text_.substr(begin, pos_ - begin);
+      for (char &c : name) {
+        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+      }
+      if (name == "i") {
+        return static_cast<double>(index);
+      }
+      if (vars_ != nullptr) {
+        const auto it = vars_->find(name);
+        if (it != vars_->end()) {
+          return it->second;
+        }
+      }
+      valid_ = false;
+      return 0.0;
+    }
+    if (pos_ < text_.size() &&
+        (std::isdigit(static_cast<unsigned char>(text_[pos_])) || text_[pos_] == '.')) {
+      size_t begin = pos_;
+      while (pos_ < text_.size() &&
+             (std::isdigit(static_cast<unsigned char>(text_[pos_])) || text_[pos_] == '.')) {
+        ++pos_;
+      }
+      const std::string literal = text_.substr(begin, pos_ - begin);
+      char *end = nullptr;
+      const double value = std::strtod(literal.c_str(), &end);
+      if (end == literal.c_str()) {
+        valid_ = false;
+        return 0.0;
+      }
+      return value;
+    }
+    valid_ = false;
+    return 0.0;
+  }
+
+  std::string text_;
+  const KX_WhileVars *vars_ = nullptr;
+  size_t pos_ = 0;
+  bool valid_ = true;
+};
+
+const KX_FuncPort kWhileInputs[] = {
+    TP("OnEnter"),
+    FP("Condition", KX_VALUE_BOOL),
+    FP("Threshold", KX_VALUE_FLOAT),
+    FP("Step", KX_VALUE_FLOAT),
+};
+const KX_FuncPort kWhileOutputs[] = {
+    TP("OnIteration"),
+    FP("Index", KX_VALUE_INT),
+    TP("OnDone"),
+};
+
+void FuncWhileExec(KX_FunctionNode &node, KX_ExecutionContext &ctx)
+{
+  KX_WhileState *state = node.StateBlock<KX_WhileState>(ctx);
+  state->count = 0;
+  if (!node.InTrigger(ctx, 0)) {
+    return;
+  }
+
+  const int limit = std::max(1, node.ConfigInt("max_iterations", 1000));
+  const std::string text = node.ConfigString("condition");
+
+  if (!text.empty()) {
+    /* Every non-trigger input port is addressable by its lower-cased name, so
+     * the condition can mix `i` with floats/ints/bools wired into this node. */
+    KX_WhileVars vars;
+    for (uint32_t input = 1; input < node.Spec().input_count; ++input) {
+      const KX_FuncPort &port = node.Spec().inputs[input];
+      if (port.trigger) {
+        continue;
+      }
+      double value = 0.0;
+      switch (port.type) {
+        case KX_VALUE_FLOAT:
+          value = node.InFloat(ctx, input);
+          break;
+        case KX_VALUE_INT:
+          value = static_cast<double>(node.InInt(ctx, input));
+          break;
+        case KX_VALUE_BOOL:
+          value = node.InBool(ctx, input) ? 1.0 : 0.0;
+          break;
+        default:
+          continue;
+      }
+      std::string name = port.name;
+      for (char &c : name) {
+        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+      }
+      vars[name] = value;
+    }
+    KX_WhileCondition condition(text, &vars);
+    int iterations = 0;
+    bool valid = true;
+    while (iterations < limit) {
+      if (!condition.EvaluateBool(iterations, &valid)) {
+        break;
+      }
+      ++iterations;
+    }
+    if (!valid) {
+      std::fprintf(stderr,
+                   "[While] invalid condition '%s' (use `i`, input port names, decimals "
+                   "and + - * / comparisons)\n",
+                   text.c_str());
+    }
+    else if (iterations >= limit) {
+      std::fprintf(stderr,
+                   "[While] stopped at max_iterations=%d: condition '%s' still true\n",
+                   limit,
+                   text.c_str());
+    }
+    state->count = static_cast<uint32_t>(iterations);
+    if (state->count == 0) {
+      node.OutTrigger(ctx, 2, true);
+    }
+    return;
+  }
+
+  /* No condition expression: the bool input is evaluated once per OnEnter. An
+   * always-true input is still bounded by max_iterations plus a diagnostic. */
+  const bool condition = node.InBool(ctx, 1);
+  if (!condition) {
+    node.OutTrigger(ctx, 2, true);
+    return;
+  }
+  std::fprintf(stderr,
+               "[While] stopped at max_iterations=%d: Condition input still true\n",
+               limit);
+  state->count = static_cast<uint32_t>(limit);
+}
+
+uint32_t FuncWhilePending(KX_FunctionNode &node, KX_ExecutionContext &ctx)
+{
+  return node.StateBlock<KX_WhileState>(ctx)->count;
+}
+
+void FuncWhileElement(KX_FunctionNode &node, KX_ExecutionContext &ctx, uint32_t index)
+{
+  node.OutInt(ctx, 1, static_cast<int>(index));
+  node.OutTrigger(ctx, 0, true);
+}
+
+void FuncWhileFinish(KX_FunctionNode &node, KX_ExecutionContext &ctx)
+{
+  node.StateBlock<KX_WhileState>(ctx)->count = 0;
+  node.OutTrigger(ctx, 2, true);
+}
+
+/* --- ConstInt ------------------------------------------------------------- */
+
+const KX_FuncPort kConstIntOutputs[] = {FP("Value", KX_VALUE_INT)};
+
+void FuncConstInt(KX_FunctionNode &node, KX_ExecutionContext &ctx)
+{
+  const std::string text = node.ConfigString("value");
+  const int value = !text.empty() ? std::atoi(text.c_str()) : node.ConfigInt("value", 0);
+  node.OutInt(ctx, 0, value);
+}
+
+/* --- ConstString ---------------------------------------------------------- */
+
+const KX_FuncPort kConstStringOutputs[] = {FP("Value", KX_VALUE_STRING)};
+
+void FuncConstString(KX_FunctionNode &node, KX_ExecutionContext &ctx)
+{
+  node.OutString(ctx, 0, node.ConfigString("value"));
+}
+
+/* --- ConstVector ---------------------------------------------------------- */
+
+const KX_FuncPort kConstVectorOutputs[] = {FP("Value", KX_VALUE_VECTOR)};
+
+void FuncConstVector(KX_FunctionNode &node, KX_ExecutionContext &ctx)
+{
+  float value[3];
+  node.ConfigVector("value", value);
+  node.OutVector(ctx, 0, value[0], value[1], value[2]);
+}
+
+/* --- Switch --------------------------------------------------------------- */
+
+/* Multi branch trigger. Value selects exactly one CaseN output; values outside
+ * [0, output_count-1] go to Default. */
+const KX_FuncPort kSwitchInputs[] = {
+    TP("OnEnter"),
+    FP("Value", KX_VALUE_INT),
+};
+const KX_FuncPort kSwitchOutputs[] = {
+    TP("Case0"),
+    TP("Case1"),
+    TP("Case2"),
+    TP("Case3"),
+    TP("Default"),
+};
+
+void FuncSwitch(KX_FunctionNode &node, KX_ExecutionContext &ctx)
+{
+  if (!node.InTrigger(ctx, 0)) {
+    return;
+  }
+  const int value = node.InInt(ctx, 1);
+  const uint32_t case_count = node.Spec().output_count - 1;
+  if (value >= 0 && static_cast<uint32_t>(value) < case_count) {
+    node.OutTrigger(ctx, static_cast<uint32_t>(value), true);
+  }
+  else {
+    node.OutTrigger(ctx, case_count, true);
+  }
+}
+
 /* ------------------------------------------------------------------------- */
 /* Table                                                                     */
 /* ------------------------------------------------------------------------- */
@@ -1271,6 +1739,12 @@ void FuncListLength(KX_FunctionNode &node, KX_ExecutionContext &ctx)
 #define STATIC_STATE_NODE(id, ins, outs, exec, state_type) \
   KX_FunctionSpec {id, ins, PORT_COUNT(ins), outs, PORT_COUNT(outs), exec, nullptr, nullptr, \
                    static_cast<uint32_t>(sizeof(state_type)), alignof(state_type), false, false, false}
+
+/* Sequence / While: one OnEnter fans out into a bounded pending sequence. */
+#define PENDING_NODE(id, ins, outs, exec, pending_count, pending_element, pending_finish, state_type) \
+  KX_FunctionSpec {id, ins, PORT_COUNT(ins), outs, PORT_COUNT(outs), exec, nullptr, nullptr, \
+                   static_cast<uint32_t>(sizeof(state_type)), alignof(state_type), false, false, false, \
+                   pending_count, pending_element, pending_finish}
 
 #define NO_INPUT_STATE_NODE(id, outs, tick_fn, state_type) \
   KX_FunctionSpec {id, nullptr, 0, outs, PORT_COUNT(outs), nullptr, nullptr, tick_fn, \
@@ -1330,7 +1804,26 @@ const KX_FunctionSpec kSpecs[] = {
 
     STATE_NODE("Timer", kTimerInputs, kTimerOutputs, FuncTimerExec, FuncTimerTick, KX_TimerState),
     STATIC_STATE_NODE("Once", kOnceInputs, kOnceOutputs, FuncOnce, bool),
-    STATIC_STATE_NODE("Sequence", kSequenceInputs, kSequenceOutputs, FuncSequence, uint32_t),
+    PENDING_NODE("Sequence",
+                 kSequenceInputs,
+                 kSequenceOutputs,
+                 FuncSequenceExec,
+                 FuncSequencePending,
+                 FuncSequenceElement,
+                 FuncSequenceFinish,
+                 KX_SequenceState),
+    PENDING_NODE("While",
+                 kWhileInputs,
+                 kWhileOutputs,
+                 FuncWhileExec,
+                 FuncWhilePending,
+                 FuncWhileElement,
+                 FuncWhileFinish,
+                 KX_WhileState),
+    NODE("Switch", kSwitchInputs, kSwitchOutputs, FuncSwitch),
+    NO_INPUT_VALUE_NODE("ConstInt", kConstIntOutputs, FuncConstInt),
+    NO_INPUT_VALUE_NODE("ConstString", kConstStringOutputs, FuncConstString),
+    NO_INPUT_VALUE_NODE("ConstVector", kConstVectorOutputs, FuncConstVector),
     NO_INPUT_STATE_NODE("FrameTime", kFrameTimeOutputs, FuncFrameTimeTick, float),
 
     VALUE_NODE("WorldPosition", kObjectValueInputs, kWorldTransformOutputs, FuncWorldPosition),
@@ -1452,7 +1945,7 @@ KX_ValueType KX_FunctionNode::ResolvedPortType(bool input, uint32_t port) const
       return type;
     }
   }
-  return KX_LogicNodeRuntime::ResolvedPortType(input, port);
+  return KX_GameNodeRuntime::ResolvedPortType(input, port);
 }
 
 float KX_FunctionNode::ConfigFloat(const char *key, float fallback) const
@@ -1555,7 +2048,7 @@ void RegisterFunctionGameNodes()
         std::string("KX_Func_") + spec.type_id,
         MakeSignature(*entry),
         [entry]() {
-          return std::unique_ptr<KX_LogicNodeRuntime>(new KX_FunctionNode(entry));
+          return std::unique_ptr<KX_GameNodeRuntime>(new KX_FunctionNode(entry));
         });
   }
 }

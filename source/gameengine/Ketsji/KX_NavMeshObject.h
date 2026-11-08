@@ -56,6 +56,8 @@ class KX_NavMeshObject : public KX_GameObject {
   virtual void ProcessReplica();
 
   bool BuildNavMesh();
+  /** Runtime Recast bake (player-side, no bContext); agent size takes effect. */
+  bool BuildNavMeshRuntime(float agent_radius, float agent_height);
   dtStatNavMesh *GetNavMesh();
   int FindPath(const MT_Vector3 &from, const MT_Vector3 &to, float *path, int maxPathLen);
   float Raycast(const MT_Vector3 &from, const MT_Vector3 &to);

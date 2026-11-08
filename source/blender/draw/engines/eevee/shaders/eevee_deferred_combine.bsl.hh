@@ -8,6 +8,7 @@
 #include "eevee_closure.bsl.hh"
 #include "eevee_colorspace_lib.bsl.hh"
 #include "eevee_gbuffer_read.bsl.hh"
+#include "eevee_heightfield_lib.bsl.hh"
 #include "eevee_hiz.bsl.hh"
 #include "eevee_renderpass.bsl.hh"
 #include "gpu_shader_fullscreen.bsl.hh"
@@ -105,13 +106,21 @@ void combine_frag([[resource_table]] Combine &srt,
                   [[resource_table]] const Uniform &uni,
                   [[resource_table]] const HiZ &hiz,
                   [[resource_table]] const ::gbuffer::Reader &reader,
+                  [[resource_table]] const HeightfieldSample &hf,
                   [[frag_coord]] const float4 frag_co,
                   [[in]] const CombineVertOut &v_out,
                   [[out]] CombineFragOut &frag_out)
 {
   int2 texel = int2(frag_co.xy);
 
-  const gbuffer::Layers gbuf = reader.read_layers(texel);
+  gbuffer::Layers gbuf = reader.read_layers(texel);
+  /* Override the carrier plane normal by the analytic normal of the displaced heightfield. */
+  if (hf.is_valid(texel)) {
+    float3 N_hf = hf.override_normal(texel, gbuf.surface_N());
+    for (int i = 0; i < 3 /* GBUFFER_LAYER_MAX */; i++) [[unroll]] {
+      gbuf.layer[i].N = N_hf;
+    }
+  }
   const uchar closure_count = gbuf.header.closure_len();
   const uint3 bin_indices = gbuf.header.bin_index_per_layer();
 
@@ -300,6 +309,10 @@ void combine_frag([[resource_table]] Combine &srt,
   }
 
   frag_out.combined = float4(out_direct + out_indirect, 0.0f);
+  /* Ray marched micro shadows and ambient occlusion of the displaced surface. Since they only
+   * modulate the already evaluated radiance, the native EEVEE shadow / AO / probe lighting is left
+   * untouched. */
+  frag_out.combined.rgb *= hf.shade_factor(texel);
 
   /* Add caustics. The caustic map is screen space, so reject photons that ended up behind the
    * visible surface using the HiZ depth (caustic alpha stores the photon camera distance). */

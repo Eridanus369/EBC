@@ -264,6 +264,40 @@ float BL_Action::GetFrame()
   return m_localframe;
 }
 
+float BL_Action::GetFrameAtTime(float curtime)
+{
+  if (m_action == nullptr || m_done) {
+    return m_localframe;
+  }
+
+  /* Predict from the last applied update. The node graph runs before the render-time action
+   * update, so this is the frame Update() is about to apply for the current engine time. */
+  const float base_time = (m_prevUpdate >= 0.0f) ? m_prevUpdate : m_starttime;
+  const float base_frame = (m_prevUpdate >= 0.0f) ? m_localframe : m_startframe;
+  float dt = (curtime - base_time) * (float)KX_GetActiveEngine()->GetAnimFrameRate() * m_speed;
+  if (m_endframe < m_startframe) {
+    dt = -dt;
+  }
+  float frame = base_frame + dt;
+
+  const float min_frame = std::min(m_startframe, m_endframe);
+  const float max_frame = std::max(m_startframe, m_endframe);
+  if (frame < min_frame || frame > max_frame) {
+    switch (m_playmode) {
+      case ACT_MODE_PLAY:
+      case ACT_MODE_PING_PONG:
+        frame = m_endframe;
+        break;
+      case ACT_MODE_LOOP:
+        frame = m_startframe;
+        break;
+      default:
+        break;
+    }
+  }
+  return frame;
+}
+
 const std::string BL_Action::GetName()
 {
   if (m_action != nullptr) {
@@ -563,7 +597,18 @@ void BL_Action::UpdateArmatureAnimation(float curtime,
 
   ProcessArmatureBlending(obj, curtime);
 
-  obj->ApplyPose();
+  /* Fix the additive base per frame: the pose as evaluated by the action pipeline, before any
+   * manual override is applied. Additive SetBoneTransform entries combine against this base,
+   * so they never accumulate across frames, even if the node only fired once in OnInit. */
+  obj->CapturePoseOverrideBases();
+
+  /* Reapply the manual pose overrides registered by SetBoneTransform after the action
+   * fcurves and layer blending have written the channels. Without this the animated channel
+   * wins the final pose for the whole frame. ApplyPoseOverrides() also evaluates the pose,
+   * so the guarded ApplyPose() below is skipped when an override was applied. */
+  if (!obj->ApplyPoseOverrides()) {
+    obj->ApplyPose();
+  }
 
   ProcessPipeline(obj, ob, scene, animEvalContext, gpu_skinning);
 

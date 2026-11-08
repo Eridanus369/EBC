@@ -24,7 +24,7 @@
 /** \file KX_ExecutionContext.h
  *  \ingroup gamelogic
  *
- *  Execution state handed to every #KX_LogicNodeRuntime while a graph runs.
+ *  Execution state handed to every #KX_GameNodeRuntime while a graph runs.
  *
  *  It owns the per graph #KX_RuntimeData buffer and the engine side context
  *  (scene, owner object, frame counters). It also implements the fixed frame
@@ -43,6 +43,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <vector>
 
 #include "KX_GameDataAsset.h"
@@ -210,7 +211,7 @@ class KX_ExecutionContext {
   /**
    * Queue a trigger output raised outside the regular output scan.
    *
-   * Called by #KX_LogicNodeRuntime::EmitPendingTrigger from a Tick callback.
+   * Called by #KX_GameNodeRuntime::EmitPendingTrigger from a Tick callback.
    * The current tick node is recorded by #TickStatefulNodes.
    */
   void EnqueuePendingOutput(uint32_t output_offset);
@@ -223,6 +224,15 @@ class KX_ExecutionContext {
    * the scheduler contract.
    */
   uint32_t DuplicateExecutions() const;
+
+  /**
+   * Opaque per-instance slot shared by cooperating UI nodes.
+   *
+   * The screen stack needs one state object per graph instance so two mounted
+   * graphs never share a stack. The slot lives on the context, which survives
+   * #KX_GraphInstance::Rebuild, so a hot reload keeps the stack contents.
+   */
+  std::shared_ptr<void> &UISharedState();
 
   /**
    * Physics query used by the Raycast node.
@@ -274,4 +284,6 @@ class KX_ExecutionContext {
   KX_PhysicsAdvancedAdapter *physics_advanced_adapter_ = nullptr;
   std::vector<uint8_t> executed_nodes_;
   uint32_t duplicate_executions_ = 0;
+  /** Instance-scoped UI state (see #UISharedState). */
+  std::shared_ptr<void> ui_shared_state_;
 };

@@ -52,12 +52,23 @@ struct KX_UIRenderStats {
   int culled = 0;
   /** B6.6: filled circle draws requested; one per visible slider knob. */
   int circle_calls = 0;
+  /** B6.6: segment count of the most recent knob circle (16 means 16-gon). */
+  int circle_segments = 0;
+  /** B6.6: radius of the most recent knob circle, in pixels. */
+  float circle_radius = 0.0f;
+  /** B6.6: max |vertex distance - radius| over the emitted fan vertices. */
+  float circle_radius_deviation = 0.0f;
 };
 
 /** B6.6: one run of label text with its own color. */
 struct KX_UIRichSegment {
   std::string text;
   float color[4] = {1.0f, 1.0f, 1.0f, 1.0f};
+  /**
+   * B6.7/G.3: per-run font size from `{size:N}`. Zero means "use the element
+   * font size", which is also the value for runs outside any size tag.
+   */
+  float size = 0.0f;
 };
 
 class KX_UIRenderer {
@@ -87,8 +98,12 @@ class KX_UIRenderer {
 
   /**
    * B6.6: split `{color:red}...{/color}` / `{color:#RRGGBB}...{/color}`
-   * markup into colored runs. Nesting is not supported: the innermost color
-   * wins and the renderer warns once.
+   * markup into colored runs. G.3 adds `{size:N}...{/size}` runs.
+   *
+   * Color nesting keeps the B6.6 contract: the innermost color wins and the
+   * renderer warns once. Size nesting is stack based, so `{/size}` restores
+   * the enclosing size. Bold/italic/underline have no BLF equivalent and are
+   * deliberately not accepted as markup.
    */
   static std::vector<KX_UIRichSegment> ParseRichText(const std::string &text,
                                                      const float base_color[4]);

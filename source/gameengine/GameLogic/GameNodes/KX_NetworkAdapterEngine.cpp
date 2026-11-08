@@ -77,6 +77,27 @@ const size_t kMaxOutboxPackets = 256;
 const int kConnectTimeoutMs = 300;
 const int kWelcomeTimeoutMs = 100;
 const int kRoomListTimeoutMs = 300;
+/* B6.9-N N-1 discovery. Fixed semantics:
+ *   - one broadcast query every 200 ms inside the caller's window;
+ *   - default window 1000 ms (five broadcasts), clamped 100..5000 ms;
+ *   - a room that does not answer inside one window is offline: the next
+ *     DiscoverRooms call starts from an empty list, so it simply disappears;
+ *   - replies are de-duplicated by source endpoint ip:port, not room name
+ *     (names are not unique and joining needs an address). */
+const int kDiscoveryIntervalMs = 200;
+const int kDiscoveryDefaultTimeoutMs = 1000;
+const int kDiscoveryMaxTimeoutMs = 5000;
+/* B6.9-N N-2 state sync. Fixed semantics:
+ *   - 20 Hz fixed rate (one packet every 50 ms), not per frame and not
+ *     change-triggered, so the byte rate is predictable;
+ *   - position and rotation are int16 fixed point (1 cm / 0.01 degree),
+ *     animation phase is uint16 over [0, 1];
+ *   - loss keeps the last pose: no interpolation, no extrapolation. A newer
+ *     sequence overwrites it directly; stale/reordered packets are dropped. */
+const int kStateSyncIntervalMs = 50;
+const float kStatePositionScale = 100.0f;
+const float kStateRotationScale = 100.0f;
+const float kStateAnimationPhaseScale = 65535.0f;
 
 enum PacketType : uint8_t {
   PKT_HELLO = 1,
@@ -88,6 +109,10 @@ enum PacketType : uint8_t {
   /* v2 additions, only ever sent over UDP. */
   PKT_ROOMLIST = 7, /* request: empty payload */
   PKT_ROOMINFO = 8, /* reply: name(U16+bytes), players(I32), max(I32) */
+  /* B6.9-N additions, only over UDP. */
+  PKT_DISCOVER = 9, /* broadcast query to 255.255.255.255:port */
+  PKT_STATE = 10,   /* player pose: seq(U16), flags(U8), pos(3*I16), rot(3*I16),
+                     * optional anim(U8)+phase(U16) when flags bit0 is set. */
 };
 
 enum PacketFlags : uint8_t {
@@ -116,6 +141,11 @@ void AppendU32(std::string &out, uint32_t value)
 void AppendI32(std::string &out, int32_t value)
 {
   AppendU32(out, uint32_t(value));
+}
+
+void AppendI16(std::string &out, int16_t value)
+{
+  AppendU16(out, uint16_t(value));
 }
 
 bool ReadU8(const std::string &buffer, size_t &cursor, uint8_t &out)
@@ -156,6 +186,16 @@ bool ReadI32(const std::string &buffer, size_t &cursor, int32_t &out)
     return false;
   }
   out = int32_t(raw);
+  return true;
+}
+
+bool ReadI16(const std::string &buffer, size_t &cursor, int16_t &out)
+{
+  uint16_t raw = 0;
+  if (!ReadU16(buffer, cursor, raw)) {
+    return false;
+  }
+  out = int16_t(raw);
   return true;
 }
 
@@ -468,6 +508,9 @@ class EngineNetworkAdapter final : public KX_NetworkAdapter {
     max_players_ = max_players;
     host_port_ = port;
     connected_ = true;
+    /* The host itself is a player (max_players includes it); without this a
+     * freshly hosted, client-less room advertised players=0. */
+    player_count_ = 1;
     last_error_.clear();
     return true;
   }
@@ -618,7 +661,11 @@ class EngineNetworkAdapter final : public KX_NetworkAdapter {
       for (HostPeer &peer : peers_) {
         QueuePacket(peer, packet, true);
       }
-      FlushPeer(peers_[0]);
+      /* A host with no connected clients has an empty peers_ vector; indexing
+       * it was a crash on the "host stops before anyone joins" path. */
+      if (!peers_.empty()) {
+        FlushPeer(peers_[0]);
+      }
     }
     Shutdown();
     role_ = Role::None;
@@ -919,17 +966,182 @@ class EngineNetworkAdapter final : public KX_NetworkAdapter {
     return true;
   }
 
+  /* B6.9-Ms Ms-1: OnRPC drains RPC envelopes and puts unrelated events back. */
+  void RequeueEvent(const KX_NetworkEvent &event) override
+  {
+    events_.push_front(event);
+  }
+
   void Tick() override
   {
     Pump();
     for (HostPeer &peer : peers_) {
       FlushPeer(peer);
     }
+    PumpStateSync();
   }
 
   Role GetRole() const override { return role_; }
   bool IsConnected() const override { return connected_; }
   std::string LastError() const override { return last_error_; }
+
+  /* B6.9-N N-1: every 200 ms send a PKT_DISCOVER to the limited broadcast
+   * address and to loopback (the latter keeps a same-machine room reachable in
+   * containers that have no broadcast route). Replies are collected until the
+   * window ends; duplicate endpoints collapse into one entry. */
+  bool DiscoverRooms(int port,
+                     int timeout_ms,
+                     std::vector<KX_RoomInfo> &out,
+                     std::string *error = nullptr) override
+  {
+    out.clear();
+    if (port <= 0 || port > 65535) {
+      SetError("DiscoverRooms: port must be 1..65535");
+      if (error != nullptr) {
+        *error = last_error_;
+      }
+      return false;
+    }
+    int window_ms = timeout_ms > 0 ? timeout_ms : kDiscoveryDefaultTimeoutMs;
+    window_ms = std::max(100, std::min(window_ms, kDiscoveryMaxTimeoutMs));
+
+    SocketHandle probe = socket(AF_INET, SOCK_DGRAM, 0);
+    if (probe == KX_INVALID_SOCKET) {
+      SetError(std::string("DiscoverRooms: socket() failed: ") + SocketErrorText());
+      if (error != nullptr) {
+        *error = last_error_;
+      }
+      return false;
+    }
+    int enable = 1;
+    setsockopt(probe,
+               SOL_SOCKET,
+               SO_BROADCAST,
+               reinterpret_cast<const char *>(&enable),
+               sizeof(enable));
+    setsockopt(probe,
+               SOL_SOCKET,
+               SO_REUSEADDR,
+               reinterpret_cast<const char *>(&enable),
+               sizeof(enable));
+
+    sockaddr_in local;
+    std::memset(&local, 0, sizeof(local));
+    local.sin_family = AF_INET;
+    local.sin_addr.s_addr = htonl(INADDR_ANY);
+    local.sin_port = 0;
+    if (bind(probe, reinterpret_cast<sockaddr *>(&local), sizeof(local)) != 0) {
+      SetError(std::string("DiscoverRooms: bind() failed: ") + SocketErrorText());
+      CloseSocket(probe);
+      if (error != nullptr) {
+        *error = last_error_;
+      }
+      return false;
+    }
+    SetNonBlocking(probe);
+
+    sockaddr_in broadcast_target;
+    std::memset(&broadcast_target, 0, sizeof(broadcast_target));
+    broadcast_target.sin_family = AF_INET;
+    broadcast_target.sin_port = htons(uint16_t(port));
+    broadcast_target.sin_addr.s_addr = htonl(0xFFFFFFFFu); /* 255.255.255.255 */
+
+    sockaddr_in loopback_target;
+    std::memset(&loopback_target, 0, sizeof(loopback_target));
+    loopback_target.sin_family = AF_INET;
+    loopback_target.sin_port = htons(uint16_t(port));
+    loopback_target.sin_addr.s_addr = htonl(0x7F000001u); /* 127.0.0.1 */
+
+    std::string request = BuildPacket(PKT_DISCOVER, FLAG_RELIABLE, -1, std::string());
+    std::map<std::string, KX_RoomInfo> rooms;
+    std::vector<char> buffer(kMaxDatagramBytes);
+    bool send_failed = true;
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(window_ms);
+    auto next_query = std::chrono::steady_clock::now();
+
+    while (std::chrono::steady_clock::now() < deadline) {
+      const auto now = std::chrono::steady_clock::now();
+      if (now >= next_query) {
+        const bool broadcast_ok = SendDatagramTo(probe, broadcast_target, request);
+        /* Loopback is only a fallback: sending both would make a same-machine
+         * room answer once from 127.0.0.1 and once from the LAN interface, and
+         * ip:port de-duplication would (correctly) report it as two rooms. */
+        bool loopback_ok = false;
+        if (!broadcast_ok) {
+          loopback_ok = SendDatagramTo(probe, loopback_target, request);
+        }
+        send_failed = send_failed && !broadcast_ok && !loopback_ok;
+        next_query = now + std::chrono::milliseconds(kDiscoveryIntervalMs);
+      }
+      const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                 deadline - std::chrono::steady_clock::now())
+                                 .count();
+      const int wait_ms = int(std::max<long long>(0, std::min<long long>(50, remaining)));
+      if (wait_ms <= 0) {
+        break;
+      }
+      if (!PollReady(probe, kPollIn, wait_ms)) {
+        continue;
+      }
+      sockaddr_in source;
+      std::memset(&source, 0, sizeof(source));
+      const int received = RecvDatagram(probe, buffer, source);
+      if (received <= 0) {
+        continue;
+      }
+      KX_RoomInfo info;
+      if (!DecodeRoomInfoPayload(std::string(buffer.data(), size_t(received)), info)) {
+        continue;
+      }
+      char ip[64];
+      ip[0] = '\0';
+      inet_ntop(AF_INET, &source.sin_addr, ip, sizeof(ip));
+      info.host = ip[0] != '\0' ? std::string(ip) : std::string("0.0.0.0");
+      info.port = int(ntohs(source.sin_port));
+      const std::string key = info.host + ":" + std::to_string(info.port);
+      /* De-duplicate by endpoint: the same room answers every broadcast. */
+      if (rooms.find(key) == rooms.end()) {
+        rooms[key] = info;
+      }
+    }
+    CloseSocket(probe);
+
+    for (const auto &entry : rooms) {
+      out.push_back(entry.second);
+    }
+    if (send_failed && out.empty()) {
+      SetError("DiscoverRooms: sendto() failed on both broadcast and loopback");
+      if (error != nullptr) {
+        *error = last_error_;
+      }
+      return false;
+    }
+    last_error_.clear();
+    if (error != nullptr) {
+      error->clear();
+    }
+    return true;
+  }
+
+  /* B6.9-N N-2: fixed 20 Hz replication of the last pose given to
+   * SetLocalPlayerState. */
+  void SetLocalPlayerState(const KX_PlayerState &state) override
+  {
+    local_state_ = state;
+    local_state_valid_ = true;
+  }
+
+  bool GetRemotePlayerState(int player_id, KX_PlayerState *out) const override
+  {
+    const auto entry = remote_states_.find(player_id);
+    if (entry == remote_states_.end()) {
+      return false;
+    }
+    if (out != nullptr) {
+      *out = entry->second;
+    }
+    return true;
+  }
 
  private:
   struct PropertyEntry {
@@ -951,6 +1163,198 @@ class EngineNetworkAdapter final : public KX_NetworkAdapter {
   };
 
   typedef std::map<int, std::map<std::string, PropertyEntry>> RemotePropertyMap;
+
+  /** Parse a PKT_ROOMINFO payload without assuming a host address. */
+  bool DecodeRoomInfoPayload(const std::string &datagram, KX_RoomInfo &info)
+  {
+    uint8_t type = 0;
+    uint8_t flags = 0;
+    int sender = 0;
+    uint32_t payload_length = 0;
+    if (!ParsePacketHeader(datagram, 0, type, flags, sender, payload_length)) {
+      return false;
+    }
+    if (type != PKT_ROOMINFO || datagram.size() != kHeaderSize + payload_length) {
+      return false;
+    }
+    size_t cursor = kHeaderSize;
+    std::size_t name_length = 0;
+    if (!ReadString(datagram, cursor, name_length)) {
+      return false;
+    }
+    info.name.assign(datagram, cursor, name_length);
+    cursor += name_length;
+    int32_t players = 0;
+    int32_t max_players = 0;
+    if (!ReadI32(datagram, cursor, players) || !ReadI32(datagram, cursor, max_players)) {
+      return false;
+    }
+    info.players = int(players);
+    info.max_players = int(max_players);
+    return true;
+  }
+
+  static int16_t QuantizeInt16(float value, float scale)
+  {
+    const float scaled = value * scale;
+    if (scaled >= 32767.0f) {
+      return 32767;
+    }
+    if (scaled <= -32768.0f) {
+      return -32768;
+    }
+    return int16_t(scaled >= 0.0f ? scaled + 0.5f : scaled - 0.5f);
+  }
+
+  static bool SequenceNewer(uint16_t candidate, uint16_t current)
+  {
+    return int16_t(candidate - current) > 0;
+  }
+
+  std::string EncodePlayerState(const KX_PlayerState &state, uint16_t sequence)
+  {
+    std::string payload;
+    AppendU16(payload, sequence);
+    const bool has_animation = state.animation >= 0;
+    AppendU8(payload, has_animation ? 1 : 0);
+    for (int axis = 0; axis < 3; ++axis) {
+      AppendI16(payload, QuantizeInt16(state.position[axis], kStatePositionScale));
+    }
+    for (int axis = 0; axis < 3; ++axis) {
+      AppendI16(payload, QuantizeInt16(state.rotation[axis], kStateRotationScale));
+    }
+    if (has_animation) {
+      AppendU8(payload, uint8_t(std::min(255, state.animation)));
+      const float phase = std::max(0.0f, std::min(1.0f, state.animation_phase));
+      AppendU16(payload, uint16_t(phase * kStateAnimationPhaseScale + 0.5f));
+    }
+    return payload;
+  }
+
+  bool DecodePlayerState(const std::string &payload, KX_PlayerState &out)
+  {
+    size_t cursor = 0;
+    uint16_t sequence = 0;
+    uint8_t flags = 0;
+    if (!ReadU16(payload, cursor, sequence) || !ReadU8(payload, cursor, flags)) {
+      return false;
+    }
+    const size_t expected = 15 + ((flags & 1) ? 3 : 0);
+    if (payload.size() != expected) {
+      return false;
+    }
+    out = KX_PlayerState();
+    out.sequence = sequence;
+    for (int axis = 0; axis < 3; ++axis) {
+      int16_t value = 0;
+      if (!ReadI16(payload, cursor, value)) {
+        return false;
+      }
+      out.position[axis] = float(value) / kStatePositionScale;
+    }
+    for (int axis = 0; axis < 3; ++axis) {
+      int16_t value = 0;
+      if (!ReadI16(payload, cursor, value)) {
+        return false;
+      }
+      out.rotation[axis] = float(value) / kStateRotationScale;
+    }
+    if ((flags & 1) != 0) {
+      uint8_t animation = 0;
+      uint16_t phase = 0;
+      if (!ReadU8(payload, cursor, animation) || !ReadU16(payload, cursor, phase)) {
+        return false;
+      }
+      out.animation = int(animation);
+      out.animation_phase = float(phase) / kStateAnimationPhaseScale;
+    }
+    return true;
+  }
+
+  /** Store a state unless a newer one was already applied (loss/reorder). */
+  void ApplyRemoteState(const KX_PlayerState &state)
+  {
+    const auto entry = remote_states_.find(state.player_id);
+    if (entry != remote_states_.end() && !SequenceNewer(state.sequence, entry->second.sequence)) {
+      return;
+    }
+    remote_states_[state.player_id] = state;
+  }
+
+  HostPeer *FindUdpPeer(const sockaddr_in &from)
+  {
+    for (HostPeer &peer : peers_) {
+      if (peer.alive && peer.udp_ready && SameEndpoint(peer.udp_address, from)) {
+        return &peer;
+      }
+    }
+    return nullptr;
+  }
+
+  void HandleStateDatagram(const sockaddr_in &from,
+                           int sender,
+                           const std::string &payload,
+                           const std::string &datagram)
+  {
+    KX_PlayerState state;
+    if (!DecodePlayerState(payload, state)) {
+      return;
+    }
+    state.player_id = sender;
+    if (role_ == Role::Host) {
+      HostPeer *peer = FindUdpPeer(from);
+      if (peer == nullptr || sender != peer->id) {
+        return; /* Unknown source or a forged sender id. */
+      }
+      ApplyRemoteState(state);
+      /* Relay the original datagram to the other clients, sender intact. */
+      for (HostPeer &other : peers_) {
+        if (other.alive && other.udp_ready && other.id != sender) {
+          SendDatagram(other.udp_address, datagram);
+        }
+      }
+      return;
+    }
+    if (role_ == Role::Client && host_udp_ready_ && SameEndpoint(host_udp_address_, from) &&
+        sender != local_id_) {
+      ApplyRemoteState(state);
+    }
+  }
+
+  void PumpStateSync()
+  {
+    if (!connected_ || !local_state_valid_ || local_id_ < 0) {
+      return;
+    }
+    const auto now = std::chrono::steady_clock::now();
+    /* The sequence is the 20 Hz tick index, not a send counter: if the game
+     * stalls (or a packet is dropped) the next emitted packet jumps forward by
+     * the number of missed intervals, so receivers can see the gap. */
+    long long intervals = 1;
+    if (last_state_send_.time_since_epoch().count() != 0) {
+      intervals = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_state_send_)
+                      .count() /
+                  kStateSyncIntervalMs;
+      if (intervals <= 0) {
+        return;
+      }
+    }
+    last_state_send_ = now;
+    local_state_sequence_ = uint16_t(local_state_sequence_ + uint16_t(intervals));
+    const std::string payload = EncodePlayerState(local_state_, local_state_sequence_);
+    const std::string packet = BuildPacket(PKT_STATE, 0, local_id_, payload);
+    if (role_ == Role::Host) {
+      for (HostPeer &peer : peers_) {
+        if (peer.alive && peer.udp_ready && peer.id != local_id_) {
+          SendDatagram(peer.udp_address, packet);
+        }
+      }
+      return;
+    }
+    if (host_udp_ready_) {
+      SendDatagram(host_udp_address_, packet);
+    }
+  }
 
   bool SendDatagramTo(SocketHandle handle, const sockaddr_in &to, const std::string &packet)
   {
@@ -1352,6 +1756,23 @@ class EngineNetworkAdapter final : public KX_NetworkAdapter {
       }
       return;
     }
+    if (type == PKT_DISCOVER) {
+      /* B6.9-N N-1: answer a discovery query unicast. Because the answer is
+       * unicast, other hosts never observe it and cannot answer back. */
+      if (role_ == Role::Host) {
+        SendRoomInfo(from);
+      }
+      return;
+    }
+    if (type == PKT_ROOMINFO) {
+      /* Another room's reply. Never answer: replying to replies is exactly the
+       * N-host -> N*N broadcast storm this design rules out. */
+      return;
+    }
+    if (type == PKT_STATE) {
+      HandleStateDatagram(from, sender, payload, datagram);
+      return;
+    }
     if (type != PKT_MESSAGE) {
       return;
     }
@@ -1635,6 +2056,10 @@ class EngineNetworkAdapter final : public KX_NetworkAdapter {
     events_.clear();
     player_count_ = 0;
     connected_ = false;
+    remote_states_.clear();
+    local_state_valid_ = false;
+    local_state_sequence_ = 0;
+    last_state_send_ = std::chrono::steady_clock::time_point();
   }
 
   Role role_ = Role::None;
@@ -1658,6 +2083,12 @@ class EngineNetworkAdapter final : public KX_NetworkAdapter {
   std::deque<KX_NetworkEvent> events_;
   std::map<std::string, KX_RuntimeValue> local_properties_;
   RemotePropertyMap remote_properties_;
+  /* B6.9-N N-2 replication state. */
+  KX_PlayerState local_state_;
+  bool local_state_valid_ = false;
+  uint16_t local_state_sequence_ = 0;
+  std::chrono::steady_clock::time_point last_state_send_;
+  std::map<int, KX_PlayerState> remote_states_;
 };
 
 std::unique_ptr<KX_NetworkAdapter> KX_CreateEngineNetworkAdapter()

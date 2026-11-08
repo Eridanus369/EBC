@@ -93,7 +93,7 @@ B 类并不存在「文档漏写的真机覆盖」；因此把 A+B 全降为 moc
 ### 3.1 输入 9（`tests/b62_e2e.cpp`）
 
 装配：`input = KX_MockInputAdapter`（`b62_e2e.cpp:585`，`SetAdapters` 181-182）。
-日志：`/tmp/a1_clean_run_b62_e2e.log`，68 条断言 / 0 failures（69 行 `PASS`，末行为汇总行）。
+日志：`/tmp/a1_clean_run_b62_e2e.log`，68 条断言 / 0 failures（69 行 `PASS`，末行为汇总行）；K 冻结 `RUN_ID=20261106-224926` 后批 `b62` 为 **134/0**。
 
 | 节点 | 分类 | 断言位置 |
 |---|---|---|

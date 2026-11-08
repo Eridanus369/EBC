@@ -159,17 +159,32 @@ class KX_InputAdapter {
     down = false;
   }
   virtual int GetTouchCount() { return 0; }
+  /** Analog value 0..1 of gamepad #button; digital pads report 0 or 1. */
+  virtual float GetGamepadButtonValue(int pad, int button)
+  {
+    return IsGamepadButtonDown(pad, button) ? 1.0f : 0.0f;
+  }
+  /** Number of connected gamepads; 0 when the backend cannot enumerate. */
+  virtual int GetGamepadCount() { return 0; }
+  /** Pressure 0..1 of touch point #index; 0 when the backend has no pressure. */
+  virtual float GetTouchPressure(int index)
+  {
+    (void)index;
+    return 0.0f;
+  }
   /** True while every key named in a "ctrl+shift+a" style combo is held. */
   virtual bool IsKeyComboDown(const std::string &keys)
   {
     (void)keys;
     return false;
   }
-  /** Register a named action binding, see ReadInputMap for the grammar. */
-  virtual void SetInputMap(const std::string &name, const std::string &binding)
-  {
-    input_map_[name] = binding;
-  }
+  /**
+   * Register a named action binding, see ReadInputMap for the grammar.
+   *
+   * #priority resolves same-name conflicts: a higher priority binding wins,
+   * and for equal priority the later registration wins (the old behaviour).
+   */
+  virtual void SetInputMap(const std::string &name, const std::string &binding, int priority = 0);
 
   /**
    * Resolve a named action registered with #SetInputMap.
@@ -178,10 +193,11 @@ class KX_InputAdapter {
    *   key:<code>                 keyboard level, value 1/0
    *   keycombo:<keys>            combo level, value 1/0
    *   mouse:<button>             mouse button level, value 1/0
-   *   gamepad_button:<pad>:<n>   button level, value 1/0
-   *   gamepad_axis:<pad>:<n>     stick, value is the X component
-   *   gamepad_trigger:<pad>:<n>  trigger, value 0..1
+   *   gamepad_button:<pad>:<n>[:<deadzone>]   button level, value 0..1
+   *   gamepad_axis:<pad>:<n>[:<deadzone>]     stick, value is remapped X
+   *   gamepad_trigger:<pad>:<n>[:<deadzone>]  trigger, value 0..1
    *
+   * The optional deadzone defaults to 0; inside the deadzone the value is 0.
    * Unknown names or malformed bindings return false without diagnostics; the
    * node layer decides whether to warn.
    */
@@ -198,6 +214,7 @@ class KX_InputAdapter {
 
  protected:
   std::map<std::string, std::string> input_map_;
+  std::map<std::string, int> input_map_priority_;
 };
 
 /**
@@ -213,9 +230,11 @@ class KX_MockInputAdapter : public KX_InputAdapter {
     float x = 0.0f;
     float y = 0.0f;
     bool down = false;
+    float pressure = 0.0f;
   };
 
   std::map<std::pair<int, int>, bool> gamepad_buttons;
+  std::map<std::pair<int, int>, float> gamepad_button_values;
   std::map<std::pair<int, int>, std::pair<float, float> > gamepad_axes;
   std::map<std::pair<int, int>, float> gamepad_triggers;
   std::vector<TouchPoint> touches;
@@ -223,18 +242,25 @@ class KX_MockInputAdapter : public KX_InputAdapter {
   std::vector<std::string> vibration_requests;
   uint32_t vibrate_calls = 0;
   bool vibrate_result = true;
+  /** Explicit pad count; when 0 the count is derived from injected pads. */
+  int gamepad_count = 0;
 
   void SetGamepadButton(int pad, int button, bool down);
+  void SetGamepadButtonValue(int pad, int button, float value);
   void SetGamepadAxis(int pad, int axis, float x, float y);
   void SetGamepadTrigger(int pad, int trigger, float value);
-  void SetTouch(int index, float x, float y, bool down);
+  void SetGamepadCount(int count);
+  void SetTouch(int index, float x, float y, bool down, float pressure = 0.0f);
   void SetKeyDown(const std::string &key, bool down);
 
   bool IsGamepadButtonDown(int pad, int button) override;
+  float GetGamepadButtonValue(int pad, int button) override;
+  int GetGamepadCount() override;
   void GetGamepadAxis(int pad, int axis, float &x, float &y) override;
   void GetGamepadTrigger(int pad, int trigger, float &value) override;
   void GetTouch(int index, float &x, float &y, bool &down) override;
   int GetTouchCount() override;
+  float GetTouchPressure(int index) override;
   bool IsKeyComboDown(const std::string &keys) override;
   bool VibrateGamepad(int pad, float intensity, float duration) override;
 
@@ -247,7 +273,40 @@ struct KX_ProximityHit {
   float distance = 0.0f;
   /** Angle between the query axis and the direction to the object, degrees. */
   float angle = 0.0f;
+  /** True when the hit was established by a shape overlap rather than by
+   *  origin distance. Backends that cannot test shapes leave this false. */
+  bool shape_overlap = false;
 };
+
+/** Query volume used by the shape-aware proximity variant. */
+enum KX_ProximityShape {
+  /** Sphere centered on the origin object. */
+  KX_PROXIMITY_SPHERE = 0,
+  /** Cone with the origin object as apex and #local_axis as its direction. */
+  KX_PROXIMITY_CONE = 1,
+  /** Box centered on the origin object, sized by #half_extents. */
+  KX_PROXIMITY_BOX = 2,
+};
+
+/** Description of the volume tested by QueryProximityShapes. */
+struct KX_ProximityShapeQuery {
+  KX_GameObject *origin = nullptr;
+  KX_ProximityShape shape = KX_PROXIMITY_SPHERE;
+  /** Sphere radius, or cone height. */
+  float radius = 0.0f;
+  /** Full apex angle of the cone in degrees; 0 means a plain sphere. */
+  float angle_deg = 0.0f;
+  /** Direction of the cone in the origin object's local space. */
+  float local_axis[3] = {0.0f, 0.0f, 1.0f};
+  /** Half extents of the box, in world units. */
+  float half_extents[3] = {0.0f, 0.0f, 0.0f};
+  /** Optional game property filter, same semantics as QueryProximity. */
+  std::string property;
+};
+
+/** Maximum number of per-object shape tests a single node may issue per
+ *  frame. Queries above this budget fall back to origin distance. */
+inline constexpr int KX_PROXIMITY_SHAPE_BUDGET = 64;
 
 /** One physics ray hit under the mouse cursor. */
 struct KX_RayHit {
@@ -302,6 +361,28 @@ class KX_SceneAdapter {
     (void)property;
     (void)out;
   }
+
+  /**
+   * Shape-aware variant of QueryProximity.
+   *
+   * Backends that can test real collision shapes report hits with
+   * KX_ProximityHit::shape_overlap set. The default implementation delegates
+   * to QueryProximity so existing backends keep their old origin-distance
+   * behaviour. It returns true when the result is the degraded origin-distance
+   * path, which lets the node print a one-time warning.
+   */
+  virtual bool QueryProximityShapes(const KX_ProximityShapeQuery &query,
+                                    std::vector<KX_ProximityHit> &out)
+  {
+    QueryProximity(query.origin,
+                   query.local_axis,
+                   query.radius,
+                   query.angle_deg,
+                   query.property,
+                   out);
+    return false;
+  }
+
   virtual bool AddObject(const std::string &name)
   {
     (void)name;
@@ -533,6 +614,31 @@ class KX_PhysicsAdapter {
   {
     (void)object;
     (void)speed;
+  }
+
+  /* ---------------------------------------------------------------------- */
+  /* B6.9 multi hit ray query (appended; the virtuals above are unchanged).   */
+  /* ---------------------------------------------------------------------- */
+
+  /**
+   * Collect every object hit along the ray, nearest first.
+   *
+   * Unlike #Raycast this does not stop at the first hit. The result order is a
+   * hard contract: distance from #origin to the hit point, ascending, so two
+   * overlapping objects always report in a defined order. Implementations
+   * append to #out and leave it untouched when nothing is hit.
+   */
+  virtual void RaycastAll(const float origin[3],
+                          const float direction[3],
+                          float max_dist,
+                          const KX_GameObject *ignore,
+                          std::vector<KX_RaycastResult> &out)
+  {
+    (void)origin;
+    (void)direction;
+    (void)max_dist;
+    (void)ignore;
+    (void)out;
   }
 };
 
@@ -856,15 +962,34 @@ class KX_AnimationAdapter {
     return false;
   }
 
+  /**
+   * Register a pose override for @a bone. @a blend_mode is a KX_PoseBlendMode value
+   * (0 = Override, 1 = Additive, 2 = Multiplicative reserved/unimplemented). Override keeps
+   * the legacy behaviour; Additive combines the delta with the action-evaluated pose using a
+   * quaternion product (never an euler addition) and never accumulates across frames.
+   */
   virtual bool SetBoneTransform(KX_GameObject *object,
                                 const std::string &bone,
                                 const float position[3],
-                                const float rotation[3])
+                                const float rotation[3],
+                                int blend_mode)
   {
     (void)object;
     (void)bone;
     (void)position;
     (void)rotation;
+    (void)blend_mode;
+    return false;
+  }
+
+  /**
+   * Remove the pose override of @a bone so it is driven by the action again. Returns false
+   * for a bone that has no override (documented no-op, must not crash).
+   */
+  virtual bool ClearPoseOverride(KX_GameObject *object, const std::string &bone)
+  {
+    (void)object;
+    (void)bone;
     return false;
   }
 
@@ -899,6 +1024,61 @@ class KX_AnimationAdapter {
     (void)object;
     (void)layer;
     return 0.0f;
+  }
+
+  /* --- C.4 animation-event bridge (appended, existing order preserved) --- */
+
+  /** Layer currently playing @a action on @a object, -1 when it is not playing. */
+  virtual int GetActionLayer(KX_GameObject *object, const std::string &action)
+  {
+    (void)object;
+    (void)action;
+    return -1;
+  }
+
+  /**
+   * Frame @a layer will show at the engine's current frame time. The graph runs before the
+   * render-time action update, so this predicts the frame that update is about to apply.
+   */
+  virtual float GetActionFrameAtCurrentEngineTime(KX_GameObject *object, int layer)
+  {
+    return GetActionFrame(object, layer);
+  }
+
+  /* --- B6.9-A animation time control (appended, existing order preserved) --- */
+
+  /**
+   * Independent time scale for @a layer. The engine exposes only one playback multiplier
+   * (BL_Action::m_speed), so a separate time scale cannot be represented. Implementations
+   * must report the limitation instead of silently aliasing it to the playback speed.
+   */
+  virtual bool SetActionTimeScale(KX_GameObject *object, int layer, float scale, std::string *error)
+  {
+    (void)object;
+    (void)layer;
+    (void)scale;
+    if (error != nullptr) {
+      *error = "BL_Action exposes playback speed only (m_speed); no independent time scale";
+    }
+    return false;
+  }
+
+  /* --- B6.9-A pose read-back (appended, existing order preserved) --- */
+
+  /**
+   * Read the local transform currently stored on the pose channel @a bone of @a object.
+   * Returns false when the object is not an armature or the bone does not exist.
+   */
+  virtual bool GetBoneTransform(KX_GameObject *object,
+                                const std::string &bone,
+                                float position[3],
+                                float rotation[3])
+  {
+    (void)object;
+    (void)bone;
+    (void)position;
+    (void)rotation;
+    return false;
   }
 };
 
@@ -941,6 +1121,24 @@ class KX_MockAnimationAdapter : public KX_AnimationAdapter {
   uint32_t bone_transform_calls = 0;
   uint32_t bone_weight_calls = 0;
   uint32_t bone_action_calls = 0;
+  /* C.4 */
+  float frame_at_time = 0.0f;
+  std::map<std::string, int> action_layers;
+  /* B6.9-A */
+  float time_scale = 1.0f;
+  uint32_t time_scale_calls = 0;
+  /* B6.9-A pose read-back */
+  bool bone_read_supported = true;
+  float bone_read_position[3] = {0.0f, 0.0f, 0.0f};
+  float bone_read_rotation[3] = {0.0f, 0.0f, 0.0f};
+  std::string bone_read_name;
+  uint32_t bone_read_calls = 0;
+  /* B6.10 pose override blend mode + clear path */
+  int bone_mode = -1;
+  bool bone_clear_supported = true;
+  std::string bone_clear_name;
+  uint32_t bone_clear_calls = 0;
+  bool bone_clear_result = false;
 
   bool PlayAction(KX_GameObject *new_object,
                   const std::string &name,
@@ -1054,7 +1252,8 @@ class KX_MockAnimationAdapter : public KX_AnimationAdapter {
   bool SetBoneTransform(KX_GameObject *new_object,
                         const std::string &new_bone,
                         const float new_position[3],
-                        const float new_rotation[3]) override
+                        const float new_rotation[3],
+                        int new_blend_mode) override
   {
     object = new_object;
     bone = new_bone;
@@ -1062,8 +1261,18 @@ class KX_MockAnimationAdapter : public KX_AnimationAdapter {
       bone_position[i] = new_position[i];
       bone_rotation[i] = new_rotation[i];
     }
+    bone_mode = new_blend_mode;
     ++bone_transform_calls;
     return bone_supported;
+  }
+
+  bool ClearPoseOverride(KX_GameObject *new_object, const std::string &new_bone) override
+  {
+    object = new_object;
+    bone_clear_name = new_bone;
+    ++bone_clear_calls;
+    bone_clear_result = bone_clear_supported;
+    return bone_clear_supported;
   }
 
   bool SetBoneWeight(KX_GameObject *new_object,
@@ -1103,6 +1312,50 @@ class KX_MockAnimationAdapter : public KX_AnimationAdapter {
     return normalized;
   }
 
+  int GetActionLayer(KX_GameObject *new_object, const std::string &new_action) override
+  {
+    object = new_object;
+    auto it = action_layers.find(new_action);
+    return it != action_layers.end() ? it->second : -1;
+  }
+
+  float GetActionFrameAtCurrentEngineTime(KX_GameObject *new_object, int new_layer) override
+  {
+    object = new_object;
+    layer = new_layer;
+    return frame_at_time;
+  }
+
+  bool SetActionTimeScale(KX_GameObject *new_object,
+                          int new_layer,
+                          float new_scale,
+                          std::string *error) override
+  {
+    object = new_object;
+    layer = new_layer;
+    time_scale = new_scale;
+    ++time_scale_calls;
+    if (error != nullptr) {
+      *error = "BL_Action exposes playback speed only (m_speed); no independent time scale";
+    }
+    return false;
+  }
+
+  bool GetBoneTransform(KX_GameObject *new_object,
+                        const std::string &new_bone,
+                        float position[3],
+                        float rotation[3]) override
+  {
+    object = new_object;
+    bone_read_name = new_bone;
+    ++bone_read_calls;
+    for (int i = 0; i < 3; ++i) {
+      position[i] = bone_read_position[i];
+      rotation[i] = bone_read_rotation[i];
+    }
+    return bone_read_supported;
+  }
+
   void Reset()
   {
     object = nullptr;
@@ -1126,6 +1379,20 @@ class KX_MockAnimationAdapter : public KX_AnimationAdapter {
     normalized = 0.0f;
     bone_supported = true;
     play_layer_calls = blend_calls = bone_transform_calls = bone_weight_calls = bone_action_calls = 0;
+    frame_at_time = 0.0f;
+    action_layers.clear();
+    time_scale = 1.0f;
+    time_scale_calls = 0;
+    bone_read_supported = true;
+    bone_read_position[0] = bone_read_position[1] = bone_read_position[2] = 0.0f;
+    bone_read_rotation[0] = bone_read_rotation[1] = bone_read_rotation[2] = 0.0f;
+    bone_read_name.clear();
+    bone_read_calls = 0;
+    bone_mode = -1;
+    bone_clear_supported = true;
+    bone_clear_name.clear();
+    bone_clear_calls = 0;
+    bone_clear_result = false;
   }
 };
 
@@ -1167,6 +1434,32 @@ class KX_MessageAdapter {
     (void)subject;
     return std::vector<KX_Message>();
   }
+
+  /* ---------------------------------------------------------------------- */
+  /* B6.9-Ms Ms-2 delayed messages (appended; earlier methods stay).         */
+  /* ---------------------------------------------------------------------- */
+
+  /**
+   * Schedule a message. #delay_seconds is game time, accumulated from logic
+   * frame deltas (never wall clock); a non-positive delay is sent at once.
+   * The adapter owns the pending queue, so the message outlives the node and
+   * is dropped (with a diagnostic) when the scene adapter is destroyed.
+   */
+  virtual void SendDelayed(const std::string &to,
+                           KX_GameObject *from,
+                           const std::string &subject,
+                           const std::string &body,
+                           float delay_seconds)
+  {
+    (void)to;
+    (void)from;
+    (void)subject;
+    (void)body;
+    (void)delay_seconds;
+  }
+
+  /** Advance scheduled messages by one logic frame. Called once per frame. */
+  virtual void TickDelayed(float delta_time) { (void)delta_time; }
 };
 
 /** Headless message bus: records sends and exposes them through a mailbox. */
@@ -1178,12 +1471,29 @@ class KX_MockMessageAdapter : public KX_MessageAdapter {
   uint32_t send_calls = 0;
   uint32_t receive_calls = 0;
 
+  /* B6.9-Ms Ms-2 delayed queue (appended). */
+  struct DelayedMessage {
+    KX_Message message;
+    KX_GameObject *from = nullptr;
+    float remaining = 0.0f;
+  };
+  std::vector<DelayedMessage> delayed;
+  uint32_t delayed_send_calls = 0;
+  uint32_t dropped_delayed = 0;
+
   void Send(const std::string &to,
             KX_GameObject *from,
             const std::string &subject,
             const std::string &body) override;
 
   std::vector<KX_Message> Receive(const std::string &to, const std::string &subject) override;
+
+  void SendDelayed(const std::string &to,
+                   KX_GameObject *from,
+                   const std::string &subject,
+                   const std::string &body,
+                   float delay_seconds) override;
+  void TickDelayed(float delta_time) override;
 
   void Reset();
 };
@@ -1997,6 +2307,21 @@ struct KX_RoomInfo {
   int max_players = 0;
 };
 
+/** One replicated player pose (B6.9-N N-2).
+ *
+ * Units: position metres, rotation degrees (XYZ Euler), animation_phase in
+ * [0, 1]. #animation < 0 means "no clip". #sequence is the wire sequence of the
+ * last packet applied; it is 0 before the first packet arrives.
+ */
+struct KX_PlayerState {
+  int player_id = -1;
+  float position[3] = {0.0f, 0.0f, 0.0f};
+  float rotation[3] = {0.0f, 0.0f, 0.0f};
+  int animation = -1;
+  float animation_phase = 0.0f;
+  uint16_t sequence = 0;
+};
+
 /**
  * LAN network service used by the B6.3 network nodes.
  *
@@ -2143,6 +2468,68 @@ class KX_NetworkAdapter {
     }
     return false;
   }
+
+  /* ---------------------------------------------------------------------- */
+  /* B6.9-N N-1 LAN discovery (appended; earlier methods stay).              */
+  /* ---------------------------------------------------------------------- */
+
+  /**
+   * Discover rooms on the LAN without a discovery protocol.
+   *
+   * Semantics are fixed in KX_NetworkAdapterEngine.cpp:
+   *   - one broadcast query every 200 ms for the caller's window (default
+   *     1000 ms, clamped 100..5000 ms); a room that does not answer inside
+   *     that window is "offline" and is absent from #out;
+   *   - replies are de-duplicated by source endpoint (ip:port), never by
+   *     room name, because names are not unique and the caller needs an
+   *     address to join;
+   *   - a host answers only PKT_DISCOVER queries, unicast, and never answers
+   *     another room's reply, so hosts cannot ping-pong each other.
+   *
+   * Returns true when the query window completed, even with zero rooms
+   * (an empty LAN is a valid result); false only for bad arguments or a
+   * socket/bind failure, with #error filled.
+   */
+  virtual bool DiscoverRooms(int port,
+                             int timeout_ms,
+                             std::vector<KX_RoomInfo> &out,
+                             std::string *error = nullptr)
+  {
+    (void)port;
+    (void)timeout_ms;
+    (void)out;
+    if (error != nullptr) {
+      *error = "DiscoverRooms: not supported";
+    }
+    return false;
+  }
+
+  /* ---------------------------------------------------------------------- */
+  /* B6.9-N N-2 player state replication (appended).                         */
+  /* ---------------------------------------------------------------------- */
+
+  /** Store the local pose; Tick() replicates it at a fixed 20 Hz. */
+  virtual void SetLocalPlayerState(const KX_PlayerState &state) { (void)state; }
+  /** Last pose applied for #player_id; false before the first packet. */
+  virtual bool GetRemotePlayerState(int player_id, KX_PlayerState *out) const
+  {
+    (void)player_id;
+    (void)out;
+    return false;
+  }
+
+  /* ---------------------------------------------------------------------- */
+  /* B6.9-Ms Ms-1 RPC (appended; earlier methods stay).                      */
+  /* ---------------------------------------------------------------------- */
+
+  /**
+   * Put an event back at the front of the queue.
+   *
+   * OnRPC drains the event queue to find RPC envelopes. Events it does not own
+   * are re-queued with this method so OnNetworkEvent still sees them. The
+   * default implementation drops the event (adapters without a queue).
+   */
+  virtual void RequeueEvent(const KX_NetworkEvent &event) { (void)event; }
 };
 
 /** Headless network backend that records requests for contract tests. */
@@ -2205,6 +2592,7 @@ class KX_MockNetworkAdapter : public KX_NetworkAdapter {
                          const std::string &key,
                          KX_RuntimeValue *out) const override;
   bool PollEvent(KX_NetworkEvent &out) override;
+  void RequeueEvent(const KX_NetworkEvent &event) override;
   Role GetRole() const override { return role; }
   bool IsConnected() const override { return connected; }
   std::string LastError() const override { return last_error; }

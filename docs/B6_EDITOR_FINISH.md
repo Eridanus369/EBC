@@ -4,7 +4,7 @@
 
 新增两个纯 Python 工具：
 
-- `scripts/addons_core/bge_netlogic/generator/gen_metadata.py`
+- `scripts/startup/bge_gamenodes/generator/gen_metadata.py`
   - 从 C++ `KX_FunctionSpec`（`port_contract.load_cpp_specs()`）与
     `Signature()`（`load_signature_specs()`）读取每个节点的 inputs/outputs；
   - config keys 来自 `enum_consistency` 的 C++ 表（含追加的
@@ -12,7 +12,7 @@
   - `ports_from_ir` 节点（Formula / StringFormat / ObjectPropertyOperator /
     UIAnimation 等）使用静态端口草图，审计时跳过端口严格比较；
   - 输出按 runtime_id 排序、内容完全确定（同源同输出，`--check` 幂等）。
-- `scripts/addons_core/bge_netlogic/generator/native_metadata_audit.py`
+- `scripts/startup/bge_gamenodes/generator/native_metadata_audit.py`
   - `load_editor_tables()` 读取所有 `editor/nodes/native_*.py` 表；
   - `scan_registered_ids()` 用 AST 扫源码中的 `runtime_type_id` / `deprecated`；
   - `audit()` 返回 `missing / unknown / port_mismatch / config_mismatch`：
@@ -33,8 +33,8 @@
 复现命令：
 
 ```
-python3 scripts/addons_core/bge_netlogic/generator/gen_metadata.py
-python3 -m py_compile scripts/addons_core/bge_netlogic/editor/nodes/native_metadata_gen.py
+python3 scripts/startup/bge_gamenodes/generator/gen_metadata.py
+python3 -m py_compile scripts/startup/bge_gamenodes/editor/nodes/native_metadata_gen.py
 ```
 
 ## C2 热重载绿框（player 侧已验证，编辑器绘制 pending real device）

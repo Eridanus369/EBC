@@ -14,7 +14,7 @@
 | 构建 | `source/gameengine/GameLogic/CMakeLists.txt` | 227 |
 | 场景适配器接口 | `.../KX_GameAdapters.h` | `HasScene` 1216、`UnloadScene` 1222、`ActiveSceneNames` 1227、`SetSceneTimeScale` 1233 |
 | 引擎实现 | `.../KX_GameAdaptersEngine.cpp` | `HasScene` 1572、`UnloadScene` 1589、`ActiveSceneNames` 1615、`SetSceneTimeScale` 1629 |
-| 编辑器表 | `scripts/addons_core/bge_netlogic/editor/nodes/native_b6c.py` | `NATIVE_B6C` 49-119 |
+| 编辑器表 | `scripts/startup/bge_gamenodes/editor/nodes/native_b6c.py` | `NATIVE_B6C` 49-119 |
 
 ## 2. 节点与端口
 
@@ -115,3 +115,47 @@ void KX_KetsjiEngine::RemoveScene(const std::string &scenename)
   - `GetActiveScenes exposed the active scene count`
   - `SetSceneTimeScale forwarded name and scale`
 - 全量编译 `/tmp/b63_final_build.log` exit=0；契约/枚举 errors=0 / inconsistencies=0。
+
+## 8. B6.9-Sc：子场景栈与异步边界（2026-11-06）
+
+### 8.1 Sc-1 子场景挂载/卸载是「单活跃场景栈」，不是场景共存
+
+引擎 `KX_KetsjiEngine::LoadScene` 走 `ReplaceScene`，并且 `RemoveScene` 在
+`KX_KetsjiEngine.cpp:1341-1356` 显式禁用。因此**没有**「父场景与子场景同时存在」
+的原生层级。本轮的等价实现诚实限定为：
+
+- `MountChildScene(ParentScene, ChildScene)`：校验子场景存在、父场景处于活动，
+  然后 `LoadScene(child)` —— 父场景变为非活动，**不是共存**。
+- `UnmountChildScene(ParentScene, ChildScene)`：校验子场景活动、父场景存在，
+  然后 `LoadScene(parent)` —— 子场景被**停用但不释放**。
+- 释放子场景仍只能走 `UnloadScene`，其结果如实保持四态；`Unsupported`
+  路径（引擎 RemoveScene 禁用）不会被伪造成 `OnDone`。E2E 专门断言了这条。
+- 父场景缺失时 `UnmountChildScene` 发 `OnFail`，对应 `UnloadScene` 的 `Missing`
+  语义，不假装栈一致。
+
+### 8.2 Sc-2 异步边界：进度是反馈，不是流式
+
+- `LoadSceneAsync` 的 `Progress` 是**分帧反馈**：每帧报告 0..1 的插值，
+  结束时在**单帧**内完成场景替换；资源解析/反序列化并没有增量流式接口。
+- 引擎没有 `LoadSceneStreaming` 一类的真流式入口，也没有按 chunk 提交场景数据的
+  API。真流式判 **FOREVER**，理由是可核的：加载仍是整场景一次性替换，
+  进度条只改变 UI 观感，不改变加载粒度。
+- 因此文档口径固定为「进度是反馈不是流式」，不再用「近似流式」描述。
+
+### 8.3 E2E 证据
+
+[tests/b69_e2e.cpp](file:///home/eridanusepsilon/Code/EBC/EBC5.3/tests/b69_e2e.cpp) 场景段 13 条断言全 PASS：
+
+- `mount loaded the child scene exactly once`
+- `mount made the child scene the active one`
+- `mount fired OnDone, not OnFail`
+- `unmount returned to the parent scene`
+- `unmount made the parent active again`
+- `unmount fired OnDone, not OnFail`
+- `unmount with missing parent fired OnFail`
+- `unmount with missing parent did not load anything`
+- `UnloadScene reports OnFail for the engine Unsupported path`
+- 另有 4 条建图编译断言。
+
+场景节点 5→**7**（新增 `MountChildScene` / `UnmountChildScene`，均 `mock-verified`）；
+严格口径分母 5→7，Mock 计 0，严格不涨；覆盖口径保持 7/7。

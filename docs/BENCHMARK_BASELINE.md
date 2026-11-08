@@ -93,7 +93,7 @@ ConstFloat(2)=2 ─┴─► FloatMath(3) ─► FloatMath(4) ─► … ─► 
 
 - C++ 测量程序：`tests/a4_bench.cpp`。它链接 **clean 构建产出的** `libge_logic_bricks.a` 全部 113 个对象（这些就是 `bin/blender` 里同一批代码），不链接引擎主程序，以免窗口/渲染/音频线程噪声进入数字。注意：被测库代码是 Release `-O3 -DNDEBUG`（与 `bin/blender` 一致），基准 `main()` 为 `-O1`；计时主体是库内图执行，不受 `main` 优化级别影响。
 - 计时：`std::chrono::steady_clock`，每轮 1000 次 `KX_GraphInstance::Tick(0.016f)`；预热 200 帧后才开始计时。
-- Python 测量：`tests/a4_bench_py.py`，在 `build_clean_verify/bin/blender -b` 内用 `time.perf_counter_ns()` 执行同一 100 节点等价图（1 OnUpdate + 2 const + 96 math + 1 sink）。**这是纯 Python 参考实现，不是引擎内旧 Python 节点执行器**：旧执行器依赖 `uplogic/bge_netlogic` 运行时，本机未安装，启动不了；因此 (c) 只代表“同样图用 Python 解释执行”的成本下界/对照点，不可当作旧执行器的历史值。
+- Python 测量：`tests/a4_bench_py.py`，在 `build_clean_verify/bin/blender -b` 内用 `time.perf_counter_ns()` 执行同一 100 节点等价图（1 OnUpdate + 2 const + 96 math + 1 sink）。**这是纯 Python 参考实现，不是引擎内旧 Python 节点执行器**：旧执行器依赖 `uplogic/bge_gamenodes` 运行时，本机未安装，启动不了；因此 (c) 只代表“同样图用 Python 解释执行”的成本下界/对照点，不可当作旧执行器的历史值。
 - 机器：16 核，`-j4` 构建；基准测试期间其他线仍可能在跑增量构建，故一律用中位数，不取平均值/最优值。
 
 ## 2. 可重复命令

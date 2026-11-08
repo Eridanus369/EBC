@@ -2458,26 +2458,6 @@ def km_node_editor(params):
 
     return keymap
 
-def km_logic(params):
-    items = []
-    keymap = (
-        "Logic Bricks Editor",
-        {"space_type": 'LOGIC_EDITOR', "region_type": 'WINDOW'},
-        {"items": items},
-    )
-
-    items.extend([
-        ("logic.properties", {"type": 'N', "value": 'PRESS'}, None),
-        ("logic.region_flip", {"type": 'F5', "value": 'PRESS'}, None),
-        ("logic.links_cut", {"type": 'RIGHTMOUSE', "value": 'ANY', "ctrl": True}, None),
-        ("logic.view_all", {"type": 'HOME', "value": 'PRESS'}, None),
-        ("logic.view_all", {"type": 'NDOF_BUTTON_FIT', "value": 'PRESS'}, None),
-        op_menu("LOGIC_MT_logicbricks_add", {"type": 'A', "value": 'PRESS', "shift": True}),
-    ])
-
-    return keymap
-
-
 # ------------------------------------------------------------------------------
 # Editor (Info)
 
@@ -9062,7 +9042,6 @@ def generate_keymaps(params=None):
         km_property_editor(params),
 
         # Editors.
-        km_logic(params),
         km_outliner(params),
         km_preferences(params),
         km_preferences_nav(params),

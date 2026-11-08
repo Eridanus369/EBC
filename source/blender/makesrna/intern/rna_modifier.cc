@@ -29,6 +29,7 @@
 #include "BKE_node.hh"
 #include "BKE_node_runtime.hh"
 #include "BKE_node_tree_interface.hh"
+#include "BKE_physnodes.hh"
 
 #include "RNA_define.hh"
 #include "RNA_enum_types.hh"
@@ -166,6 +167,11 @@ const EnumPropertyItem rna_enum_object_modifier_type_items[] = {
      "Edge Split",
      "Split away joined faces at the edges"},
     {eModifierType_Nodes, "NODES", ICON_GEOMETRY_NODES, "Geometry Nodes", ""},
+    {eModifierType_PhysNodes,
+     "PHYSICS_NODES",
+     ICON_PHYSICS,
+     "Physics Nodes",
+     "Evaluate a physics node tree and write the simulated frame state" },
     {eModifierType_Mask,
      "MASK",
      ICON_MOD_MASK,
@@ -842,6 +848,7 @@ static const EnumPropertyItem grease_pencil_build_time_mode_items[] = {
 #ifdef RNA_RUNTIME
 
 #  include <algorithm>
+#  include <cstring>
 #  include <fmt/format.h>
 
 #  include "DNA_curve_types.h"
@@ -890,6 +897,42 @@ static const EnumPropertyItem grease_pencil_build_time_mode_items[] = {
 #  endif
 
 namespace blender {
+
+/* Physics nodes diagnostics (defined near rna_def_modifier_physnodes). The
+ * RNA code generator emits wrapper functions before these definitions and
+ * needs the declarations in scope. */
+static int rna_PhysNodesModifier_step_count_get(PointerRNA *ptr);
+static int rna_PhysNodesModifier_eval_count_get(PointerRNA *ptr);
+static float rna_PhysNodesModifier_last_ctime_get(PointerRNA *ptr);
+static bool rna_PhysNodesModifier_initialized_get(PointerRNA *ptr);
+static bool rna_PhysNodesModifier_kernel_available_get(PointerRNA *ptr);
+static void rna_PhysNodesModifier_kernel_error_get(PointerRNA *ptr, char *value);
+static int rna_PhysNodesModifier_kernel_error_length(PointerRNA *ptr);
+/* Step 2 body registry / passive / collider diagnostics. */
+static int rna_PhysNodesModifier_body_count_get(PointerRNA *ptr);
+static int rna_PhysNodesModifier_active_count_get(PointerRNA *ptr);
+static int rna_PhysNodesModifier_static_count_get(PointerRNA *ptr);
+static int rna_PhysNodesModifier_passive_count_get(PointerRNA *ptr);
+static int rna_PhysNodesModifier_collection_added_get(PointerRNA *ptr);
+static int rna_PhysNodesModifier_collection_removed_get(PointerRNA *ptr);
+static float rna_PhysNodesModifier_passive_inv_mass_get(PointerRNA *ptr);
+static float rna_PhysNodesModifier_passive_pose_x_get(PointerRNA *ptr);
+static float rna_PhysNodesModifier_passive_pose_y_get(PointerRNA *ptr);
+static float rna_PhysNodesModifier_passive_pose_z_get(PointerRNA *ptr);
+static float rna_PhysNodesModifier_collider_volume_get(PointerRNA *ptr);
+static int rna_PhysNodesModifier_collider_source_get(PointerRNA *ptr);
+static int rna_PhysNodesModifier_collider_stack_index_get(PointerRNA *ptr);
+static void rna_PhysNodesModifier_body_uids_get(PointerRNA *ptr, char *value);
+static int rna_PhysNodesModifier_body_uids_length(PointerRNA *ptr);
+/* Step 3 data layer / output status. */
+static int rna_PhysNodesModifier_particle_count_get(PointerRNA *ptr);
+static int rna_PhysNodesModifier_density_voxel_count_get(PointerRNA *ptr);
+static void rna_PhysNodesModifier_output_particle_mesh_get(PointerRNA *ptr, char *value);
+static int rna_PhysNodesModifier_output_particle_mesh_length(PointerRNA *ptr);
+static void rna_PhysNodesModifier_output_particle_volume_get(PointerRNA *ptr, char *value);
+static int rna_PhysNodesModifier_output_particle_volume_length(PointerRNA *ptr);
+static void rna_PhysNodesModifier_output_volume_get(PointerRNA *ptr, char *value);
+static int rna_PhysNodesModifier_output_volume_length(PointerRNA *ptr);
 
 static void rna_UVProject_projectors_begin(CollectionPropertyIterator *iter, PointerRNA *ptr)
 {
@@ -2698,6 +2741,237 @@ static void rna_GreasePencilShrinkwrapModifier_face_cull_set(PointerRNA *ptr, in
   GreasePencilShrinkwrapModifierData *smd = static_cast<GreasePencilShrinkwrapModifierData *>(
       ptr->data);
   smd->shrink_opts = (smd->shrink_opts & ~MOD_SHRINKWRAP_CULL_TARGET_MASK) | value;
+}
+
+/* Physics nodes diagnostics. Must live in the RNA_RUNTIME section because the
+ * generated wrappers call them. `rna_def_modifier_physnodes` itself stays in
+ * the structural (non-runtime) section below. */
+static int rna_PhysNodesModifier_step_count_get(PointerRNA *ptr)
+{
+  const PhysNodesModifierData *pmd = static_cast<const PhysNodesModifierData *>(ptr->data);
+  bke::physnodes::FrameState state;
+  if (!bke::physnodes::frame_state(pmd->tree_name, &state)) {
+    return 0;
+  }
+  return state.step_count;
+}
+
+static int rna_PhysNodesModifier_eval_count_get(PointerRNA *ptr)
+{
+  const PhysNodesModifierData *pmd = static_cast<const PhysNodesModifierData *>(ptr->data);
+  bke::physnodes::FrameState state;
+  if (!bke::physnodes::frame_state(pmd->tree_name, &state)) {
+    return 0;
+  }
+  return state.eval_count;
+}
+
+static float rna_PhysNodesModifier_last_ctime_get(PointerRNA *ptr)
+{
+  const PhysNodesModifierData *pmd = static_cast<const PhysNodesModifierData *>(ptr->data);
+  bke::physnodes::FrameState state;
+  if (!bke::physnodes::frame_state(pmd->tree_name, &state)) {
+    return 0.0f;
+  }
+  return state.last_ctime;
+}
+
+static bool rna_PhysNodesModifier_initialized_get(PointerRNA *ptr)
+{
+  const PhysNodesModifierData *pmd = static_cast<const PhysNodesModifierData *>(ptr->data);
+  bke::physnodes::FrameState state;
+  if (!bke::physnodes::frame_state(pmd->tree_name, &state)) {
+    return false;
+  }
+  return state.initialized;
+}
+
+static bool rna_PhysNodesModifier_kernel_available_get(PointerRNA * /*ptr*/)
+{
+  const char *path = getenv("PHYSNODES_KERNEL_PATH");
+  if (path == nullptr || path[0] == '\0') {
+    return false;
+  }
+  return bke::physnodes::probe_kernel(path);
+}
+
+static void rna_PhysNodesModifier_kernel_error_get(PointerRNA * /*ptr*/, char *value)
+{
+  const StringRefNull error = bke::physnodes::kernel_error();
+  strcpy(value, error.data());
+}
+
+static int rna_PhysNodesModifier_kernel_error_length(PointerRNA * /*ptr*/)
+{
+  return int(bke::physnodes::kernel_error().size());
+}
+
+static bool rna_PhysNodesModifier_state(PointerRNA *ptr, bke::physnodes::FrameState *r_state)
+{
+  const PhysNodesModifierData *pmd = static_cast<const PhysNodesModifierData *>(ptr->data);
+  return bke::physnodes::frame_state(pmd->tree_name, r_state);
+}
+
+static int rna_PhysNodesModifier_body_count_get(PointerRNA *ptr)
+{
+  bke::physnodes::FrameState state;
+  if (!rna_PhysNodesModifier_state(ptr, &state)) {
+    return 0;
+  }
+  if (!state.tree_found) {
+    /* The referenced tree no longer resolves: report the last real assembly so
+     * the diagnostic doesn't drop to zero (simulation is unaffected). */
+    return bke::physnodes::last_assembled_body_count();
+  }
+  return state.body_count;
+}
+
+static int rna_PhysNodesModifier_active_count_get(PointerRNA *ptr)
+{
+  bke::physnodes::FrameState state;
+  return rna_PhysNodesModifier_state(ptr, &state) ? state.active_count : 0;
+}
+
+static int rna_PhysNodesModifier_static_count_get(PointerRNA *ptr)
+{
+  bke::physnodes::FrameState state;
+  return rna_PhysNodesModifier_state(ptr, &state) ? state.static_count : 0;
+}
+
+static int rna_PhysNodesModifier_passive_count_get(PointerRNA *ptr)
+{
+  bke::physnodes::FrameState state;
+  return rna_PhysNodesModifier_state(ptr, &state) ? state.passive_count : 0;
+}
+
+static int rna_PhysNodesModifier_collection_added_get(PointerRNA *ptr)
+{
+  bke::physnodes::FrameState state;
+  return rna_PhysNodesModifier_state(ptr, &state) ? state.collection_added : 0;
+}
+
+static int rna_PhysNodesModifier_collection_removed_get(PointerRNA *ptr)
+{
+  bke::physnodes::FrameState state;
+  return rna_PhysNodesModifier_state(ptr, &state) ? state.collection_removed : 0;
+}
+
+static float rna_PhysNodesModifier_passive_inv_mass_get(PointerRNA *ptr)
+{
+  bke::physnodes::FrameState state;
+  return rna_PhysNodesModifier_state(ptr, &state) ? state.passive_inv_mass : 0.0f;
+}
+
+static float rna_PhysNodesModifier_passive_pose_x_get(PointerRNA *ptr)
+{
+  bke::physnodes::FrameState state;
+  return rna_PhysNodesModifier_state(ptr, &state) ? state.passive_pose.x : 0.0f;
+}
+
+static float rna_PhysNodesModifier_passive_pose_y_get(PointerRNA *ptr)
+{
+  bke::physnodes::FrameState state;
+  return rna_PhysNodesModifier_state(ptr, &state) ? state.passive_pose.y : 0.0f;
+}
+
+static float rna_PhysNodesModifier_passive_pose_z_get(PointerRNA *ptr)
+{
+  bke::physnodes::FrameState state;
+  return rna_PhysNodesModifier_state(ptr, &state) ? state.passive_pose.z : 0.0f;
+}
+
+static float rna_PhysNodesModifier_collider_volume_get(PointerRNA *ptr)
+{
+  bke::physnodes::FrameState state;
+  return rna_PhysNodesModifier_state(ptr, &state) ? state.collider_volume : 0.0f;
+}
+
+static int rna_PhysNodesModifier_collider_source_get(PointerRNA *ptr)
+{
+  bke::physnodes::FrameState state;
+  return rna_PhysNodesModifier_state(ptr, &state) ? state.collider_source : -1;
+}
+
+static int rna_PhysNodesModifier_collider_stack_index_get(PointerRNA *ptr)
+{
+  bke::physnodes::FrameState state;
+  return rna_PhysNodesModifier_state(ptr, &state) ? state.collider_stack_index : -1;
+}
+
+static void rna_PhysNodesModifier_body_uids_get(PointerRNA *ptr, char *value)
+{
+  bke::physnodes::FrameState state;
+  if (!rna_PhysNodesModifier_state(ptr, &state)) {
+    value[0] = '\0';
+    return;
+  }
+  strcpy(value, state.uid_dump.c_str());
+}
+
+static int rna_PhysNodesModifier_body_uids_length(PointerRNA *ptr)
+{
+  bke::physnodes::FrameState state;
+  return rna_PhysNodesModifier_state(ptr, &state) ? int(state.uid_dump.size()) : 0;
+}
+
+static int rna_PhysNodesModifier_particle_count_get(PointerRNA *ptr)
+{
+  bke::physnodes::FrameState state;
+  return rna_PhysNodesModifier_state(ptr, &state) ? state.particle_count : 0;
+}
+
+static int rna_PhysNodesModifier_density_voxel_count_get(PointerRNA *ptr)
+{
+  bke::physnodes::FrameState state;
+  return rna_PhysNodesModifier_state(ptr, &state) ? state.density_voxel_count : 0;
+}
+
+static void rna_PhysNodesModifier_output_particle_mesh_get(PointerRNA *ptr, char *value)
+{
+  bke::physnodes::FrameState state;
+  if (!rna_PhysNodesModifier_state(ptr, &state)) {
+    value[0] = '\0';
+    return;
+  }
+  strcpy(value, state.output.particle_mesh.c_str());
+}
+
+static int rna_PhysNodesModifier_output_particle_mesh_length(PointerRNA *ptr)
+{
+  bke::physnodes::FrameState state;
+  return rna_PhysNodesModifier_state(ptr, &state) ? int(state.output.particle_mesh.size()) : 0;
+}
+
+static void rna_PhysNodesModifier_output_particle_volume_get(PointerRNA *ptr, char *value)
+{
+  bke::physnodes::FrameState state;
+  if (!rna_PhysNodesModifier_state(ptr, &state)) {
+    value[0] = '\0';
+    return;
+  }
+  strcpy(value, state.output.particle_volume.c_str());
+}
+
+static int rna_PhysNodesModifier_output_particle_volume_length(PointerRNA *ptr)
+{
+  bke::physnodes::FrameState state;
+  return rna_PhysNodesModifier_state(ptr, &state) ? int(state.output.particle_volume.size()) : 0;
+}
+
+static void rna_PhysNodesModifier_output_volume_get(PointerRNA *ptr, char *value)
+{
+  bke::physnodes::FrameState state;
+  if (!rna_PhysNodesModifier_state(ptr, &state)) {
+    value[0] = '\0';
+    return;
+  }
+  strcpy(value, state.output.volume_output.c_str());
+}
+
+static int rna_PhysNodesModifier_output_volume_length(PointerRNA *ptr)
+{
+  bke::physnodes::FrameState state;
+  return rna_PhysNodesModifier_state(ptr, &state) ? int(state.output.volume_output.size()) : 0;
 }
 
 }  // namespace blender
@@ -11584,6 +11858,191 @@ static void rna_def_modifier_grease_pencil_texture(BlenderRNA *brna)
   RNA_define_lib_overridable(false);
 }
 
+static void rna_def_modifier_physnodes(BlenderRNA *brna)
+{
+  StructRNA *srna;
+  PropertyRNA *prop;
+
+  static const EnumPropertyItem mode_items[] = {
+      {PHYSNODES_MODE_PASSTHROUGH,
+       "PASSTHROUGH",
+       0,
+       "Pass Through",
+       "Leave the input mesh untouched"},
+      {PHYSNODES_MODE_SINK,
+       "SINK",
+       0,
+       "Sink",
+       "Write the simulated frame state back to the mesh"},
+      {0, nullptr, 0, nullptr, nullptr},
+  };
+
+  srna = RNA_def_struct(brna, "PhysNodesModifier", "Modifier");
+  RNA_def_struct_ui_text(
+      srna,
+      "Physics Nodes Modifier",
+      "Sink modifier: the Scene level physics simulation operation steps the world, this modifier "
+      "only writes the result. Collider mesh source follows the modifier stack position: before "
+      "Geometry Nodes it collides against the original mesh, after it uses the evaluated mesh. "
+      "If bodies penetrate, check the modifier order first");
+  RNA_def_struct_sdna(srna, "PhysNodesModifierData");
+  RNA_def_struct_ui_icon(srna, ICON_PHYSICS);
+
+  RNA_define_lib_overridable(true);
+
+  prop = RNA_def_property(srna, "tree_name", PROP_STRING, PROP_NONE);
+  RNA_def_property_string_sdna(prop, nullptr, "tree_name");
+  RNA_def_property_ui_text(
+      prop, "Tree", "Name of the PhysNodeTree data-block that owns this simulation world");
+  RNA_def_property_update(prop, 0, "rna_Modifier_dependency_update");
+
+  prop = RNA_def_property(srna, "mode", PROP_ENUM, PROP_NONE);
+  RNA_def_property_enum_sdna(prop, nullptr, "mode");
+  RNA_def_property_enum_items(prop, mode_items);
+  RNA_def_property_ui_text(prop, "Mode", "Pass through or write simulation state");
+  RNA_def_property_update(prop, NC_OBJECT | ND_MODIFIER, "rna_Modifier_update");
+
+  prop = RNA_def_property(srna, "step_count", PROP_INT, PROP_NONE);
+  RNA_def_property_int_funcs(prop, "rna_PhysNodesModifier_step_count_get", nullptr, nullptr);
+  RNA_def_property_clear_flag(prop, PROP_EDITABLE);
+  RNA_def_property_ui_text(
+      prop, "Step Count", "Integration steps performed for this tree (read-only)");
+
+  prop = RNA_def_property(srna, "eval_count", PROP_INT, PROP_NONE);
+  RNA_def_property_int_funcs(prop, "rna_PhysNodesModifier_eval_count_get", nullptr, nullptr);
+  RNA_def_property_clear_flag(prop, PROP_EDITABLE);
+  RNA_def_property_ui_text(
+      prop, "Evaluation Count", "Times the scene simulation operation ran (read-only)");
+
+  prop = RNA_def_property(srna, "last_ctime", PROP_FLOAT, PROP_NONE);
+  RNA_def_property_float_funcs(prop, "rna_PhysNodesModifier_last_ctime_get", nullptr, nullptr);
+  RNA_def_property_clear_flag(prop, PROP_EDITABLE);
+  RNA_def_property_ui_text(prop, "Last Time", "Dependency graph time of the last step (read-only)");
+
+  prop = RNA_def_property(srna, "initialized", PROP_BOOLEAN, PROP_NONE);
+  RNA_def_property_boolean_funcs(prop, "rna_PhysNodesModifier_initialized_get", nullptr);
+  RNA_def_property_clear_flag(prop, PROP_EDITABLE);
+  RNA_def_property_ui_text(
+      prop, "Initialized", "Whether the simulation baseline frame was established (read-only)");
+
+  prop = RNA_def_property(srna, "kernel_available", PROP_BOOLEAN, PROP_NONE);
+  RNA_def_property_boolean_funcs(prop, "rna_PhysNodesModifier_kernel_available_get", nullptr);
+  RNA_def_property_clear_flag(prop, PROP_EDITABLE);
+  RNA_def_property_ui_text(
+      prop,
+      "External Kernel",
+      "Whether the optional external C physics kernel (PHYSNODES_KERNEL_PATH) was "
+      "loaded and exposes the rigid ABI. False means the built-in C++ solver is in "
+      "use, which is the default and does not prevent simulation");
+
+  prop = RNA_def_property(srna, "kernel_error", PROP_STRING, PROP_NONE);
+  RNA_def_property_string_funcs(prop,
+                                 "rna_PhysNodesModifier_kernel_error_get",
+                                 "rna_PhysNodesModifier_kernel_error_length",
+                                 nullptr);
+  RNA_def_property_clear_flag(prop, PROP_EDITABLE);
+  RNA_def_property_ui_text(
+      prop,
+      "Kernel Error",
+      "Why the external kernel was rejected. Empty when it is not configured: "
+      "the built-in solver is then used, which is not an error");
+
+  /* --- Step 2: body registry diagnostics --------------------------------- */
+
+  struct {
+    const char *identifier;
+    const char *ui_name;
+    const char *ui_description;
+    const char *getter;
+  } int_props[] = {
+      {"body_count", "Body Count", "Rigid bodies assembled from the tree", "rna_PhysNodesModifier_body_count_get"},
+      {"active_count", "Active Count", "Active (dynamic) bodies", "rna_PhysNodesModifier_active_count_get"},
+      {"static_count", "Static Count", "Static collider bodies", "rna_PhysNodesModifier_static_count_get"},
+      {"passive_count", "Passive Count", "Passive (kinematic) bodies", "rna_PhysNodesModifier_passive_count_get"},
+      {"collection_added", "Collection Added", "Uids added by the last collection diff", "rna_PhysNodesModifier_collection_added_get"},
+      {"collection_removed", "Collection Removed", "Uids removed by the last collection diff", "rna_PhysNodesModifier_collection_removed_get"},
+      {"collider_source", "Collider Source",
+       "-1 unmeasured, 0 original mesh, 1 evaluated mesh at the modifier stack position",
+       "rna_PhysNodesModifier_collider_source_get"},
+      {"collider_stack_index", "Collider Stack Index", "Index of this modifier in the stack",
+       "rna_PhysNodesModifier_collider_stack_index_get"},
+      {"particle_count", "Particle Count",
+       "Particles available to the output nodes (0: no native particle producer)",
+       "rna_PhysNodesModifier_particle_count_get"},
+      {"density_voxel_count", "Density Voxels",
+       "Density field voxels available to the output nodes (0: no native density producer)",
+       "rna_PhysNodesModifier_density_voxel_count_get"},
+  };
+  for (const auto &item : int_props) {
+    prop = RNA_def_property(srna, item.identifier, PROP_INT, PROP_NONE);
+    RNA_def_property_int_funcs(prop, item.getter, nullptr, nullptr);
+    RNA_def_property_clear_flag(prop, PROP_EDITABLE);
+    RNA_def_property_ui_text(prop, item.ui_name, item.ui_description);
+  }
+
+  struct {
+    const char *identifier;
+    const char *ui_name;
+    const char *ui_description;
+    const char *getter;
+  } float_props[] = {
+      {"passive_inv_mass", "Passive Inverse Mass", "Always zero: passive bodies are kinematic",
+       "rna_PhysNodesModifier_passive_inv_mass_get"},
+      {"passive_pose_x", "Passive Pose X", "Driver world X injected into the last passive body",
+       "rna_PhysNodesModifier_passive_pose_x_get"},
+      {"passive_pose_y", "Passive Pose Y", "Driver world Y injected into the last passive body",
+       "rna_PhysNodesModifier_passive_pose_y_get"},
+      {"passive_pose_z", "Passive Pose Z", "Driver world Z injected into the last passive body",
+       "rna_PhysNodesModifier_passive_pose_z_get"},
+      {"collider_volume", "Collider Volume",
+       "Mesh volume seen at the modifier stack position, object local space",
+       "rna_PhysNodesModifier_collider_volume_get"},
+  };
+  for (const auto &item : float_props) {
+    prop = RNA_def_property(srna, item.identifier, PROP_FLOAT, PROP_NONE);
+    RNA_def_property_float_funcs(prop, item.getter, nullptr, nullptr);
+    RNA_def_property_clear_flag(prop, PROP_EDITABLE);
+    RNA_def_property_ui_text(prop, item.ui_name, item.ui_description);
+  }
+
+  prop = RNA_def_property(srna, "body_uids", PROP_STRING, PROP_NONE);
+  RNA_def_property_string_funcs(prop,
+                                "rna_PhysNodesModifier_body_uids_get",
+                                "rna_PhysNodesModifier_body_uids_length",
+                                nullptr);
+  RNA_def_property_clear_flag(prop, PROP_EDITABLE);
+  RNA_def_property_ui_text(
+      prop, "Body Uids", "Newline separated body identifiers, sorted (read-only)");
+
+  /* --- Output nodes: explicit UNSUPPORTED reasons ------------------------- */
+
+  struct {
+    const char *identifier;
+    const char *ui_name;
+    const char *getter;
+    const char *length;
+  } output_props[] = {
+      {"output_particle_mesh", "Particle to Mesh", "rna_PhysNodesModifier_output_particle_mesh_get",
+       "rna_PhysNodesModifier_output_particle_mesh_length"},
+      {"output_particle_volume", "Particle to Volume",
+       "rna_PhysNodesModifier_output_particle_volume_get",
+       "rna_PhysNodesModifier_output_particle_volume_length"},
+      {"output_volume", "Volume Output", "rna_PhysNodesModifier_output_volume_get",
+       "rna_PhysNodesModifier_output_volume_length"},
+  };
+  for (const auto &item : output_props) {
+    prop = RNA_def_property(srna, item.identifier, PROP_STRING, PROP_NONE);
+    RNA_def_property_string_funcs(prop, item.getter, item.length, nullptr);
+    RNA_def_property_clear_flag(prop, PROP_EDITABLE);
+    RNA_def_property_ui_text(prop,
+                             item.ui_name,
+                             "Empty when the output was produced; otherwise the explicit reason "
+                             "why it is unavailable (read-only)");
+  }
+
+  RNA_define_lib_overridable(false);
+}
+
 void RNA_def_modifier(BlenderRNA *brna)
 {
   StructRNA *srna;
@@ -11731,6 +12190,7 @@ void RNA_def_modifier(BlenderRNA *brna)
   rna_def_modifier_shrinkwrap(brna);
   rna_def_modifier_mask(brna);
   rna_def_modifier_simpledeform(brna);
+  rna_def_modifier_physnodes(brna);
   rna_def_modifier_warp(brna);
   rna_def_modifier_multires(brna);
   rna_def_modifier_surface(brna);

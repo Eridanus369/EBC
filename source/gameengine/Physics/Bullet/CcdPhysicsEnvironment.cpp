@@ -21,15 +21,22 @@
 
 #include "CcdPhysicsEnvironment.h"
 
+#include <memory>
+
 #include "BKE_object.hh"
 #include "BLI_bounds.hh"
 #include "DNA_object_force_types.h"
 #include "DNA_scene_types.h"
 
 #include "BulletCollision/CollisionDispatch/btGhostObject.h"
+#include "BulletCollision/CollisionDispatch/btCollisionWorld.h"
+#include "BulletCollision/CollisionShapes/btBoxShape.h"
+#include "BulletCollision/CollisionShapes/btConeShape.h"
+#include "BulletCollision/CollisionShapes/btSphereShape.h"
 #include "BulletCollision/Gimpact/btGImpactCollisionAlgorithm.h"
 #include "BulletCollision/NarrowPhaseCollision/btRaycastCallback.h"
 #include "BulletDynamics/ConstraintSolver/btNNCGConstraintSolver.h"
+#include "BulletDynamics/ConstraintSolver/btSliderConstraint.h"
 #include "BulletSoftBody/btSoftBodyRigidBodyCollisionConfiguration.h"
 #include "BulletSoftBody/btSoftRigidDynamicsWorld.h"
 
@@ -72,10 +79,14 @@ class VehicleClosestRayResultCallback : public btCollisionWorld::ClosestRayResul
  private:
   const btCollisionShape *m_hitTriangleShape;
   unsigned short m_mask;
+  const btCollisionObject *m_skip;
 
  public:
-  VehicleClosestRayResultCallback(const btVector3 &rayFrom, const btVector3 &rayTo, short mask)
-      : btCollisionWorld::ClosestRayResultCallback(rayFrom, rayTo), m_mask(mask)
+  VehicleClosestRayResultCallback(const btVector3 &rayFrom,
+                                  const btVector3 &rayTo,
+                                  short mask,
+                                  const btCollisionObject *skip)
+      : btCollisionWorld::ClosestRayResultCallback(rayFrom, rayTo), m_mask(mask), m_skip(skip)
   {
   }
 
@@ -90,6 +101,12 @@ class VehicleClosestRayResultCallback : public btCollisionWorld::ClosestRayResul
     }
 
     btCollisionObject *object = (btCollisionObject *)proxy0->m_clientObject;
+    /* A wheel ray starts at the suspension anchor, which sits inside the
+     * chassis volume; the chassis must never be its own suspension target.
+     * Ghost (non-contact) bodies are volumes only and must not be hit either. */
+    if (object == m_skip || !object->hasContactResponse()) {
+      return false;
+    }
     CcdPhysicsController *phyCtrl = static_cast<CcdPhysicsController *>(object->getUserPointer());
 
     if (phyCtrl->GetCollisionGroup() & m_mask) {
@@ -104,12 +121,14 @@ class BlenderVehicleRaycaster : public btDefaultVehicleRaycaster {
  private:
   btDynamicsWorld *m_dynamicsWorld;
   unsigned short m_mask;
+  const btCollisionObject *m_chassis;
 
  public:
-  BlenderVehicleRaycaster(btDynamicsWorld *world)
+  BlenderVehicleRaycaster(btDynamicsWorld *world, const btCollisionObject *chassis)
       : btDefaultVehicleRaycaster(world),
         m_dynamicsWorld(world),
-        m_mask((1 << OB_MAX_COL_MASKS) - 1)
+        m_mask((1 << OB_MAX_COL_MASKS) - 1),
+        m_chassis(chassis)
   {
   }
 
@@ -119,7 +138,7 @@ class BlenderVehicleRaycaster : public btDefaultVehicleRaycaster {
   {
     //	RayResultCallback& resultCallback;
 
-    VehicleClosestRayResultCallback rayCallback(from, to, m_mask);
+    VehicleClosestRayResultCallback rayCallback(from, to, m_mask, m_chassis);
 
     // We override btDefaultVehicleRaycaster so we can set this flag, otherwise our
     // vehicles go crazy (http://bulletphysics.org/Bullet/phpBB3/viewtopic.php?t=9662)
@@ -155,6 +174,8 @@ class WrapperVehicle : public PHY_IVehicle {
   btRaycastVehicle *m_vehicle;
   BlenderVehicleRaycaster *m_raycaster;
   PHY_IPhysicsController *m_chassis;
+  /** Per wheel: true when AddWheel created the motion state and the vehicle owns it. */
+  std::vector<bool> m_ownedMotionStates;
 
  public:
   WrapperVehicle(btRaycastVehicle *vehicle,
@@ -168,12 +189,30 @@ class WrapperVehicle : public PHY_IVehicle {
   {
     for (unsigned short i = 0, numWheels = GetNumWheels(); i < numWheels; ++i) {
       btWheelInfo &info = m_vehicle->getWheelInfo(i);
-      PHY_IMotionState *motionState = (PHY_IMotionState *)info.m_clientInfo;
-      delete motionState;
+      /* Only release what this vehicle allocated. A wheel controller's own
+       * motion state is owned by that controller; deleting it here made the
+       * later ~CcdPhysicsController delete the same pointer (double free).
+       * See KX_PhysicsAdvancedAdapter::CreateVehicle, which passes
+       * ownsMotionState=false. */
+      if (i < m_ownedMotionStates.size() && m_ownedMotionStates[i]) {
+        delete (PHY_IMotionState *)info.m_clientInfo;
+      }
+      info.m_clientInfo = nullptr;
     }
 
     delete m_vehicle;
     delete m_raycaster;
+  }
+
+  /** Forget a motion state that its controller is about to delete. */
+  void DetachMotionState(PHY_IMotionState *motionState)
+  {
+    for (unsigned short i = 0, numWheels = GetNumWheels(); i < numWheels; ++i) {
+      btWheelInfo &info = m_vehicle->getWheelInfo(i);
+      if ((PHY_IMotionState *)info.m_clientInfo == motionState) {
+        info.m_clientInfo = nullptr;
+      }
+    }
   }
 
   btRaycastVehicle *GetVehicle()
@@ -192,7 +231,8 @@ class WrapperVehicle : public PHY_IVehicle {
                         MT_Vector3 axleDirection,
                         float suspensionRestLength,
                         float wheelRadius,
-                        bool hasSteering)
+                        bool hasSteering,
+                        bool ownsMotionState) override
   {
     btWheelInfo &info = m_vehicle->addWheel(ToBullet(connectionPoint),
                                             ToBullet(downDirection.normalized()),
@@ -202,6 +242,7 @@ class WrapperVehicle : public PHY_IVehicle {
                                             gTuning,
                                             hasSteering);
     info.m_clientInfo = motionState;
+    m_ownedMotionStates.push_back(ownsMotionState);
   }
 
   void SyncWheels()
@@ -211,6 +252,9 @@ class WrapperVehicle : public PHY_IVehicle {
     for (i = 0; i < numWheels; i++) {
       btWheelInfo &info = m_vehicle->getWheelInfo(i);
       PHY_IMotionState *motionState = (PHY_IMotionState *)info.m_clientInfo;
+      if (motionState == nullptr) {
+        continue;
+      }
       m_vehicle->updateWheelTransform(i, false);
       const btTransform trans = m_vehicle->getWheelInfo(i).m_worldTransform;
       /* Bullet 2.89: See void btRaycastVehicle::updateWheelTransform
@@ -318,6 +362,14 @@ class WrapperVehicle : public PHY_IVehicle {
     if ((wheelIndex >= 0) && (wheelIndex < m_vehicle->getNumWheels())) {
       btWheelInfo &info = m_vehicle->getWheelInfo(wheelIndex);
       info.m_wheelsDampingCompression = suspensionCompression;
+    }
+  }
+
+  virtual void SetSuspensionRestLength(float suspensionRestLength, int wheelIndex)
+  {
+    if ((wheelIndex >= 0) && (wheelIndex < m_vehicle->getNumWheels())) {
+      btWheelInfo &info = m_vehicle->getWheelInfo(wheelIndex);
+      info.m_suspensionRestLength1 = suspensionRestLength;
     }
   }
 
@@ -556,6 +608,13 @@ bool CcdPhysicsEnvironment::RemoveCcdPhysicsController(CcdPhysicsController *ctr
   // if the physics controller is already removed we do nothing
   if (!m_controllers.erase(ctrl)) {
     return false;
+  }
+
+  /* Vehicles reference wheel motion states without owning them. Clear the
+   * reference before this controller deletes the motion state, otherwise the
+   * next SyncWheels() would dereference freed memory. */
+  for (WrapperVehicle *vehicle : m_wrapperVehicles) {
+    vehicle->DetachMotionState(ctrl->GetMotionState());
   }
 
   // also remove constraint
@@ -1508,6 +1567,109 @@ PHY_CollisionTestResult CcdPhysicsEnvironment::CheckCollision(PHY_IPhysicsContro
   return result;
 }
 
+namespace {
+
+class CcdShapeContactCallback : public btCollisionWorld::ContactResultCallback {
+ public:
+  btScalar addSingleResult(btManifoldPoint & /*cp*/,
+                           const btCollisionObjectWrapper * /*colObj0Wrap*/,
+                           int /*partId0*/,
+                           int /*index0*/,
+                           const btCollisionObjectWrapper * /*colObj1Wrap*/,
+                           int /*partId1*/,
+                           int /*index1*/) override
+  {
+    contact = true;
+    return btScalar(1.0);
+  }
+
+  bool contact = false;
+};
+
+}  // namespace
+
+bool CcdPhysicsEnvironment::TestControllerContact(PHY_IPhysicsController *first,
+                                                  PHY_IPhysicsController *second)
+{
+  if (first == nullptr || second == nullptr) {
+    return false;
+  }
+  btCollisionObject *col0 = static_cast<CcdPhysicsController *>(first)->GetCollisionObject();
+  btCollisionObject *col1 = static_cast<CcdPhysicsController *>(second)->GetCollisionObject();
+  if (col0 == nullptr || col1 == nullptr) {
+    return false;
+  }
+  CcdShapeContactCallback callback;
+  m_dynamicsWorld->contactPairTest(col0, col1, callback);
+  return callback.contact;
+}
+
+bool CcdPhysicsEnvironment::TestShapeContact(const PHY_ShapeDesc &shape,
+                                             const MT_Vector3 &position,
+                                             const MT_Matrix3x3 &orientation,
+                                             PHY_IPhysicsController *other)
+{
+  if (other == nullptr) {
+    return false;
+  }
+  CcdPhysicsController *controller = static_cast<CcdPhysicsController *>(other);
+  btCollisionObject *object = controller->GetCollisionObject();
+  if (object == nullptr) {
+    return false;
+  }
+
+  std::unique_ptr<btCollisionShape> query_shape;
+  switch (shape.kind) {
+    case PHY_ShapeDesc::PHY_SHAPE_SPHERE:
+      if (shape.radius <= 0.0f) {
+        return false;
+      }
+      query_shape = std::make_unique<btSphereShape>(btScalar(shape.radius));
+      break;
+    case PHY_ShapeDesc::PHY_SHAPE_BOX:
+      query_shape = std::make_unique<btBoxShape>(
+          btVector3(btScalar(shape.half_extents[0]),
+                    btScalar(shape.half_extents[1]),
+                    btScalar(shape.half_extents[2])));
+      break;
+    case PHY_ShapeDesc::PHY_SHAPE_CONE:
+      if (shape.radius <= 0.0f || shape.height <= 0.0f) {
+        return false;
+      }
+      query_shape = std::make_unique<btConeShape>(btScalar(shape.radius),
+                                                  btScalar(shape.height));
+      break;
+  }
+  if (!query_shape) {
+    return false;
+  }
+
+  float matrix[9];
+  orientation.getValue3x3(matrix);
+  /* MT stores columns in getValue3x3; btMatrix3x3 takes rows. */
+  btMatrix3x3 basis(matrix[0],
+                    matrix[3],
+                    matrix[6],
+                    matrix[1],
+                    matrix[4],
+                    matrix[7],
+                    matrix[2],
+                    matrix[5],
+                    matrix[8]);
+
+  btCollisionObject query_object;
+  query_object.setCollisionShape(query_shape.get());
+  btTransform transform;
+  transform.setIdentity();
+  transform.setOrigin(btVector3(position[0], position[1], position[2]));
+  transform.setBasis(basis);
+  query_object.setWorldTransform(transform);
+
+  CcdShapeContactCallback callback;
+  m_dynamicsWorld->contactPairTest(&query_object, object, callback);
+  return callback.contact;
+}
+
 // This call back is called before a pair is added in the cache
 // Handy to remove objects that must be ignored by sensors
 bool CcdOverlapFilterCallBack::needBroadphaseCollision(btBroadphaseProxy *proxy0,
@@ -1945,6 +2107,44 @@ PHY_IConstraint *CcdPhysicsEnvironment::CreateConstraint(class PHY_IPhysicsContr
 
       break;
     }
+    case PHY_SLIDER_CONSTRAINT: {
+      btSliderConstraint *slider = nullptr;
+
+      btTransform frameInA;
+      btTransform frameInB;
+
+      btVector3 axis1(axis1X, axis1Y, axis1Z), axis2(axis2X, axis2Y, axis2Z);
+      if (axis1.length() == 0.0f) {
+        btPlaneSpace1(axisInA, axis1, axis2);
+      }
+
+      /* btSliderConstraint's free axis is the X axis of frameInA. */
+      frameInA.getBasis().setValue(axisInA.x(),
+                                   axis1.x(),
+                                   axis2.x(),
+                                   axisInA.y(),
+                                   axis1.y(),
+                                   axis2.y(),
+                                   axisInA.z(),
+                                   axis1.z(),
+                                   axis2.z());
+      frameInA.setOrigin(pivotInA);
+
+      if (rb1) {
+        btTransform inv = rb1->getCenterOfMassTransform().inverse();
+        frameInB = inv * (rb0->getCenterOfMassTransform() * frameInA);
+        slider = new btSliderConstraint(*rb0, *rb1, frameInA, frameInB, true);
+      }
+      else {
+        static btRigidBody s_fixedObject2(0.0f, nullptr, nullptr);
+        frameInB = rb0->getCenterOfMassTransform() * frameInA;
+        slider = new btSliderConstraint(*rb0, s_fixedObject2, frameInA, frameInB, true);
+      }
+
+      con = slider;
+
+      break;
+    }
     default: {
     }
   };
@@ -1967,9 +2167,9 @@ PHY_IConstraint *CcdPhysicsEnvironment::CreateConstraint(class PHY_IPhysicsContr
 PHY_IVehicle *CcdPhysicsEnvironment::CreateVehicle(PHY_IPhysicsController *ctrl)
 {
   const btRaycastVehicle::btVehicleTuning tuning = btRaycastVehicle::btVehicleTuning();
-  BlenderVehicleRaycaster *raycaster = new BlenderVehicleRaycaster(m_dynamicsWorld);
-  btRaycastVehicle *vehicle = new btRaycastVehicle(
-      tuning, ((CcdPhysicsController *)ctrl)->GetRigidBody(), raycaster);
+  btRigidBody *chassis_body = ((CcdPhysicsController *)ctrl)->GetRigidBody();
+  BlenderVehicleRaycaster *raycaster = new BlenderVehicleRaycaster(m_dynamicsWorld, chassis_body);
+  btRaycastVehicle *vehicle = new btRaycastVehicle(tuning, chassis_body, raycaster);
   WrapperVehicle *wrapperVehicle = new WrapperVehicle(vehicle, raycaster, ctrl);
   m_wrapperVehicles.push_back(wrapperVehicle);
 

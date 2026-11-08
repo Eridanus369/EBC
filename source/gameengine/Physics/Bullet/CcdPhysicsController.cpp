@@ -25,6 +25,8 @@
 
 #include "CcdPhysicsController.h"
 
+#include <cmath>
+
 #include "BKE_context.hh"
 #include "BKE_mesh.hh"
 #include "BKE_mesh_legacy_convert.hh"
@@ -2078,6 +2080,60 @@ void CcdPhysicsController::UpdateShapeFromShapeInfo(CcdShapeConstructionInfo *sh
     if (m_cci.m_physicsEnv)
       m_cci.m_physicsEnv->RefreshCcdPhysicsController(this);
   }
+}
+
+bool CcdPhysicsController::SetAnalyticCollisionShape(PHY_ShapeType shape,
+                                                     const float half_extents[3])
+{
+  if (!m_object || !m_shapeInfo || !m_collisionShape)
+    return false;
+
+  /* Only plain dynamic bodies can swap their analytic shape in place. Sensors,
+   * soft bodies and character controllers drive a different Bullet object, and
+   * compound shapes are built from children that this call must not flatten. */
+  if (m_cci.m_bSensor || m_cci.m_bSoft || m_characterController)
+    return false;
+  if (m_shapeInfo->m_shapeType == PHY_SHAPE_COMPOUND ||
+      m_shapeInfo->m_shapeType == PHY_SHAPE_PROXY ||
+      m_shapeInfo->m_shapeType == PHY_SHAPE_NONE)
+    return false;
+  if (shape != PHY_SHAPE_BOX && shape != PHY_SHAPE_CYLINDER)
+    return false;
+
+  for (int i = 0; i < 3; i++) {
+    if (!(std::isfinite(half_extents[i]) && half_extents[i] > 0.0f))
+      return false;
+  }
+
+  m_shapeInfo->m_shapeType = shape;
+  m_shapeInfo->m_halfExtend =
+      btVector3(half_extents[0], half_extents[1], half_extents[2]);
+  if (!ReplaceControllerShape(nullptr))
+    return false;
+
+  /* ReplaceControllerShape only swaps the Bullet shape, so reapply the two
+   * things CreateRigidbody normally derives from it: the object scaling and
+   * the inertia tensor (a sphere fallback otherwise leaves a sphere inertia
+   * on a box chassis). */
+  m_collisionShape->setLocalScaling(m_cci.m_scaling);
+  btRigidBody *body = GetRigidBody();
+  if (body && m_cci.m_mass > 0.0f) {
+    m_collisionShape->calculateLocalInertia(m_cci.m_mass, m_cci.m_localInertiaTensor);
+    body->setMassProps(m_cci.m_mass, m_cci.m_localInertiaTensor * m_cci.m_inertiaFactor);
+    body->updateInertiaTensor();
+    body->activate(true);
+  }
+
+  /* The new shape has a different AABB; update it before the pair cache is
+   * cleaned so contacts are rebuilt against the new bounds. */
+  if (m_cci.m_physicsEnv) {
+    btDynamicsWorld *world = m_cci.m_physicsEnv->GetDynamicsWorld();
+    if (world)
+      world->updateSingleAabb(m_object);
+    m_cci.m_physicsEnv->RefreshCcdPhysicsController(this);
+  }
+
+  return true;
 }
 
 void CcdPhysicsController::ReplicateConstraints(KX_GameObject *replica,

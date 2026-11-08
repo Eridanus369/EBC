@@ -207,7 +207,7 @@ set(SRC
   GameNodes/KX_GraphIR.cpp
   GameNodes/KX_GraphInstance.cpp
   GameNodes/KX_GraphSceneManager.cpp
-  GameNodes/KX_LogicNodeRuntime.cpp
+  GameNodes/KX_GameNodeRuntime.cpp
   GameNodes/KX_NodeRegistry.cpp
   GameNodes/KX_PropertyAccessor.cpp
   GameNodes/KX_PropertyAccessorEngine.cpp
@@ -247,7 +247,7 @@ set(SRC
   GameNodes/KX_GraphIR.h
   GameNodes/KX_GraphInstance.h
   GameNodes/KX_GraphSceneManager.h
-  GameNodes/KX_LogicNodeRuntime.h
+  GameNodes/KX_GameNodeRuntime.h
   GameNodes/KX_NodeRegistry.h
   GameNodes/KX_PropertyAccessor.h
   GameNodes/KX_RuntimeData.h

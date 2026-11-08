@@ -855,6 +855,28 @@ class CcdPhysicsController : public PHY_IPhysicsController {
     m_cci.m_radius = margin;
   }
 
+  float GetShapeBoundingRadius() const override
+  {
+    if (m_collisionShape == nullptr) {
+      return 0.0f;
+    }
+    btTransform identity;
+    identity.setIdentity();
+    btVector3 aabb_min;
+    btVector3 aabb_max;
+    /* The shape already carries the object scaling (set in the constructor). */
+    m_collisionShape->getAabb(identity, aabb_min, aabb_max);
+    const btVector3 extents = (aabb_max - aabb_min) * 0.5f;
+    float radius = extents.x();
+    if (extents.y() > radius) {
+      radius = extents.y();
+    }
+    if (extents.z() > radius) {
+      radius = extents.z();
+    }
+    return radius;
+  }
+
   /// velocity clamping
   virtual void SetLinVelocityMin(float val)
   {
@@ -947,6 +969,15 @@ class CcdPhysicsController : public PHY_IPhysicsController {
                                       float collapseFactor = 1.0f);
 
   virtual bool ReplacePhysicsShape(PHY_IPhysicsController *phyctrl);
+
+  /**
+   * Rebuild the Bullet shape of this body from explicit local half extents.
+   * See PHY_IPhysicsController::SetAnalyticCollisionShape. Only analytic
+   * shapes (box/cylinder/sphere/...) can be rebuilt in place; compound, proxy,
+   * sensor, soft body and character controllers are rejected. Refreshes the
+   * broadphase AABB, then recomputes the inertia tensor from the new shape.
+   */
+  bool SetAnalyticCollisionShape(PHY_ShapeType shape, const float half_extents[3]) override;
 
   /** Update the controller collision shape in-place when the underlying
    * CcdShapeConstructionInfo changed but topology hasn't. This will try to

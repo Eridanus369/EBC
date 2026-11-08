@@ -13,7 +13,7 @@
 | --- | --- | --- | --- |
 | 3 LogicGate + 调度器 trigger 快照 | 完整 | 部分 | **full（验证 partial）**：6 个 op 全部注册，但 E2E 只覆盖 4 个；性能只有人工打印，没有 ±5% 自动断言 |
 | 4 WorldPositionLegacy | 完整 | 部分 | **full（验证 partial）**：反投影实现正确，深度三态 E2E 齐全，但 E2E 走 mock adapter，真实引擎路径未端到端执行 |
-| 5 TouchLegacy | 完整 | 部分 | **full（验证 partial）**：E2E 三场景齐全，但 `OverlapQuery` 按设计是球体近似，且 E2E 走 mock adapter |
+| 5 TouchLegacy | 完整 | 部分 | **approximate（语义覆盖完整，精度近似）**：E2E 三场景齐全，但 `OverlapQuery` 按设计是球体近似，且 E2E 走 mock adapter。**限定语**：这里的「完整」只指 **legacy 语义覆盖完整**（文档承诺的输入/输出/触发都实现了），与 325 口径的 `approximate` **不矛盾**——后者指**精度**：`OverlapQuery` 用世界位置球心 + `max(|scale.x|,|scale.y|,|scale.z|)` 半径，与形状/旋向无关（`KX_GameAdaptersEngine.cpp:1034-1088`）。分档**以 CAP 为准**，记 `approximate`。 |
 
 一句话：**不是"没做"，而是"做了但测得不全"**。以下逐项给出证据与缺口，不代为补做。
 
@@ -32,7 +32,7 @@
 | 节点注册 | `KX_FunctionNode.cpp:1355` `TRIGGER_SNAPSHOT_NODE("LogicGate", kLogicGateInputs, kLogicGateOutputs, FuncLogicGate)` |
 | 端口契约 | `KX_FunctionNode.cpp:1003-1010`：输入 `A`/`B` 均为 `TP`（trigger），输出 `Result(Bool)` / `OnTrue` / `OnFalse` |
 | 实现 | `KX_FunctionNode.cpp:1013-1044`：读取 `ctx.TriggerSnapshot(0/1)`，对 op 字符串转小写后分派 |
-| 编辑器注册 | `scripts/addons_core/bge_netlogic/editor/nodes/native_batch.py:75-85` 六个 op 枚举；`:327-330` 表格行 `('LogicGate', ..., [('A','Condition'),('B','Condition')], [('Result','Bool'),('OnTrue','Condition'),('OnFalse','Condition')], ...)` |
+| 编辑器注册 | `scripts/startup/bge_gamenodes/editor/nodes/native_batch.py:75-85` 六个 op 枚举；`:327-330` 表格行 `('LogicGate', ..., [('A','Condition'),('B','Condition')], [('Result','Bool'),('OnTrue','Condition'),('OnFalse','Condition')], ...)` |
 
 ### op 覆盖
 
@@ -113,9 +113,9 @@ C++ 实现与编辑器枚举均为 **6 个 op**：`and`（默认）、`or`、`xo
 | 节点端口 | `KX_FunctionNodesB6LegacyQuery.cpp:90-101`（`OnEnter/ScreenX/ScreenY → OnDone/Target/Objects/Point/Normal`） |
 | 实现 | `:128-170` `FuncTouchLegacy`；`:135` `overlap_threshold` 默认 `0.1`；`:151` `RayCastFromScreen`；`:155` `OverlapQuery`；`:163-169` 输出 Target/List/Point/Normal/OnDone |
 | 注册 | `:187-190` |
-| 重叠查询 | `KX_GameAdaptersEngine.cpp:699-753` |
-| 球近似 | `:691-697` 注释明确："physics world 没有点重叠入口……把每个对象当作以世界位置为中心、最大世界缩放分量为半径的球体，这是对碰撞体的近似"；`:730-732` 半径计算；`:735` `distance > threshold + radius` 跳过 |
-| 命中优先 | `:707-716` 命中对象先以精确射线点/法线回调；`:744` 其余对象取球面最近点 |
+| 重叠查询 | `KX_GameAdaptersEngine.cpp:1034-1088` |
+| 球近似 | `:1023-1033` 注释明确："physics world 没有点重叠入口……把每个对象当作以世界位置为中心、最大世界缩放分量为半径的球体，这是对碰撞体的近似"；`:1065-1067` 半径计算；`:1070` `distance > threshold + radius` 跳过 |
+| 命中优先 | `:1042-1052` 命中对象先以精确射线点/法线回调；`:1076-1082` 其余对象取球面最近点 |
 
 结论：**`OverlapQuery` 是球近似，不是真实碰撞体/网格重叠检测**，且这一点在源码注释中明确声明，不是实现缺陷，而是设计取舍。若产品语义要求"真重叠"，需另立设计变更。
 
@@ -265,7 +265,7 @@ C++ 实现与编辑器枚举均为 **6 个 op**：`and`（默认）、`or`、`xo
      `ratio_mixed_vs_plain`），不同二进制之间只报“不可比”。
 - **断言口径**：`b661_perf` 只打印 `PERF frames=… rounds=… best_us…`，源码
   `tests/b661_perf.cpp:137-143` 无任何 `PASS/FAIL` 或 `RESULT assertions=`，按设计
-  **0 条断言**，不计入全量断言批次（26 批 / 850 条的口径见 `A1_BUILD_AUDIT.md` §11）。
+  **0 条断言**，不计入全量断言批次（**46 批 / 1456 条**的口径见 `NUMBER_CONSISTENCY_AUDIT.md` B.5；J 块 26 批 / 851 为历史）。
 
 ## 约束遵守
 

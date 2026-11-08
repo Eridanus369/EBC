@@ -164,6 +164,12 @@ class BL_Action {
   // Accessors
   float GetFrame();
   const std::string GetName();
+  /**
+   * Frame the action would show at @a curtime, computed from the last update without changing
+   * playback state. The returned frame follows the same play-mode clamping/wrapping as Update().
+   * Appended for the GameNode animation-event bridge.
+   */
+  float GetFrameAtTime(float curtime);
 
   blender::bAction *GetAction();
 

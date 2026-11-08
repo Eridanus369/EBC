@@ -5,7 +5,7 @@
 //                 objects. This is a CONTROL: it shows the cost of the raw
 //                 float chain and is NOT comparable with the graph paths.
 //   inline-off   KX_GraphInstance::Tick -> KX_ExecutionContext::RunFrame ->
-//                 ExecuteValueNodes -> KX_LogicNodeRuntime::Execute, once per
+//                 ExecuteValueNodes -> KX_GameNodeRuntime::Execute, once per
 //                 value node (KX_InlinePass disabled).
 //   inline-on    same plan and same nodes, but the foldable run is wrapped in
 //                 KX_InlinedBlock; ExecuteValueNodes calls the block, and
@@ -205,7 +205,7 @@ PathStats CollectStats(const KX_ExecutionPlan *plan)
   stats.tick_nodes = plan->tick_nodes.size();
   stats.value_entries = plan->value_nodes.size();
   for (const uint32_t index : plan->value_nodes) {
-    const KX_LogicNodeRuntime *node = plan->nodes[index].get();
+    const KX_GameNodeRuntime *node = plan->nodes[index].get();
     const KX_InlinedBlock *block = dynamic_cast<const KX_InlinedBlock *>(node);
     if (block != nullptr) {
       ++stats.inline_blocks;
@@ -280,7 +280,7 @@ int main(int argc, char **argv)
               "scheduler, no node objects; CONTROL ONLY, not comparable to graph paths\n",
               nodes);
   std::printf("# path=inline-off: KX_GraphInstance::Tick -> ExecuteValueNodes -> "
-              "KX_LogicNodeRuntime::Execute, one call per value node\n");
+              "KX_GameNodeRuntime::Execute, one call per value node\n");
   std::printf("# path=inline-on: same plan, foldable run wrapped in KX_InlinedBlock; "
               "ExecuteValueNodes -> block->Execute -> ExecuteValueOnly -> node->Execute\n");
 

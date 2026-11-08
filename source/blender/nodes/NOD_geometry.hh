@@ -15,6 +15,11 @@ namespace blender {
 extern bke::bNodeTreeType *ntreeType_Geometry;
 
 void register_node_tree_type_geo();
+
+/* Native C++ physics tree (`PhysNodeTree`). Registered next to the geometry
+ * tree type; no Python addon is involved. */
+extern bke::bNodeTreeType *ntreeType_Phys;
+void register_node_tree_type_phys();
 void register_node_type_geo_custom_group(bke::bNodeType *ntype);
 
 /**

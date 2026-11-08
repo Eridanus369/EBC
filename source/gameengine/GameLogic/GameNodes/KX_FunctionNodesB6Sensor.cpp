@@ -23,11 +23,11 @@
 /** \file KX_FunctionNodesB6Sensor.cpp
  *  \ingroup gamelogic
  *
- *  B6.3 extended sensors. RadarExtended reuses the existing proximity query
- *  (sphere / cone plus game property filter). LineOfSight and RaycastSensor use
- *  KX_RayCast through the physics adapter. AreaSensor is implemented on top of
- *  the same proximity query with a named empty as the area definition, because
- *  this engine has no native area sensor concept.
+ *  B6.3 extended sensors. RadarExtended and AreaSensor query the scene through
+ *  the shape-aware proximity adapter, which tests real collision shapes and
+ *  falls back to origin distance when a node exceeds its per-frame budget or
+ *  an object has no collider. LineOfSight and RaycastSensor use KX_RayCast
+ *  through the physics adapter.
  */
 
 #include <algorithm>
@@ -72,6 +72,22 @@ float B6SensorDistance(const float a[3], const float b[3])
   return std::sqrt(dx * dx + dy * dy + dz * dz);
 }
 
+void B6WarnShapeFallback(bool &warned, const char *node_name)
+{
+  if (warned) {
+    return;
+  }
+  warned = true;
+  std::fprintf(stderr,
+               "[%s] shape overlap query exceeded %d objects, using origin distance\n",
+               node_name,
+               KX_PROXIMITY_SHAPE_BUDGET);
+}
+
+struct B6ShapeWarnState {
+  bool warned;
+};
+
 /* ------------------------------------------------------------------------- */
 /* RadarExtended                                                              */
 /* ------------------------------------------------------------------------- */
@@ -100,8 +116,22 @@ void FuncRadarExtended(KX_FunctionNode &node, KX_ExecutionContext &ctx)
   const float angle = node.ConfigFloat("angle", 0.0f);
   const std::string property = node.ConfigString("property");
 
+  B6ShapeWarnState *state = node.StateBlock<B6ShapeWarnState>(ctx);
+  KX_ProximityShapeQuery query;
+  query.origin = ctx.Owner();
+  query.shape = (angle > 0.0f && angle < 360.0f) ? KX_PROXIMITY_CONE : KX_PROXIMITY_SPHERE;
+  query.radius = radius;
+  query.angle_deg = angle;
+  for (int i = 0; i < 3; ++i) {
+    query.local_axis[i] = axis[i];
+  }
+  query.property = property;
+
   std::vector<KX_ProximityHit> hits;
-  ctx.SceneQuery().QueryProximity(ctx.Owner(), axis, radius, angle, property, hits);
+  const bool degraded = ctx.SceneQuery().QueryProximityShapes(query, hits);
+  if (degraded) {
+    B6WarnShapeFallback(state->warned, "RadarExtended");
+  }
 
   KX_ValueList &list = ctx.Pool().AllocList(hits.size());
   for (const KX_ProximityHit &hit : hits) {
@@ -223,6 +253,7 @@ void FuncLineOfSight(KX_FunctionNode &node, KX_ExecutionContext &ctx)
 struct B6AreaState {
   KX_GameObject *occupants[kAreaMaxOccupants];
   int count;
+  bool warned;
 };
 
 inline void B6AreaClear(B6AreaState &state)
@@ -284,9 +315,19 @@ void FuncAreaSensor(KX_FunctionNode &node, KX_ExecutionContext &ctx)
   }
   const float radius = std::sqrt(half[0] * half[0] + half[1] * half[1] + half[2] * half[2]) * 1.05f;
 
-  float axis[3] = {0.0f, 0.0f, 1.0f};
+  KX_ProximityShapeQuery query;
+  query.origin = area;
+  query.shape = KX_PROXIMITY_BOX;
+  query.radius = radius;
+  for (int axis = 0; axis < 3; ++axis) {
+    query.half_extents[axis] = half[axis];
+  }
+
   std::vector<KX_ProximityHit> hits;
-  ctx.SceneQuery().QueryProximity(area, axis, radius, 0.0f, std::string(), hits);
+  const bool degraded = ctx.SceneQuery().QueryProximityShapes(query, hits);
+  if (degraded) {
+    B6WarnShapeFallback(state->warned, "AreaSensor");
+  }
 
   KX_GameObject *current[kAreaMaxOccupants];
   int current_count = 0;
@@ -299,9 +340,12 @@ void FuncAreaSensor(KX_FunctionNode &node, KX_ExecutionContext &ctx)
     if (!ctx.Objects().GetWorldPosition(hit.object, position)) {
       continue;
     }
-    if (std::fabs(position[0] - centre[0]) > half[0] + kAreaEpsilon ||
-        std::fabs(position[1] - centre[1]) > half[1] + kAreaEpsilon ||
-        std::fabs(position[2] - centre[2]) > half[2] + kAreaEpsilon) {
+    /* Hits without a shape test (no collider, or degraded budget) keep the
+     * legacy origin-in-box rule. Real shape overlaps are already exact. */
+    if (!hit.shape_overlap &&
+        (std::fabs(position[0] - centre[0]) > half[0] + kAreaEpsilon ||
+         std::fabs(position[1] - centre[1]) > half[1] + kAreaEpsilon ||
+         std::fabs(position[2] - centre[2]) > half[2] + kAreaEpsilon)) {
       continue;
     }
     if (current_count >= kAreaMaxOccupants) {
@@ -394,6 +438,86 @@ void FuncRaycastSensor(KX_FunctionNode &node, KX_ExecutionContext &ctx)
 }
 
 /* ------------------------------------------------------------------------- */
+/* RaycastAll                                                                 */
+/* ------------------------------------------------------------------------- */
+
+const KX_FuncPort kRaycastAllInputs[] = {
+    TP("OnEnter"),
+    FP("Direction", KX_VALUE_VECTOR),
+    FP("Length", KX_VALUE_FLOAT),
+};
+const KX_FuncPort kRaycastAllOutputs[] = {
+    TP("OnHit"),
+    TP("OnMiss"),
+    FP("Objects", KX_VALUE_LIST),
+    FP("Distances", KX_VALUE_LIST),
+    FP("Count", KX_VALUE_INT),
+};
+
+float B6RayHitDistance(const float origin[3], const float point[3])
+{
+  const float dx = point[0] - origin[0];
+  const float dy = point[1] - origin[1];
+  const float dz = point[2] - origin[2];
+  return std::sqrt(dx * dx + dy * dy + dz * dz);
+}
+
+void FuncRaycastAll(KX_FunctionNode &node, KX_ExecutionContext &ctx)
+{
+  if (!node.InTrigger(ctx, 0)) {
+    return;
+  }
+  KX_ValueList &objects = ctx.Pool().AllocList(0);
+  KX_ValueList &distances = ctx.Pool().AllocList(0);
+
+  float origin[3] = {0.0f, 0.0f, 0.0f};
+  if (ctx.Owner() == nullptr || !ctx.Objects().GetWorldPosition(ctx.Owner(), origin)) {
+    node.OutTrigger(ctx, 0, false);
+    node.OutTrigger(ctx, 1, true);
+    node.Out(ctx, 2, KX_RuntimeValue::List(&objects));
+    node.Out(ctx, 3, KX_RuntimeValue::List(&distances));
+    node.OutInt(ctx, 4, 0);
+    return;
+  }
+
+  float direction[3];
+  node.InVector(ctx, 1, direction);
+  const float length = node.InFloat(ctx, 2);
+
+  std::vector<KX_RaycastResult> hits;
+  ctx.Physics().RaycastAll(origin, direction, length, ctx.Owner(), hits);
+
+  /* Drop empty entries, then order nearest first. The contract is part of the
+   * adapter API (KX_PhysicsAdapter::RaycastAll); sorting here keeps it true even
+   * for a backend that forgot to sort. Ties keep backend order (stable_sort). */
+  std::vector<KX_RaycastResult> ordered;
+  ordered.reserve(hits.size());
+  for (const KX_RaycastResult &hit : hits) {
+    if (hit.hit && hit.object != nullptr) {
+      ordered.push_back(hit);
+    }
+  }
+  std::stable_sort(ordered.begin(),
+                   ordered.end(),
+                   [&origin](const KX_RaycastResult &a, const KX_RaycastResult &b) {
+                     return B6RayHitDistance(origin, a.point) <
+                            B6RayHitDistance(origin, b.point);
+                   });
+
+  for (const KX_RaycastResult &hit : ordered) {
+    objects.push_back(KX_RuntimeValue::Object(hit.object));
+    distances.push_back(KX_RuntimeValue::Float(B6RayHitDistance(origin, hit.point)));
+  }
+
+  const bool found = !objects.empty();
+  node.OutTrigger(ctx, 0, found);
+  node.OutTrigger(ctx, 1, !found);
+  node.Out(ctx, 2, KX_RuntimeValue::List(&objects));
+  node.Out(ctx, 3, KX_RuntimeValue::List(&distances));
+  node.OutInt(ctx, 4, int(objects.size()));
+}
+
+/* ------------------------------------------------------------------------- */
 /* ProximitySensor                                                            */
 /* ------------------------------------------------------------------------- */
 
@@ -438,7 +562,7 @@ const KX_FunctionSpec kB6SensorSpecs[] = {
                kRadarExtendedInputs,
                kRadarExtendedOutputs,
                FuncRadarExtended,
-               B6AreaSignature),
+               B6ShapeWarnState),
     B6S_ACTION("LineOfSight",
                kLineOfSightInputs,
                kLineOfSightOutputs,
@@ -449,6 +573,11 @@ const KX_FunctionSpec kB6SensorSpecs[] = {
                kRaycastSensorInputs,
                kRaycastSensorOutputs,
                FuncRaycastSensor,
+               B6AreaSignature),
+    B6S_ACTION("RaycastAll",
+               kRaycastAllInputs,
+               kRaycastAllOutputs,
+               FuncRaycastAll,
                B6AreaSignature),
     B6S_ACTION("ProximitySensor",
                kProximitySensorInputs,
@@ -492,6 +621,6 @@ void RegisterB6SensorFunctionGameNodes()
         spec.type_id,
         std::string("KX_FuncB6Sensor_") + spec.type_id,
         MakeB6SensorSignature(*entry),
-        [entry]() { return std::unique_ptr<KX_LogicNodeRuntime>(new KX_FunctionNode(entry)); });
+        [entry]() { return std::unique_ptr<KX_GameNodeRuntime>(new KX_FunctionNode(entry)); });
   }
 }

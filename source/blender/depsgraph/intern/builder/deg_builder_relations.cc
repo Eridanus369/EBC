@@ -62,6 +62,7 @@
 #include "BKE_constraint.h"
 #include "BKE_effect.h"
 #include "BKE_fcurve_driver.h"
+#include "BKE_main.hh"
 #include "BKE_gpencil_modifier_legacy.h"
 #include "BKE_grease_pencil.hh"
 #include "BKE_idprop.hh"
@@ -2382,6 +2383,196 @@ void DepsgraphRelationBuilder::build_rigidbody(Scene *scene)
       build_collision_relations(graph_, nullptr, eModifierType_Collision);
     }
     FOREACH_COLLECTION_OBJECT_RECURSIVE_END;
+  }
+}
+
+void DepsgraphRelationBuilder::build_physnodes(Scene *scene)
+{
+  if (bmain_ == nullptr) {
+    return;
+  }
+  const OperationKey sim_key(&scene->id, NodeType::TRANSFORM, OperationCode::PHYS_SIM);
+
+  /* The node builder only creates the sim operation when at least one sink
+   * modifier references a tree. Mirror that here so relations are not added
+   * for a missing operation (which would warn on every graph build). */
+  auto tree_referenced = [&](const std::string &name) {
+    for (Object &object_ref : bmain_->objects) {
+      for (ModifierData &md : object_ref.modifiers.items_mutable()) {
+        if (md.type != eModifierType_PhysNodes) {
+          continue;
+        }
+        const PhysNodesModifierData &pmd = reinterpret_cast<const PhysNodesModifierData &>(md);
+        if (pmd.tree_name[0] != '\0' && STREQ(pmd.tree_name, name.c_str())) {
+          return true;
+        }
+      }
+    }
+    return false;
+  };
+  bool has_sink = false;
+  for (Object &object_ref : bmain_->objects) {
+    for (ModifierData &md : object_ref.modifiers.items_mutable()) {
+      if (md.type == eModifierType_PhysNodes &&
+          reinterpret_cast<const PhysNodesModifierData &>(md).tree_name[0] != '\0')
+      {
+        has_sink = true;
+        break;
+      }
+    }
+    if (has_sink) {
+      break;
+    }
+  }
+  if (!has_sink) {
+    return;
+  }
+  /* The simulation is time dependent: the time source relation is what makes
+   * the operation run again on every frame change (same as the rigid body
+   * simulation). Without it the op would only run once per graph build. */
+  TimeSourceKey time_src_key;
+  add_relation(time_src_key, sim_key, "TimeSrc -> Physics Nodes Sim");
+  for (Object &object_ref : bmain_->objects) {
+    Object *object = &object_ref;
+    bool uses_physnodes = false;
+    for (ModifierData &md : object->modifiers.items_mutable()) {
+      if (md.type != eModifierType_PhysNodes) {
+        continue;
+      }
+      const PhysNodesModifierData &pmd = reinterpret_cast<const PhysNodesModifierData &>(md);
+      if (pmd.tree_name[0] != '\0') {
+        uses_physnodes = true;
+        break;
+      }
+    }
+    if (!uses_physnodes) {
+      continue;
+    }
+    /* The sink modifier reads the world state, so its geometry evaluation
+     * must happen after the Scene level simulation step. */
+    const OperationKey geom_key(&object->id, NodeType::GEOMETRY, OperationCode::GEOMETRY_EVAL);
+    add_relation(sim_key, geom_key, "Physics nodes simulation -> geometry");
+  }
+
+  /* Particle sources and output objects. The sink is one scene-level operation,
+   * but it reads the particle sources and writes the output objects. Without
+   * explicit relations a source may be evaluated after the sink (stale
+   * particles), or an output object's copy-on-eval may run before the sink
+   * wrote it, which makes renders lag one frame behind the simulation. */
+  auto find_object = [&](const std::string &name) -> Object * {
+    for (Object &object_ref : bmain_->objects) {
+      if (STREQ(object_ref.id.name + 2, name.c_str())) {
+        return &object_ref;
+      }
+    }
+    return nullptr;
+  };
+
+  for (bNodeTree &tree : bmain_->nodetrees) {
+    if (!STREQ(tree.idname, "PhysNodeTree")) {
+      continue;
+    }
+    const std::string tree_name(tree.id.name + 2);
+    if (!tree_referenced(tree_name)) {
+      continue;
+    }
+
+    auto relate_output = [&](const std::string &name) {
+      Object *output = find_object(name);
+      if (output == nullptr) {
+        return;
+      }
+      add_relation(sim_key,
+                   OperationKey(&output->id, NodeType::GEOMETRY, OperationCode::GEOMETRY_EVAL),
+                   "Physics nodes simulation -> output object");
+    };
+
+    for (bNode *node = tree.nodes.first(); node != nullptr; node = node->next) {
+      const bool is_mesh_node = STREQ(node->idname, "PhysParticleToMeshNodeCXX");
+      const bool is_volume_node = STREQ(node->idname, "PhysParticleToVolumeNodeCXX");
+      const bool is_volume_output = STREQ(node->idname, "PhysVolumeOutputNodeCXX");
+      if (!is_mesh_node && !is_volume_node && !is_volume_output) {
+        continue;
+      }
+      if (is_mesh_node) {
+        relate_output("PHYSMesh_" + tree_name);
+      }
+      if (is_volume_output) {
+        const bNodeSocket *socket = nullptr;
+        for (const bNodeSocket *candidate = node->inputs.first(); candidate != nullptr;
+             candidate = candidate->next)
+        {
+          if (candidate->type == SOCK_OBJECT && STREQ(candidate->name, "Volume Object")) {
+            socket = candidate;
+            break;
+          }
+        }
+        const bNodeSocketValueObject *value = (socket != nullptr) ?
+                                                  static_cast<const bNodeSocketValueObject *>(
+                                                      socket->default_value) :
+                                                  nullptr;
+        if (value != nullptr && value->value != nullptr) {
+          relate_output(std::string(value->value->id.name + 2));
+        }
+        else {
+          relate_output("PHYSVolume_" + tree_name);
+        }
+      }
+      if (!is_mesh_node && !is_volume_node) {
+        continue;
+      }
+      for (const bNodeSocket *socket = node->inputs.first(); socket != nullptr;
+           socket = socket->next)
+      {
+        if (socket->type != SOCK_OBJECT || !STREQ(socket->identifier, "Particle Source")) {
+          continue;
+        }
+        const bNodeSocketValueObject *value = static_cast<const bNodeSocketValueObject *>(
+            socket->default_value);
+        Object *source = (value != nullptr) ? value->value : nullptr;
+        if (source == nullptr) {
+          continue;
+        }
+        add_relation(ComponentKey(&source->id, NodeType::TRANSFORM),
+                     sim_key,
+                     "Physics nodes particle source transform -> sim");
+        add_relation(OperationKey(&source->id, NodeType::GEOMETRY, OperationCode::GEOMETRY_EVAL),
+                     sim_key,
+                     "Physics nodes particle source geometry -> sim");
+      }
+    }
+  }
+
+  /* Passive bodies inject the driver object's *evaluated* world matrix every
+   * frame. Make that explicit so the transform is ready when the sim runs
+   * (mirrors the rigid body effectors relation). Only objects referenced by
+   * C++ rigid body nodes need this. */
+  for (bNodeTree &tree : bmain_->nodetrees) {
+    if (!STREQ(tree.idname, "PhysNodeTree")) {
+      continue;
+    }
+    for (bNode *node = tree.nodes.first(); node != nullptr; node = node->next) {
+      if (!STREQ(node->idname, "PhysRigidBodyNodeCXX")) {
+        continue;
+      }
+      for (const bNodeSocket *socket = node->inputs.first(); socket != nullptr;
+           socket = socket->next)
+      {
+        if (socket->type != SOCK_OBJECT ||
+            (!STREQ(socket->identifier, "Object") && !STREQ(socket->identifier, "Driver")))
+        {
+          continue;
+        }
+        const bNodeSocketValueObject *value = static_cast<const bNodeSocketValueObject *>(
+            socket->default_value);
+        Object *driver = value != nullptr ? value->value : nullptr;
+        if (driver == nullptr) {
+          continue;
+        }
+        ComponentKey driver_transform(&driver->id, NodeType::TRANSFORM);
+        add_relation(driver_transform, sim_key, "Physics nodes driver transform -> sim");
+      }
+    }
   }
 }
 

@@ -1,7 +1,7 @@
 # B5.1 长尾 Remap 核实报告
 
 日期：2026-11-05
-范围：`scripts/addons_core/bge_netlogic/editor/nodes/native_catalog.py`
+范围：`scripts/startup/bge_gamenodes/editor/nodes/native_catalog.py`
 约束：零新运行时节点；只给“所有 native 端口都存在、类型匹配、声明顺序一致”的 legacy 节点加
 `CATALOG` 条目。所有端口差异只记录，不改 legacy socket，不为了凑百分比造假条目。
 
@@ -10,11 +10,11 @@
 命令：
 
 ```bash
-python3 scripts/addons_core/bge_netlogic/generator/port_contract.py
-python3 scripts/addons_core/bge_netlogic/generator/enum_consistency.py
+python3 scripts/startup/bge_gamenodes/generator/port_contract.py
+python3 scripts/startup/bge_gamenodes/generator/enum_consistency.py
 LD_LIBRARY_PATH=$PWD/lib/dpcpp/lib ./build_linux/bin/blender -b --factory-startup \
-  --python-expr "import sys; sys.path.append('$PWD/scripts/addons_core'); \
-                 from bge_netlogic.generator.native_audit import main; main()"
+  --python-expr "import sys; sys.path.append('$PWD/scripts/startup'); \
+                 from bge_gamenodes.generator.native_audit import main; main()"
 ```
 
 | 检查 | 基线 |

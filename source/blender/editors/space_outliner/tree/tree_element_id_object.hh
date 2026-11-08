@@ -28,6 +28,7 @@ class TreeElementIDObject final : public TreeElementID {
   void expand_data() const;
   void expand_pose() const;
   void expand_materials() const;
+  void expand_game_nodes() const;
   void expand_constraints() const;
   void expand_modifiers() const;
   void expand_gpencil_modifiers() const;

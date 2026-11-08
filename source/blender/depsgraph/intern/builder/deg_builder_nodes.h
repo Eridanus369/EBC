@@ -215,6 +215,7 @@ class DepsgraphNodeBuilder : public DepsgraphBuilder {
 
   virtual void build_pose_constraints(Object *object, bPoseChannel *pchan, int pchan_index);
   virtual void build_rigidbody(Scene *scene);
+  virtual void build_physnodes(Scene *scene);
   virtual void build_particle_systems(Object *object, bool is_object_visible);
   virtual void build_particle_settings(ParticleSettings *part);
   /**

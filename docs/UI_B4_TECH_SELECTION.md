@@ -567,8 +567,8 @@ IR 侧的具体缺口（必须写进实现任务）：
 | 编辑器表驱动 | `editor/nodes/native_b3.py:12-18`；`native_batch.py:32-48,143` |
 | IR 值标签缺 UI/Image/Font | `generator/ir_export.py:40-52`；`editor/sockets/socket.py:55,60,61` |
 | IR 常量只物化 Float/Bool | `generator/ir_export.py:281-304` |
-| legacy UI 节点依赖外部 `uplogic` | `editor/nodes/ui/createuibutton.py:28`；`bge_netlogic/__init__.py:364-376` |
-| native runtime 开启时不生成 uplogic 代码（避免跑两遍） | `bge_netlogic/__init__.py:91-98` |
+| legacy UI 节点依赖外部 `uplogic` | `editor/nodes/ui/createuibutton.py:28`；`bge_gamenodes/__init__.py:364-376` |
+| native runtime 开启时不生成 uplogic 代码（避免跑两遍） | `bge_gamenodes/__init__.py:91-98` |
 | legacy UI 节点语义/端口 | `ui/createuicanvas.py:55-57`；`ui/createuilayout.py:91-114`；`ui/createuilabel.py:54-69`；`ui/createuiimage.py:52-62`；`ui/createuibutton.py:79-101`；`ui/createuislider.py:84-108`；`ui/movewidget.py:22-27`；`actions/setuiwidgetattr.py:44-53`；`parameters/getuiwidgetattr.py:51-61` |
 | 锚点/对齐/可写属性枚举 | `editor/enum_types.py:520-558,588-601` |
 | UI/Font/Image socket 已存在 | `editor/sockets/uisocket.py:9-13`；`fontsocket.py:11-29`；`imagesocket.py:11-29` |

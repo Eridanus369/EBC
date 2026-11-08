@@ -270,6 +270,42 @@ class KX_PhysicsAdvancedAdapter {
     }
     return false;
   }
+
+  /**
+   * Create a vehicle with per-wheel suspension tuning (P-3.5).
+   *
+   * @a wheel_groups holds four floats per wheel: stiffness, damping relaxation,
+   * damping compression and suspension rest length, in wheel order. A single
+   * group is broadcast to every wheel. The default implementation ignores the
+   * groups and falls back to CreateVehicle so mocks stay source compatible.
+   */
+  virtual int CreateVehicleWithSuspension(KX_GameObject *chassis,
+                                          const std::string &wheel_names,
+                                          const std::string &wheel_template,
+                                          const std::vector<float> &wheel_groups,
+                                          std::string *error)
+  {
+    (void)wheel_groups;
+    return CreateVehicle(chassis, wheel_names, wheel_template, error);
+  }
+
+  /**
+   * Create a two body constraint around an explicit world pivot and axis
+   * (P-3.5). The default implementation ignores the frame and falls back to
+   * AddConstraint, which keeps the legacy midpoint / +Y convention.
+   */
+  virtual int AddConstraintWithFrame(KX_GameObject *object_a,
+                                     KX_GameObject *object_b,
+                                     int type,
+                                     const float params[6],
+                                     const float pivot[3],
+                                     const float axis[3],
+                                     std::string *error)
+  {
+    (void)pivot;
+    (void)axis;
+    return AddConstraint(object_a, object_b, type, params, error);
+  }
 };
 
 /** Deterministic adapter used by headless contract tests. */
@@ -280,6 +316,9 @@ class KX_MockPhysicsAdvancedAdapter : public KX_PhysicsAdvancedAdapter {
     KX_GameObject *b = nullptr;
     int type = 0;
     float params[6] = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
+    bool has_frame = false;
+    float pivot[3] = {0.0f, 0.0f, 0.0f};
+    float axis[3] = {0.0f, 0.0f, 0.0f};
     int id = 0;
   };
 
@@ -287,6 +326,7 @@ class KX_MockPhysicsAdvancedAdapter : public KX_PhysicsAdvancedAdapter {
   std::string vehicle_template;
   std::string vehicle_wheel_names;
   std::vector<std::string> vehicle_wheels;
+  std::vector<float> vehicle_suspension;
   std::vector<int> vehicles;
   int next_vehicle = 1;
 
@@ -338,12 +378,24 @@ class KX_MockPhysicsAdvancedAdapter : public KX_PhysicsAdvancedAdapter {
                     const std::string &wheel_names,
                     const std::string &wheel_template,
                     std::string *error) override;
+  int CreateVehicleWithSuspension(KX_GameObject *chassis,
+                                  const std::string &wheel_names,
+                                  const std::string &wheel_template,
+                                  const std::vector<float> &wheel_groups,
+                                  std::string *error) override;
   bool VehicleControl(int vehicle, float steering, float throttle, float brake, std::string *error) override;
   int AddConstraint(KX_GameObject *object_a,
                     KX_GameObject *object_b,
                     int type,
                     const float params[6],
                     std::string *error) override;
+  int AddConstraintWithFrame(KX_GameObject *object_a,
+                             KX_GameObject *object_b,
+                             int type,
+                             const float params[6],
+                             const float pivot[3],
+                             const float axis[3],
+                             std::string *error) override;
   int RemoveConstraints(KX_GameObject *object, std::string *error) override;
   bool AddJoint(KX_GameObject *object_a,
                 KX_GameObject *object_b,
@@ -371,6 +423,39 @@ class KX_MockPhysicsAdvancedAdapter : public KX_PhysicsAdvancedAdapter {
 
   void Reset();
 };
+
+/**
+ * One wheel resolved for CreateVehicle, as seen by the admission check.
+ * The engine adapter fills this from the live objects; headless harnesses
+ * fill it directly to exercise the guard without a scene.
+ */
+struct KX_VehicleWheelInput {
+  const char *name = "";
+  const char *parent_name = "";
+  /** Where the wheel came from: "wheel_names" or "wheel template". */
+  const char *source = "wheel_names";
+  bool has_controller = false;
+  bool has_motion_state = false;
+  bool controller_is_dynamic = false;
+  bool has_collision_flag = false;
+  bool has_rigid_body_flag = false;
+  bool is_compound_child = false;
+  /** Bounding radius reported by the collision shape; 0 when unknown. */
+  float radius = 0.0f;
+  /** Suspension anchor in chassis space. */
+  float local[3] = {0.0f, 0.0f, 0.0f};
+  /** Suspension ray direction and wheel axle in chassis space. */
+  float down[3] = {0.0f, 0.0f, -1.0f};
+  float axle[3] = {1.0f, 0.0f, 0.0f};
+};
+
+/**
+ * Admission check for one wheel, run before any wheel pointer reaches Bullet.
+ * Returns false and fills @a error with a diagnostic naming the object, the
+ * expected controller and what was actually found. A rejected wheel must make
+ * CreateVehicle return -1 (node OnFail); nothing else is handed to Bullet.
+ */
+bool KX_VehicleWheelIsUsable(const KX_VehicleWheelInput &wheel, std::string *error);
 
 /** Neutral adapter: every call reports failure with a diagnostic. */
 KX_PhysicsAdvancedAdapter &KX_NullPhysicsAdvancedAdapter();

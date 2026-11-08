@@ -145,3 +145,48 @@ class SCA_SoundActuator {
 未做：`git commit/push`（按要求）；未改 7 个未跟踪 `_lib.glsl`；未改编译器文件
 （`KX_CompiledGraph*` / `KX_InlinePass*` / `KX_GraphCompiler*`）；未改 `KX_GameAdapters.h/.cpp`
 的物理/网络/UI 段。
+
+## 复核记录（2026-11-06）
+
+本轮性质：核实 + 定稿，不重做、不改生产源码。**结论：保持 FOREVER，不重开；N = 5 天。**
+
+### 1. 七条首版事实复核（全部仍成立）
+
+| 首版事实 | 复核结果 | 证据（2026-11-06 重查） |
+|---|---|---|
+| Python 侧只有 `SCA_SoundActuator`，内部 `AUD_Handle` 不暴露 | 仍成立 | [SCA_SoundActuator.h:53,58](../source/gameengine/GameLogic/SCA_SoundActuator.h#L53-L58)；Python 方法仅 `:109-111`；全仓 `grep playSound` 0 命中 |
+| `bge.logic` 没有 play/stop 函数 | 仍成立 | `KX_PythonInit.cpp` 仅导出 `KX_SOUNDACT_*`；`grep playSound source/ scripts/` 仍为 0 |
+| 路径 B 的 C++ 句柄桥已存在（`uint64_t` + 句柄表） | 仍成立 | [KX_GameAdapters.h:1315](../source/gameengine/GameLogic/GameNodes/KX_GameAdapters.h#L1315)、`:1339-1362`、`:1461-1463`、`:1257-1271` |
+| 32 位截断守卫与引擎分配上限已修 | 仍成立 | [KX_FunctionNodesB3.cpp:352-377](../source/gameengine/GameLogic/GameNodes/KX_FunctionNodesB3.cpp#L352-L377)；[KX_GameAdaptersEngine.cpp:2419-2438](../source/gameengine/GameLogic/GameNodes/KX_GameAdaptersEngine.cpp#L2419-L2438) |
+| `Sound` 端口 `nl_type=29` 无原生值类型 | 仍成立 | [port_contract.py:88-101](../scripts/startup/bge_gamenodes/generator/port_contract.py#L88-L101) 的 `SOCKET_TYPE_TO_TAG` 无 29，出现 29 即计 error |
+| legacy `StartSound` 20 入/3 出 | 仍成立 | [B6_LEGACY_COMPAT.md:81](B6_LEGACY_COMPAT.md#L81)；`deferred_matrix.json:36-40` 的 `LogicNodeStartSound / StartSoundNode` 条目 |
+| 原生 `StartSound` / `StopSound` 已覆盖新图 | 仍成立 | [KX_FunctionNodesB3.cpp:745-746](../source/gameengine/GameLogic/GameNodes/KX_FunctionNodesB3.cpp#L745-L746) |
+
+路径 A 的四个卡点（节点层拿不到 actuator、`nl_type=29` 类型对不上、ID 回收/generation、场景卸载清理）
+也全部未变：即使做出稳定 ID，也只是“换形态的路径 B”。**路径 A ≥5 天且前提不成立，不做。**
+
+### 2. N = 5 天的构成（路径 B，唯一可落地路径）
+
+| 工作项 | 天数 | 依据 |
+|---|---|---|
+| `StartSoundLegacy` / `StopSoundLegacy` 端口与 spec + editor/catalog/port_contract 接入 | 0.5 | legacy 20 入/3 出、2 入/1 出；按 B6.5a 的 Legacy 类型策略新增端口表 |
+| 20 个输入的语义映射 | 1.5~2 | audaspace 有 cone（`extern/audaspace/include/sequence/SequenceEntry.h:287-317`）与 seek；**occlusion / reverb 在 audaspace 与 `KX_GameAdapters.h` 均 0 命中**，只能近似 + 诊断 |
+| `Sound` 端口 `nl_type=29` 类型策略 | 0.5~1 | `port_contract.py:88-101` 无 29；需评审「Python 句柄 ≡ Int」的标签口径 |
+| 值宽度（32 位句柄） | 0 | 首轮已修：分配上限 + 边界守卫，`KX_RuntimeValue` 不需要 Int64 |
+| E2E（启动 → 停止 → 再启动、停止后句柄失效、对象销毁后停止） | 0.5~1 | 需要 mock 侧句柄回收/失效断言 |
+| **合计** | **4~5 → 报 5** | 决策规则是“任一标题 ≤2 天落地才重开”，5 天为阈值的 2.5 倍 |
+
+### 3. 判决边界
+
+- 决策规则不变：**任一实现路径 ≤2 天落地才重开**。路径 A ≥5 天且前提不成立，路径 B 4~5 天，
+  两条都超过阈值 → **维持 FOREVER**。
+- 定稿理由：**「桥接需 5 天（20 端口语义 + Python socket 类型策略），性价比不足」**。
+- 若产品坚持 occlusion / reverb 的**真实**语义（而非近似），audaspace 无原生能力需另做后端，
+  路径 B 再加约 2 天 → **N = 7 天，判决只会更坚定地保持 FOREVER**。
+
+### 4. 复核证据入口
+
+- A.2 状态日志（WorldPosition / Touch，独占创建 + `chmod 444`）：`/tmp/a2_status_20261106-094325.log`。
+- A.3 本轮审查依据即上表所引源码/契约文件与 `grep playSound`、`grep occlusion|reverb` 的结果；
+  本轮未运行 `ninja`，未改源码、`tests/`、构建目录与 `_lib.glsl`，未 commit/push。
+- 本复核取代了 2026-11-06 09:44 的临时时间戳副本（已删除），本文件为唯一真相源。

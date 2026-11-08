@@ -170,6 +170,11 @@ void KX_ExecutionContext::BeginFrame(float delta_time)
 {
   ++frame_;
   delta_time_ = delta_time;
+  /* B6.9-Ms Ms-2: delayed messages are advanced once per logic frame, from
+   * frame deltas only (no wall clock). */
+  if (message_adapter_ != nullptr) {
+    message_adapter_->TickDelayed(delta_time_);
+  }
   ClearTriggers();
 
   /* Snapshots only live for one Execute call; drop leftovers defensively. */
@@ -259,7 +264,7 @@ void KX_ExecutionContext::PropagateTriggers()
     executed_nodes_[entry.node_index] = 1;
     KX_DebugTrace::RecordActivated(entry.node_index);
 
-    KX_LogicNodeRuntime *node = plan_->nodes[entry.node_index].get();
+    KX_GameNodeRuntime *node = plan_->nodes[entry.node_index].get();
     ClearNodeOutputTriggers(entry.node_index);
 
     if (node->NeedsTriggerSnapshot()) {
@@ -387,6 +392,11 @@ void KX_ExecutionContext::SetPaused(bool paused)
 uint32_t KX_ExecutionContext::DuplicateExecutions() const
 {
   return duplicate_executions_;
+}
+
+std::shared_ptr<void> &KX_ExecutionContext::UISharedState()
+{
+  return ui_shared_state_;
 }
 
 KX_AssetRegistry &KX_ExecutionContext::Assets()

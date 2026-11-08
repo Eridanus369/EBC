@@ -40,7 +40,7 @@
 #include <vector>
 
 #include "KX_GameDataAsset.h"
-#include "KX_LogicNodeRuntime.h"
+#include "KX_GameNodeRuntime.h"
 
 /** One trigger connection, resolved to runtime offsets. */
 struct KX_TriggerEdge {
@@ -83,7 +83,7 @@ struct KX_AssetBinding {
  * runtime_data_size and the same #port_offsets bytes.
  */
 struct KX_ExecutionPlan {
-  std::vector<std::unique_ptr<KX_LogicNodeRuntime>> nodes;
+  std::vector<std::unique_ptr<KX_GameNodeRuntime>> nodes;
   std::vector<std::string> debug_names;
 
   /** Nodes whose trigger inputs are entry points. */

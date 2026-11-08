@@ -1,31 +1,34 @@
 # 能力域加权核算（D.2 前置材料）
 
-- 日期：2026-11-05（第 11 节为证据补齐记录，第 12 节为验证层级说明；8 项已按 `mock-verified` 改判）
+- 日期：2026-11-05（第 11 节为证据补齐记录，第 12 节为验证层级说明；8 项中 7 项按 `mock-verified` 改判，`ActionDone` 记 `full`、证据等级 M）
 - 性质：**只读核算 + 只写文档**；未改任何源码、未跑构建、未动别人的文档
 - 分母口径：**已注册节点数 286**（14 个内建 + 272 个表驱动），**不是 legacy 290**
+- **K 冻结口径（2026-11-06，`RUN_ID=20261106-224926`）**：运行时实测 `KX_NodeRegistry::TypeCount() = 325`；全量三口径 **严格 98.68%（299/303）、加权 99.34%（301/303）、覆盖 97.85%（318/325）**（`F=299 / A=4 / U=7 / P=15`、`D=303`，闭合 `299+4+7+15=325`）。本文件 §0/§4 的百分比分母仍是旧审计的 286，**只作 14 域权重快照，不得当 325 口径引用**；对外三个数一律用冻结值（见 `NUMBER_CONSISTENCY_AUDIT.md` 附录 B.5）。
 - 原始日志：`/tmp/capability_audit.log`；证据补齐日志：`/tmp/audio_evidence.log`
+- **数值口径（2026-11-06 勘误）**：**325 注册表**（`TypeCount()` 实测），本文件不引用上一轮的增量账分母。本次修正 `ActionDone` 与传感器 `approximate` 名单；字符串两项正则已于同日双修后升 `full`，但 §4 的「字符串列表 34 / 29 / 5」与 §4.1 的两条字符串记录仍是 B6.9 前的 286 快照，**不得引用**——字符串域现行口径为 37/37 全 `full`（`B6_STRING_LIST.md` §3、`FLOW_MATH_STRING_RESCORE.md` §4.2）。§5.1/§5.2 与 §13 中引用旧值（88.1% / 93.4% / 252 / 8 项）的段落未同步重算，一律以 §0 与 §4 的新值为准。
 
 ## 0. 摘要：当前全域三口径（Mock 证据不计严格）
 
 按「已注册节点数」为分母、`unclassified` 不计分子的保守算法。
-新增 `mock-verified` 档后，**主口径**（Mock 证据不算严格）与**上界**（假设 8 项真机全通过）分开列：
+新增 `mock-verified` 档后，**主口径**（Mock 证据不算严格）与**上界**（假设其余 7 项 Mock 真机全通过）分开列：
 
-| 口径 | 主口径算式 | 主口径（D.2 用这组） | 上界（8 项真机确认后） |
+| 口径 | 主口径算式 | 主口径（D.2 用这组） | 上界（其余 7 项真机确认后） |
 |---|---|---|---:|
-| **严格可用率** | `full / 286` | **88.1%**（252 / 286） | 90.9%（260 / 286） |
-| **加权可用率** | `(full + 0.5*mock + 0.5*approx) / 286` | **93.4%**（267 / 286） | 94.8%（271 / 286） |
+| **严格可用率** | `full / 286` | **88.5%**（253 / 286） | 90.9%（260 / 286） |
+| **加权可用率** | `(full + 0.5*mock + 0.5*approx) / 286` | **93.5%**（267.5 / 286） | 94.8%（271 / 286） |
 | **覆盖率** | `(full + mock + approx) / 286` | **98.6%**（282 / 286） | 98.6%（282 / 286） |
 
 若换成「14 个能力域等权平均」的口径：主口径严格 **81.5%** / 加权 **89.3%** / 覆盖 **97.1%**；
-上界 **86.3% / 91.7% / 97.1%**。两种口径都可比、都可复核，但**不能混用**（见第 7 节）。
+上界 **86.3% / 91.7% / 97.1%**（域等权未随 `ActionDone` 勘误重算）。两种口径都可比、都可复核，但**不能混用**（见第 7 节）。
 
-> 关键澄清：8 项 Mock 证据**不提升严格口径**（仍 88.1%），只把加权从 92.0% 抬到 93.4%、
-> 覆盖从 95.8% 抬到 98.6%。D.2 的主数字必须用主口径那一列。
+> 关键澄清：`ActionDone` 已按实现口径计入 `full`（证据等级 **M**，证据覆盖率另列，不扣实现正确率）；
+> 其余 7 项 Mock 证据**不提升严格口径**，只把加权从 92.3% 抬到 93.5%、
+> 覆盖从 96.2% 抬到 98.6%。D.2 的主数字必须用主口径那一列。
 >
-> **2026-11-05 更新（见 §13）**：本节 88.1% / 93.4% / 98.6% 是「实现成立」口径，
+> **2026-11-05 更新（见 §13）**：本节 88.5% / 93.5% / 98.6% 是「实现成立」口径，
 > 只用于**内部进度跟踪**；A/B 类实测后，**对外主口径用 §13 的 63.3%**
 > （5 条原「未覆盖」已全部补齐、20 条断言全 PASS，实算即 63.3%）；
-> 58.4% / 56.6% 仅作含重复扣减的保守下界。88.1% 作为口径保留，不删除。
+> 58.4% / 56.6% 仅作含重复扣减的保守下界。88.5% 作为口径保留，不删除。
 
 ## 1. 分母取证：286 是怎么来的
 
@@ -64,7 +67,7 @@
 
 - `native_b2/b3/b4/b4b/b5/b6/b6b/b6c/b6file/b6ui/batch` 共 224 条，唯一 223 条
   （`Collision` 在 `native_batch` 与 `native_b6c` 重复一次）；
-- `port_contract.py` 输出 `native_nodes=223 catalog_nodes=68 errors=0 warnings=4`；
+- `port_contract.py` 输出 `native_nodes=223 catalog_nodes=68 errors=0 warnings=4`（B6.5a 后快照；K 冻结 `RUN_ID=20261106-224926` 后为 `native_nodes=244`）；
 - `native_catalog.py` 68 条映射里有 3 条指向内建节点（`OnInit`/`OnUpdate`/`Delay`）；
 - 因此编辑器可见唯一节点 = **226**。
 
@@ -107,8 +110,8 @@ B2 14：`StringCompare`、`StringFind`、`StringToUpper`、`StringToLower`、`St
 B6 14：`StringSplit`、`StringJoin`、`StringRegexMatch`、`StringRegexReplace`、`StringTrim`、`StringPad`、`StringLengthChars`、`StringPadChars`、`ListSort`、`ListFilter`、`ListMap`、`ListFind`、`ListSlice`、`ListConcat`
 special 1：`StringFormat`
 
-### 2.6 网络（11）
-`HostRoom`、`JoinRoom`、`LeaveRoom`、`OnNetworkEvent`、`SendNetworkMessage`、`BroadcastMessage`、`SyncProperty`、`GetRemoteProperty`、`ListRooms`、`RefreshRooms`、`Reconnect`
+### 2.6 网络（14）
+`HostRoom`、`JoinRoom`、`LeaveRoom`、`OnNetworkEvent`、`SendNetworkMessage`、`BroadcastMessage`、`SyncProperty`、`GetRemoteProperty`、`ListRooms`、`RefreshRooms`、`Reconnect`、`DiscoverRooms`（N-1 广播发现）、`SyncPlayerState`、`GetPlayerState`（N-2 20 Hz 位姿）
 
 ### 2.7 传感器（8）
 B6 5：`RadarExtended`、`LineOfSight`、`AreaSensor`、`RaycastSensor`、`ProximitySensor`
@@ -175,12 +178,12 @@ legacy 16：`TimerLegacy`、`QuitGameLegacy`、`ClearParentLegacy`、`MessageRec
 | 域 | n | full | mock | approx | unsup | unclass | A 严格 | B 加权 | C 覆盖 | 主要依据 |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|
 | 值计算 | 42 | 42 | 0 | 0 | 0 | 0 | 100.0% | 100.0% | 100.0% | 纯进程内；`KX_FunctionNodesB2.cpp` 1519、`KX_FunctionNode.cpp` 1294、`KX_FunctionNodesExtra.cpp` 729 |
-| 动画 | 11 | 10 | **1** | 0 | 0 | 0 | 90.9% | 95.5% | 100.0% | B3 716、B5 863；`ActionDone` 为 Mock 证据（第 11 节） |
+| 动画 | 11 | 11 | **0** | 0 | 0 | 0 | 100.0% | 100.0% | 100.0% | B3 716、B5 863；`ActionDone` 记 full（证据等级 M，第 11 节） |
 | 音频 | 12 | 1 | **7** | 4 | 0 | 0 | 8.3% | 54.2% | 100.0% | `docs/B6_AUDIO.md` §7 + §9；B3 音频 7 项为 Mock 证据（第 11 节） |
 | 输入 | 23 | 22 | 0 | 0 | 1 | 0 | 95.7% | 95.7% | 95.7% | `docs/B6_INPUT.md` §7（引擎无触摸） |
 | 字符串列表 | 34 | 29 | 0 | 5 | 0 | 0 | 85.3% | 92.6% | 100.0% | `docs/B6_STRING_LIST.md` §7 |
 | 网络 | 11 | 11 | 0 | 0 | 0 | 0 | 100.0% | 100.0% | 100.0% | `docs/B6_NETWORK.md` §9（LAN 为环境边界，不是端口降级） |
-| 传感器 | 8 | 6 | 0 | 2 | 0 | 0 | 75.0% | 87.5% | 100.0% | `docs/B6_SENSOR.md` §7（AABB） |
+| 传感器 | 8 | 6 | 0 | 2 | 0 | 0 | 75.0% | 87.5% | 100.0% | `docs/B6_SENSOR.md` §7（AABB）；`approximate` = `Radar` + `Collision`；「B6 传感器批 6/6」≠ 本域 100% |
 | 场景 | 9 | 8 | 0 | 0 | 1 | 0 | 88.9% | 88.9% | 88.9% | `docs/B6_SCENE_ADVANCED.md` §4（RemoveScene 禁用） |
 | UI | 15 | 13 | 0 | 2 | 0 | 0 | 86.7% | 93.3% | 100.0% | `docs/B6_UI_ADVANCED.md` 限制段 |
 | 文件 | 13 | 11 | 0 | 2 | 0 | 0 | 84.6% | 92.3% | 100.0% | `docs/B6_FILE_ADVANCED.md` 限制段（AES 未接入） |
@@ -188,10 +191,10 @@ legacy 16：`TimerLegacy`、`QuitGameLegacy`、`ClearParentLegacy`、`MessageRec
 | 物理高级 | 14 | 11 | 0 | 3 | 0 | 0 | 78.6% | 89.3% | 100.0% | `docs/B6_PHYSICS_ADVANCED.md` §6（15 节点 12/3/0，去掉复用的 SetGravity） |
 | 动画高级 | 8 | 4 | 0 | 2 | 2 | 0 | 50.0% | 62.5% | 75.0% | `docs/B6_ANIMATION.md` §6 |
 | 其他 | 70 | 68 | 0 | 2 | 0 | 0 | 97.1% | 98.6% | 100.0% | `docs/B6_LEGACY_COMPAT.md` §7-§8；core/builtin/Extra 代码审阅 |
-| **合计（主口径）** | **286** | **252** | **8** | **22** | **4** | **0** | **88.1%** | **93.4%** | **98.6%** | — |
-| 合计（上界：8 项真机确认） | 286 | 260 | 0 | 22 | 4 | 0 | 90.9% | 94.8% | 98.6% | — |
+| **合计（主口径）** | **286** | **253** | **7** | **22** | **4** | **0** | **88.5%** | **93.5%** | **98.6%** | — |
+| 合计（上界：其余 7 项真机确认） | 286 | 260 | 0 | 22 | 4 | 0 | 90.9% | 94.8% | 98.6% | — |
 
-### 4.1 `approximate` 的 22 项（逐项）
+### 4.1 `approximate` 的 22 项（逐项，286 快照；字符串两项已升 `full`）
 
 | 域 | 节点 | 近似方式 | 证据 |
 |---|---|---|---|
@@ -199,20 +202,24 @@ legacy 16：`TimerLegacy`、`QuitGameLegacy`、`ClearParentLegacy`、`MessageRec
 | 音频 | SetAudioDoppler | audaspace 是设备级单值；对象非全句柄时只记录不应用 | §7.3 |
 | 音频 | AudioZone | bus/zone 是等价实现，非 audaspace 原生概念 | §7.1 |
 | 音频 | SetAudioBusVolume | 同上，等价实现 | §7.1 |
-| 字符串 | StringRegexMatch / StringRegexReplace | `std::regex` 无超时；ECMAScript 子集，无命名组 | `B6_STRING_LIST.md` §7.1、§3 |
+| 字符串 | ~~StringRegexMatch / StringRegexReplace~~（**已升 `full`，本行勿引用**） | 286 快照时记：`std::regex` 无超时；ECMAScript 子集，无命名组。现行：`Rejected` 端口 + 编前守卫拒绝嵌套量词/空匹配组体，余长度上限与交替回溯（#30） | `FLOW_MATH_STRING_RESCORE.md` §4.3 |
 | 字符串 | ListSort / ListFilter / ListMap | 表达式子集；超 `kMaxListElements` 静默截断 | §7.2、§7.4 |
-| 传感器 | AreaSensor | AABB 近似，不是网格级接触 | `B6_SENSOR.md` §7 |
-| 传感器 | Collision | 接触点/法线取 AABB 重叠盒近似 | `B6_SENSOR.md` §7 |
+| 传感器 | Radar | 只按对象**世界位置距离**判半径，不判形状/朝向（`KX_GameAdaptersEngine.cpp:686-690`）；`B6_SENSOR.md` §3 已写明是扇形/球形 `QueryProximity` | `B6_SENSOR.md` §3、`KX_FunctionNodesB3.cpp:660-690` |
+| 传感器 | Collision | 接触点/法线取 AABB 重叠盒近似（`KX_FunctionNode.cpp:929-957` `BoundsOverlap`） | `B6_SENSOR.md` §7 |
 | UI | CreateListView | `OnItemClick` 只在点击帧有效 | `B6_UI_ADVANCED.md` 限制 |
 | UI | UIScreenStack | 进程级共享栈，多图共用、热重载不迁移 | 同上 |
 | 文件 | EncryptData / DecryptData | 仅 XOR；`algorithm=aes` 明确失败 | `B6_FILE_ADVANCED.md` 限制 |
 | 物理高级 | CreateVehicle | 悬挂长度固定 0.2、down/axle 固定；`wheel_names` 只解决轮组选择 | `B6_PHYSICS_ADVANCED.md` §6 |
 | 物理高级 | AddConstraint | `slider` 用 `PHY_GENERIC_6DOF` 锁其余轴；枢轴固定取中点 | 同上 |
-| 物理高级 | BuildNavMesh | `agent_radius/height` 已接收未生效（无 Recast） | 同上 §3.4 |
+| 物理高级 | BuildNavMesh | **已消解（2026-11-07 源码复核）**：运行时 Recast 烘焙，`agent_radius/height` 真实生效（`KX_NavMeshObject.cpp:1015-1109` / `KX_NavMeshBuilder.h:87-277`） | 同上 §3.4 |
 | 动画高级 | SetBoneTransform | `ApplyPose` 受 `m_lastapplyframe != m_lastframe` 守卫，当帧不刷新 | `B6_ANIMATION.md` §6 |
 | 动画高级 | AddAnimationEvent | 节点侧逐帧轮询，非引擎事件；固定 layer 0；单次 | 同上 |
 | 其他 | EvaluatePropertyLegacy | `mode=1`（内部属性）运行时直接返回，只支持 `mode=0` | `B6_LEGACY_COMPAT.md` §8 |
 | 其他 | TouchLegacy | 重叠集合是球近似，不是真实碰撞体/网格 | 同上 §8 |
+
+> 勘误（2026-11-06，正则双修）：`StringRegexMatch` / `StringRegexReplace` 已升 `full`——`Rejected(Bool)` 端口区分拒绝与不匹配，`IsSafeRegexPattern` 在编译前拒绝嵌套量词与可匹配空串组体；剩余限制（长度上限、交替回溯无超时）登记 `KNOWN_LIMITATIONS.md` #30。故本表与 §4「字符串列表 34 / 29 / 5」的字符串行是 B6.9 前的 286 快照，现行字符串域为 **37/37 全 `full`**（`B6_STRING_LIST.md` §3、`FLOW_MATH_STRING_RESCORE.md` §4.2），**不得引用本表字符串行**。
+>
+> 勘误（2026-11-06）：`AreaSensor` 已按真实形状重叠升 `full`（`AUDIO_SENSOR_SCENE_RESCORE.md:273-279`），故本表传感器 `approximate` = `Radar` + `Collision`。`AUDIO_SENSOR_SCENE_RESCORE` 的「6/6」只指 **B6 传感器批**（`RadarExtended`/`LineOfSight`/`AreaSensor`/`RaycastSensor`/`RaycastAll`/`ProximitySensor`），不含 core `Collision` 与 B3 `Touch`/`Radar`；该批 6/6 不得写成「传感器域 100%」。
 
 ### 4.2 `unsupported` 的 4 项
 
@@ -223,11 +230,11 @@ legacy 16：`TimerLegacy`、`QuitGameLegacy`、`ClearParentLegacy`、`MessageRec
 | 动画高级 | SetBoneWeight | 无运行时顶点组权重 setter | `B6_ANIMATION.md` §3 |
 | 动画高级 | PlayBoneAction | `BL_ActionManager` 无 per-bone 动作接口 | 同上 |
 
-### 4.3 原 `unclassified` 8 项：改判 `mock-verified`
+### 4.3 原 `unclassified` 8 项：7 项改判 `mock-verified`，`ActionDone` 记 `full`（证据等级 M）
 
 | 域 | 节点 | Mock 层已验什么 | 真机待验什么 | 分档 |
 |---|---|---|---|---|
-| 动画 | ActionDone | 未完成帧不触发；完成后触发 1 次；第 3 帧不重复 | 真实 `BL_ActionManager` 完成回调的时序 | **mock-verified** |
+| 动画 | ActionDone | 未完成帧不触发；完成后触发 1 次；第 3 帧不重复 | 真实 `BL_ActionManager` 完成回调的时序 | **full**（证据等级 **M**；证据覆盖率另列，不扣实现正确率） |
 | 音频 | StartSound | `PlaySound` 一次；file/loop/volume/pitch 到达；句柄=1；`OnStarted` 一次 | 真实声卡输出、Loop 实际循环、Volume/Pitch 听感 | **mock-verified** |
 | 音频 | StopSound | `StopSound` 一次；playing→false；`OnDone` 一次 | 真实声源停止、声道释放 | **mock-verified** |
 | 音频 | SetSoundVolume | `SetVolume` 一次；读回 0.6 | 真实音量听感变化 | **mock-verified** |
@@ -405,8 +412,8 @@ D.2 主数字必须用**主口径**（Mock 不算严格），上界只能放括�
 
 ## 9. 待查清单（D.2 前建议补齐，按性价比排序）
 
-1. **8 项真机验证**（B3 音频 7 项 + `ActionDone`）——**唯一能把主口径严格率从 88.1% 抬到 90.9% 的动作**。
-   当前 8 项全部 `mock-verified`（证据见第 11 节与 `/tmp/audio_evidence.log`），
+1. **7 项真机验证**（B3 音频 7 项）——**能把主口径严格率从 88.5% 抬到 90.9% 的动作**；`ActionDone` 已按实现口径计入 `full`（证据等级 M），不再靠真机确认抬分。
+   当前 7 项为 `mock-verified`，`ActionDone` 记 `full`（证据等级 M）（证据见第 11 节与 `/tmp/audio_evidence.log`），
    Mock 只证明节点语义与参数读取；真实声卡/资源解析/`BL_ActionManager` 时序均 `pending real device`。
 2. **Legacy 语义 40.6% 的算式**——doc 内没有落地定义，D.2 若要引用必须先定义分子/分母。
 3. **B2 值计算 42 项的逐项 E2E**——当前是 B 级证据（代码审阅），不是 A 级。
@@ -419,8 +426,8 @@ D.2 主数字必须用**主口径**（Mock 不算严格），上界只能放括�
 复现命令见 `/tmp/capability_audit.log` 第七节，核心三条：
 
 ```bash
-python3 scripts/addons_core/bge_netlogic/generator/port_contract.py
-# PORT CONTRACT native_nodes=223 catalog_nodes=68 errors=0 warnings=4
+python3 scripts/startup/bge_gamenodes/generator/port_contract.py
+# PORT CONTRACT native_nodes=223 catalog_nodes=68 errors=0 warnings=4  # B6.5a 后快照；K 冻结后为 native_nodes=244
 ```
 
 ```bash
@@ -481,7 +488,7 @@ tests/run_all_e2e.sh --only b3_audio
 | `SoundFinished` | 466-482 | 每帧 Tick；Handle 变化重新武装；`IsFinished` 为真且未触发 → `PendingTrigger` 一次 | 未完成帧不触发；完成帧触发 1 次；下一帧仍为 1 次 | **mock-verified** |
 | `PlaySoundByName` | 497-518 | `OnEnter`；`Name` 空回退 config `name`；Handle=0/越界 → `Found=false` 且不触发 `OnDone` | `play_by_name_calls=1`、`by_name_requests[0]="explosion"`、`Handle=1`、`Found=true`、`OnDone=1` | **mock-verified** |
 | `Set3DListener` | 527-538 | `OnEnter`；Position 取输入向量，Orientation 缺省 `(0,0,-1)`；调 `Set3DListener`；`OnDone` | `listener_calls=1`、`listener_position=(1,2,3)`、`listener_orientation=(0,1,0)`、`OnDone=1` | **mock-verified** |
-| `ActionDone` | 229-255 | 每帧 Tick 查 `GetActionName(object, layer)`；名字变化重新武装；名字为空不触发；`IsActionDone` 为真且未触发 → 触发一次 | action="run"/done=false 第 1 帧不触发；done=true 第 2 帧触发 1 次；第 3 帧仍为 1 次 | **mock-verified** |
+| `ActionDone` | 229-255 | 每帧 Tick 查 `GetActionName(object, layer)`；名字变化重新武装；名字为空不触发；`IsActionDone` 为真且未触发 → 触发一次 | action="run"/done=false 第 1 帧不触发；done=true 第 2 帧触发 1 次；第 3 帧仍为 1 次 | **full**（证据等级 **M**） |
 
 合计 31 条断言，`INFO failures=0`。
 
@@ -490,7 +497,7 @@ tests/run_all_e2e.sh --only b3_audio
 | 域 | 节点 | 变更前 | 变更后 |
 |---|---|---|---:|
 | 音频 | 7 项（`StartSound`/`StopSound`/`SetSoundVolume`/`SetSoundPitch`/`SoundFinished`/`PlaySoundByName`/`Set3DListener`） | `unclassified` ×7 | `mock-verified` ×7 |
-| 动画 | `ActionDone` | `unclassified` ×1 | `mock-verified` ×1 |
+| 动画 | `ActionDone` | `unclassified` ×1 | `full`（证据等级 M）×1 |
 
 **分局变化**（mock = `mock-verified`）：
 
@@ -707,4 +714,74 @@ Mock 适配器 / 真实引擎适配器 / 真机。本次新增 `mock-verified` �
 原 5 条「未覆盖」已全部补齐（20 条断言），因此不存在「再剔除 5 条」这一档。
 58.4% / 56.6% 只能写成「更保守下界（含 14 条 `approximate` 的重复扣减）」，**不得当实测值呈现**——
 一个能被读者按 §4 逐列复算的 63.3%，比一个更保守但分子对不上的 58.4% 可信。
+
+## 14. B6.9-N 网络增量重评分（2026-11-06；已计入 K 冻结口径，`RUN_ID=20261106-224926`）
+
+> 本节只重算网络域，**不改 §0/§4 的 286 分母与 88.1%/63.3%**。K 已冻结（B.5：网络域 14 节点），
+> 全域最终值以 `NUMBER_CONSISTENCY_AUDIT.md` B.5 的六量为准；本节不得被当作全域最终值。
+
+### 14.1 分子分母
+
+网络域节点由 **11** 增至 **14**（`DiscoverRooms`、`SyncPlayerState`、`GetPlayerState` 三个已注册节点，均带编辑器目录条目）：
+
+| 口径 | 分子 / 分母 | 百分比 | 依据 |
+|---|---|---:|---|
+| 实现成立（§4 同一口径） | **14 / 14** | **100.0%** | 三个新节点均为真实引擎实现，无 Mock、无近似、无降级 |
+| 证据层级（真实引擎路径） | **14 / 14** | **100.0%** | N-1/N-2 都是真实 UDP + 两个独立进程；非单进程 mock |
+| 真机 / 跨机验证 | **0 / 14** | **0.0%** | 所有 E2E 都在同一台 Linux 上；没有第二台机器、没有真实局域网多 host、没有真实 WAN 丢包 |
+
+**引用规则**：对外只能说「网络 14/14 实现且真实引擎本机两进程已验；跨机 0/14 未验」。
+**不得**把 100% 写成「LAN 已跨机验证」，也**不得**照抄历史上任何「70%→90%」的估值——
+本轮没有产生跨机证据，分数不因新增节点自动升到 90% 以上。
+
+### 14.2 为什么不是 mock
+
+- N-1：host 进程真实 `socket(AF_INET, SOCK_DGRAM)` + `SO_BROADCAST` 广播；client 进程独立 socket 收应答；伪造包用第三方原始 UDP socket 验证「不应答 ROOMINFO」。证据 `n1_discover_two_proc` 14/0。
+- N-2：host/client 两个进程各持真实引擎适配器，`SendDatagram`/`recvfrom` 走内核 UDP；人为停 tick 200 ms 制造缺口。证据 `n2_state_sync_two_proc` 14/0。
+- 仍属「本机回环/本机 LAN 接口」，所以真机/跨机口径为 0/14，而不是把本机两进程当成跨机。
+
+### 14.3 明确排除项（不进分母）
+
+NAT 穿透、状态回滚、客户端预测已写入 `DEFERRED_FOREVER`，**不计入 14 的分子分母**；N-2 明确不做插值/外推，丢包只保持上一位姿。
+
+## 15. B6.9-Fi / B6.9-Ms 增量重评分（2026-11-06；已计入 K 冻结口径，`RUN_ID=20261106-224926`）
+
+> 与 §14 同一规则：只重算**本轮新增**，不改 §0/§4 的 286 分母，不改任何历史百分比。
+> 增量已并入 B.5（文件域 B-20、消息域 B-22）。所有数字给分子/分母，可复算。
+
+### 15.1 文件域（B6.9-Fi）
+
+新增 5 个节点：`FileReadChunk`、`FileWriteChunk`、`ListDirectory`、`CreateDirectory`、
+`RemoveDirectory`（`kB6FileStreamSpecs[]`，编辑器目录 5/5 有条目）。文件域总数
+`13 → 18`（B4File 8 + B6File 5 + 本轮 5）。
+
+| 口径 | 分子 / 分母 | 百分比 | 依据 |
+|---|---|---:|---|
+| 实现成立（§4 同一口径） | **5 / 5** | **100.0%** | 5 个节点都有真实运行时实现与适配器实现，无 stub、无近似 |
+| 节点语义 E2E | **5 / 5** | **100.0%** | `b69_file` 19/0；覆盖写 3 块逐字节、EOF、offset 越界、chunk_size 0/1048577、建/列/删、非空拒绝、递归删除、3 条穿越拒绝 |
+| **真实磁盘后端 E2E** | **0 / 5** | **0.0%** | `b69_file` 用的是 `KX_MockFileAdapter`（内存）；`KX_FileAdapterEngine` 已实现并随树编译，但**没有任何测试驱动真实文件系统**。不得把这 5 个算作"真机验证通过" |
+
+**引用规则**：只能说「文件新增 5 个节点实现完成、Mock 层 E2E 19/0；
+真实磁盘后端 0/5 未验」。不得写"文件域 100% 已验"。
+
+### 15.2 消息域（B6.9-Ms）
+
+新增 3 个节点：`SendRPC`、`OnRPC`、`SendDelayedMessage`（`kB6MsgSpecs[]`，编辑器目录 3/3 有条目）。
+
+| 口径 | 分子 / 分母 | 百分比 | 依据 |
+|---|---|---:|---|
+| 实现成立（§4 同一口径） | **3 / 3** | **100.0%** | 三节点均为真实实现；`match` 复用 `ConfigInt("match", 0) == 1` 枚举，未引入字符串比较 |
+| 本地回环 / 延迟调度 E2E | **3 / 3** | **100.0%** | `b69_msg` 20/0：发→收、不匹配不触发、同帧两条触发两次、前缀 vs 精确、0.25s 未到 / 0.5s 恰一次、负 delay 拒绝、卸载丢弃计数 |
+| **真实 UDP/跨机 RPC** | **0 / 3** | **0.0%** | RPC 信封（`EBCRPC1`）只在 `b69_msg` 里以注入事件 + Mock 网络适配器验证；**没有两个进程用真实 UDP 跑过 `SendRPC`/`OnRPC`**。§14 的 14/14 是 N 线自己的节点，不能借给本行 |
+
+**引用规则**：只能说「消息新增 3 个节点实现完成、本地/调度 E2E 20/0；
+真实 UDP RPC 0/3 未验」。**不得**因为 §14 网络域 14/14 就把消息域写高。
+
+### 15.3 为什么不能照抄旧估值
+
+`82%→92%`、`70%→90%` 这类数字本轮没有对应证据：新增节点里
+文件只有 Mock 后端（真实磁盘 0/5）、消息只有 Mock/注入信封（真实 UDP 0/3）。
+按 §13.1 的证据层级，这两块应记为
+「实现 8/8、Mock 级 E2E 8/8、真实引擎传输/磁盘 0/8」，
+**全域百分比不因本轮新增而上升**，等 K 跑真实后端后再重算。
 

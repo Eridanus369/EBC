@@ -933,6 +933,69 @@ struct bUserAssetShelfSettings {
   ListBaseT<AssetCatalogPathLink> enabled_catalog_paths = {nullptr, nullptr};
 };
 
+/** #GameNodesPrefs.uplogic_version */
+enum eGameNodesUplogicVersion : char {
+  GAME_NODES_UPLOGIC_LATEST = 0,
+  GAME_NODES_UPLOGIC_195,
+  GAME_NODES_UPLOGIC_201,
+  GAME_NODES_UPLOGIC_32,
+  GAME_NODES_UPLOGIC_321,
+  GAME_NODES_UPLOGIC_45,
+  GAME_NODES_UPLOGIC_452,
+  GAME_NODES_UPLOGIC_511,
+};
+
+/** #GameNodesPrefs.filter_by */
+enum eGameNodesFilterBy : char {
+  GAME_NODES_FILTER_TREES = 0,
+  GAME_NODES_FILTER_FLOAT,
+  GAME_NODES_FILTER_INT,
+  GAME_NODES_FILTER_BOOL,
+  GAME_NODES_FILTER_STRING,
+  GAME_NODES_FILTER_TIMER,
+  GAME_NODES_FILTER_NAME,
+};
+
+/** Native Game Nodes editor preferences (UPBGE). */
+struct GameNodesPrefs {
+  char project_path[/*FILE_MAX*/ 1024] = "";
+
+  char copy_engine = 1;
+  char use_symlink = 1;
+  char use_reload_text = 1;
+  char auto_switch_trees = 1;
+  char use_node_debug = 1;
+  char use_node_notify = 1;
+  char use_fmod_nodes = 0;
+
+  /** #eGameNodesUplogicVersion. */
+  char uplogic_version = GAME_NODES_UPLOGIC_511;
+
+  /** Collapse state of the native node palette (N panel). */
+  char palette_trigger_open = 1;
+  char palette_input_open = 1;
+  char palette_object_open = 1;
+  char palette_physics_open = 1;
+  char palette_logic_open = 1;
+  char palette_value_open = 1;
+  char palette_uiscene_open = 1;
+  char palette_ui_expanded = 1;
+  char palette_file_expanded = 1;
+  char palette_utility_open = 1;
+
+  /** Property panel filter. */
+  char do_filter = 0;
+  /** #eGameNodesFilterBy. */
+  char filter_by = GAME_NODES_FILTER_NAME;
+  char filter_name[/*MAX_NAME*/ 64] = "";
+  char show_hidden = 1;
+  char show_trees = 1;
+  char collapse_trees = 1;
+
+  /** Explicit padding to a multiple of 8 bytes (DNA struct alignment). */
+  char _pad[1];
+};
+
 /**
  * Main user preferences data, typically accessed from #U.
  * See: #BKE_blendfile_userdef_from_defaults & #BKE_blendfile_userdef_read.
@@ -1324,6 +1387,9 @@ struct UserDef {
   /** UPBGE */
   /** UserDef has separate do-version handling, and can be read from other files. */
   int upbgeversionfile = 0, upbgesubversionfile = 0;
+
+  /** Native Game Nodes editor preferences. */
+  GameNodesPrefs game_nodes;
 
   /** Runtime data (keep last). */
   UserDef_Runtime runtime;

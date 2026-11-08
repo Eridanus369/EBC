@@ -146,6 +146,8 @@ class KX_GameObject : public SCA_IObject {
 
 #ifdef WITH_PYTHON
   EXP_ListValue<KX_PythonComponent> *m_components;
+
+  bool m_legacy_logic_warned;
 #endif
 
   std::vector<blender::bRigidBodyJointConstraint *> m_constraints;

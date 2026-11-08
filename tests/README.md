@@ -15,6 +15,11 @@ E2E / stability / benchmark harness。
 | `run_benchmark.sh` | native / inline-off / inline-on 三条路径 ns/frame，可对比基线 |
 | `d1_jit_equivalence.cpp` | JIT 等价性 harness（`run_jit_equivalence.sh` 的被测程序） |
 | `d1_benchmark.cpp` | 性能 harness（`run_benchmark.sh` 的被测程序） |
+| `c31_udp_two_proc.sh` | D.1 两进程 UDP 不可靠性 E2E 入口（host/client 各一进程） |
+| `c31_udp_two_proc.cpp` | 两进程 UDP harness：周期段测到达数，拥塞段证明 `0 < 到达 < accepted` 且无重传 |
+| `n1_discover_two_proc.sh` | B6.9-N N-1 两进程 LAN 发现 E2E 入口（room/client 各一进程） |
+| `n1_discover_two_proc.cpp` | 广播查询 + 应答收集：`ip:port` 去重、拒答别人的 ROOMINFO、停服后超时消失 |
+| `n2_state_sync_two_proc.cpp` | 两进程位姿同步：20 Hz、16 位量化、丢一个 tick 时保持上一位姿 |
 
 **证据资产落点约定**：C++ / Python harness 与 shell 构建脚本一律放 `tests/`；
 需要保持相对引用的 `verify_gap/` 资产放 `tests/verify_gap/`。`/tmp` 只保留运行期产物。
@@ -227,6 +232,54 @@ tests/run_all_e2e.sh --list | grep /tmp
 "harness|name|tests/name.cpp|tests/name_stubs.cpp||tag"
 ```
 
+#### 3.1.3 两进程 UDP 不可靠性（`c31_udp_two_proc.sh`）
+
+`run_all_e2e.sh` 的每个 batch 都在一个进程内跑，无法证明「跨进程真 UDP + 允许丢包」。该脚本单独构建并启动 **两个进程**：
+
+```bash
+bash tests/c31_udp_two_proc.sh          # 默认端口 46311，可用 C31_TWO_PROC_PORT 覆盖
+```
+
+**已登记进 MANIFEST**，但用的是新增的 `script` kind，不是 `harness`：
+
+```bash
+"script|c31_udp_two_proc|tests/c31_udp_two_proc.sh|||c3.1 UDP two-process"
+```
+
+原因：`harness` 条目只支持「构建一个二进制再运行」，而本批必须启动 host/client 两个独立进程，并通过共享目录做阶段同步，单二进制无法表达。为此 `run_all_e2e.sh` 增加了 `script` kind：`build_one` 只做存在性检查（`-f`），`run_one` 用 `bash` 执行脚本，仍照常记录 `rc` 并按 `PASS/FAIL` 行统计。**普通批次数量不变，另加这 1 条脚本入口；完整总数等 K 全量回归统一重算，本处不写死 TOTAL。**
+
+判据写在 `c31_udp_two_proc.cpp` 头注释，跑前固定：
+
+- 周期段：200 条每 2 ms 发送，断言 `received > 0` 且 payload 完整；**丢包率只记录，不断言为 0**；
+- 拥塞段：host 停止 tick，client 连发 20000 条 512B 数据报，host 恢复 tick 后断言 `0 < received < accepted`（内核缓冲溢出丢包）、再 tick 500 ms 计数不变（无重传）、`duplicates=0`。
+
+实测（2026-11-06）：host→client 周期段 199/199（首条因 peer UDP 端点未登记被拒），client→host 周期段 200/200（0% 丢包），拥塞段 20000 发 / 166 到（`99.17%` 丢包），再 tick 500 ms 计数不变（无重传）。日志 `/tmp/c31_udp_two_proc_<YYYYmmdd-HHMMSS>.log`，独占创建、`chmod 444`，不覆盖既有文件。
+
+#### 3.1.4 B6.9-N 两进程网络 E2E（`n1_discover_two_proc.sh` / `n2_state_sync_two_proc.sh`）
+
+两条同样是 `script` kind，各自启动两个独立进程并通过共享目录做阶段同步，**不是单进程 mock**：
+
+```bash
+bash tests/n1_discover_two_proc.sh     # 默认端口 46312，N1_TWO_PROC_PORT 可覆盖
+bash tests/n2_state_sync_two_proc.sh   # 默认端口 46313，N2_TWO_PROC_PORT 可覆盖
+```
+
+MANIFEST 追加两行（已有 kind 分支未动）：
+
+```bash
+"script|n1_discover_two_proc|tests/n1_discover_two_proc.sh|||b6.9-N N-1 LAN discovery two-process"
+"script|n2_state_sync_two_proc|tests/n2_state_sync_two_proc.sh|||b6.9-N N-2 state sync two-process"
+```
+
+判据写在各 `.cpp` 头注释，跑前固定：
+
+- N-1：`DiscoverRooms` 每 200 ms 广播一次、窗口 1200 ms；六轮应答按 `ip:port` 收敛为 **1** 间房；伪造 `PKT_ROOMINFO` 400 ms 内**收不到任何回应**（host 不应答别人的应答），随后伪造 `PKT_DISCOVER` 必须收到回应（证明 host 活着且只答查询）；host `LeaveRoom` 后再查 1000 ms，`rooms` 必须为空。
+- N-2：位置/旋转容差 `0.011`（1 cm / 0.01°）、动画相位容差 `2/65535`；host 停 `Tick()` 200 ms 等价丢 tick，client 采样期间位置极差必须 `< 1e-5`（保持上一位姿、不插值不外推），恢复后收到的 sequence 必须跨过缺口（`delta >= 2`）。
+
+实测（2026-11-06）：N-1 `14` 断言 / `0` 失败，日志 `/tmp/n1_discover_two_proc_20261106-131849.log`；N-2 `14` 断言 / `0` 失败（`sequence_delta=5`），日志 `/tmp/n2_state_sync_two_proc_20261106-131853.log`。两日志均独占创建 + `chmod 444` + 记录 sha256。
+
+**批次计数**：普通 harness 行数不变，`script` 入口由 1 条增至 **3** 条（c31 + n1 + n2）；完整总数仍等 K 全量回归统一重算，本处不写死 TOTAL。
+
 ### 3.2 `run_stability.sh`
 
 ```bash
@@ -275,7 +328,7 @@ tests/run_benchmark.sh --baseline tests/.bench_out/bench_12345_100_500_<YYYYmmdd
 | `path=` | 实际链路 | 能否与图路径对比 |
 |---|---|---|
 | `direct-call` | harness 本 TU 里的 100 次 `ApplyOp()` 循环。没有 `KX_GraphInstance`、没有 `KX_ExecutionPlan`、没有调度器、没有节点对象。 | **不能**。它只是原始 float 链的对照（control），不包含任何图执行开销。 |
-| `inline-off` | `KX_GraphInstance::Tick` → `KX_ExecutionContext::RunFrame` → `ExecuteValueNodes` → 对 `plan.value_nodes` 里的每个条目调用 `KX_LogicNodeRuntime::Execute`；`KX_InlinePass` 关闭。 | 可以，与 `inline-on` 对比。 |
+| `inline-off` | `KX_GraphInstance::Tick` → `KX_ExecutionContext::RunFrame` → `ExecuteValueNodes` → 对 `plan.value_nodes` 里的每个条目调用 `KX_GameNodeRuntime::Execute`；`KX_InlinePass` 关闭。 | 可以，与 `inline-on` 对比。 |
 | `inline-on` | 同一张图、同一批节点，但可折叠的连续 value 节点被 `KX_InlinePass` 包进 `KX_InlinedBlock`；`ExecuteValueNodes` 调用块，块内 `ExecuteValueOnly` 再逐个 `node->Execute`。 | 可以，与 `inline-off` 对比。 |
 
 harness 会打印证明「真的执行了 100 节点」的计数：

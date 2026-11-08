@@ -692,6 +692,11 @@ static void volume_update_simplify_level(Main *bmain, Volume *volume, const Deps
   /* Replace grids with the new simplify level variants from the cache. */
   if (BKE_volume_load(volume, bmain)) {
     VolumeGridVector &grids = *volume->runtime->grids;
+    if (grids.filepath[0] == '\0') {
+      /* Procedurally generated grids have no file to reload from. Replacing them
+       * with file-cache handles would discard the in-memory data. */
+      return;
+    }
     std::list<GVolumeGrid> new_grids;
     for (const GVolumeGrid &old_grid : grids) {
       GVolumeGrid simple_grid = bke::volume_grid::file_cache::get_grid_from_file(

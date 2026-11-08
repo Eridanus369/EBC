@@ -158,7 +158,7 @@ bool g_pulse[2] = {false, false};
 KX_GameObject *g_object_const = nullptr;
 float g_vector_const[3] = {0.0f, 0.0f, 0.0f};
 
-class TestSinkNode : public KX_LogicNodeRuntime {
+class TestSinkNode : public KX_GameNodeRuntime {
  public:
   explicit TestSinkNode(int slot) : slot_(slot) {}
   KX_ExecResult Execute(KX_ExecutionContext &ctx) override
@@ -173,7 +173,7 @@ class TestSinkNode : public KX_LogicNodeRuntime {
   int slot_;
 };
 
-class TestPulseNode : public KX_LogicNodeRuntime {
+class TestPulseNode : public KX_GameNodeRuntime {
  public:
   explicit TestPulseNode(int slot) : slot_(slot) {}
   KX_ExecResult Execute(KX_ExecutionContext &ctx) override
@@ -188,7 +188,7 @@ class TestPulseNode : public KX_LogicNodeRuntime {
   int slot_;
 };
 
-class TestObjectConstNode : public KX_LogicNodeRuntime {
+class TestObjectConstNode : public KX_GameNodeRuntime {
  public:
   KX_ExecResult Execute(KX_ExecutionContext &ctx) override
   {
@@ -198,7 +198,7 @@ class TestObjectConstNode : public KX_LogicNodeRuntime {
   bool IsValueNode() const override { return true; }
 };
 
-class TestVectorConstNode : public KX_LogicNodeRuntime {
+class TestVectorConstNode : public KX_GameNodeRuntime {
  public:
   KX_ExecResult Execute(KX_ExecutionContext &ctx) override
   {
@@ -775,7 +775,7 @@ int main()
         type_id,
         type_id,
         SinkSignature(),
-        [captured]() { return std::unique_ptr<KX_LogicNodeRuntime>(new TestSinkNode(captured)); });
+        [captured]() { return std::unique_ptr<KX_GameNodeRuntime>(new TestSinkNode(captured)); });
   }
   for (int slot = 0; slot < 2; ++slot) {
     const std::string type_id = "TestPulse" + std::to_string(slot);
@@ -784,18 +784,18 @@ int main()
         type_id,
         type_id,
         TriggerOutSignature(),
-        [captured]() { return std::unique_ptr<KX_LogicNodeRuntime>(new TestPulseNode(captured)); });
+        [captured]() { return std::unique_ptr<KX_GameNodeRuntime>(new TestPulseNode(captured)); });
   }
   KX_NodeRegistry::Get().RegisterType(
       "TestObjectConst",
       "TestObjectConst",
       ObjectConstSignature(),
-      []() { return std::unique_ptr<KX_LogicNodeRuntime>(new TestObjectConstNode()); });
+      []() { return std::unique_ptr<KX_GameNodeRuntime>(new TestObjectConstNode()); });
   KX_NodeRegistry::Get().RegisterType(
       "TestVectorConst",
       "TestVectorConst",
       VectorConstSignature(),
-      []() { return std::unique_ptr<KX_LogicNodeRuntime>(new TestVectorConstNode()); });
+      []() { return std::unique_ptr<KX_GameNodeRuntime>(new TestVectorConstNode()); });
 
   std::printf("INFO B6.5 legacy E2E start\n");
 

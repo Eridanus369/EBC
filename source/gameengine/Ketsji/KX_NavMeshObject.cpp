@@ -38,6 +38,7 @@
 #include "CM_Message.h"
 #include "DetourStatNavMeshBuilder.h"
 #include "KX_Globals.h"
+#include "KX_NavMeshBuilder.h"
 #include "KX_ObstacleSimulation.h"
 #include "KX_PyMath.h"
 #include "RAS_IVertex.h"
@@ -1008,6 +1009,102 @@ bool KX_NavMeshObject::BuildNavMesh()
   if (vertsi)
     delete[] vertsi;
 
+  return true;
+}
+
+bool KX_NavMeshObject::BuildNavMeshRuntime(float agent_radius, float agent_height)
+{
+  if (GetMeshCount() == 0) {
+    CM_Error("can't find mesh for navmesh object: " << m_name);
+    return false;
+  }
+  RAS_MeshObject *meshobj = GetMesh(0);
+
+  /* Collect this object's own triangles in local space, Y-up: the convention
+   * the baked navmesh stores, and the one FindPath converts query points into.
+   * The editor path (`mesh_navmesh.cc`) does the same Y/Z swap. */
+  std::vector<int> remap(meshobj->m_sharedvertex_map.size(), -1);
+  std::vector<float> verts;
+  std::vector<int> tris;
+  const int nmeshpolys = meshobj->NumPolygons();
+  for (int p = 0; p < nmeshpolys; p++) {
+    RAS_Polygon *poly = meshobj->GetPolygon(p);
+    if (poly == nullptr) {
+      continue;
+    }
+    const int n = poly->VertexCount();
+    if (n < 3) {
+      continue;
+    }
+    std::vector<int> ids(n, -1);
+    bool valid = true;
+    for (int i = 0; i < n; i++) {
+      const int orig = poly->GetVertexInfo(i).getOrigIndex();
+      if (orig < 0 || orig >= (int)remap.size()) {
+        valid = false;
+        break;
+      }
+      if (remap[orig] < 0) {
+        const float *pos = meshobj->GetVertexLocation(orig);
+        remap[orig] = (int)verts.size() / 3;
+        verts.push_back(pos[0]);
+        verts.push_back(pos[2]);
+        verts.push_back(pos[1]);
+      }
+      ids[i] = remap[orig];
+    }
+    if (!valid) {
+      continue;
+    }
+    for (int v = 1; v < n - 1; v++) {
+      tris.push_back(ids[0]);
+      tris.push_back(ids[v + 1]);
+      tris.push_back(ids[v]);
+    }
+  }
+
+  if (verts.empty() || tris.empty()) {
+    CM_Error("navmesh object has no usable geometry: " << m_name);
+    return false;
+  }
+
+  KX_NavMeshBuilder::Params params;
+  params.agent_radius = agent_radius;
+  params.agent_height = agent_height;
+  KX_NavMeshBuilder::Result result;
+  std::string error;
+  if (!KX_NavMeshBuilder::Bake(verts.data(),
+                               (int)verts.size() / 3,
+                               tris.data(),
+                               (int)tris.size() / 3,
+                               params,
+                               &result,
+                               &error)) {
+    CM_Error("runtime navmesh bake failed for " << m_name << ": " << error);
+    return false;
+  }
+
+  unsigned char *data = nullptr;
+  int dataSize = 0;
+  if (!KX_NavMeshBuilder::BuildStatNavMeshData(result, &data, &dataSize) || data == nullptr) {
+    CM_Error("runtime navmesh packing failed for " << m_name);
+    return false;
+  }
+
+  dtStatNavMesh *mesh = new dtStatNavMesh;
+  if (mesh == nullptr || !mesh->init(data, dataSize, true)) {
+    if (mesh != nullptr) {
+      delete mesh;
+    }
+    delete[] data;
+    CM_Error("runtime navmesh init failed for " << m_name);
+    return false;
+  }
+
+  if (m_navMesh) {
+    delete m_navMesh;
+  }
+  m_navMesh = mesh;
   return true;
 }
 

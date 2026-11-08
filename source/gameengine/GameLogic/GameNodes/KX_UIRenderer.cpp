@@ -344,6 +344,22 @@ struct KX_UIRenderer::Impl {
                         bool gpu_ready)
   {
     ++stats.circle_calls;
+    /* B6.6/G.3: record the fan geometry even when the GPU pass is disabled.
+     * The deviation is computed from the same cos/sin formula that feeds the
+     * vertex buffer, so the headless harness can assert the ring is closed
+     * and every emitted rim vertex sits on one radius. */
+    stats.circle_segments = segments;
+    stats.circle_radius = radius;
+    stats.circle_radius_deviation = 0.0f;
+    if (radius > 0.0f && segments >= 3) {
+      for (int segment = 0; segment <= segments; ++segment) {
+        const float angle = 2.0f * kPi * float(segment) / float(segments);
+        const float vx = radius * std::cos(angle);
+        const float vy = radius * std::sin(angle);
+        const float deviation = std::fabs(std::sqrt(vx * vx + vy * vy) - radius);
+        stats.circle_radius_deviation = std::max(stats.circle_radius_deviation, deviation);
+      }
+    }
     if (!gpu_ready || radius <= 0.0f || segments < 3) {
       return;
     }
@@ -414,7 +430,7 @@ std::vector<KX_UIRichSegment> KX_UIRenderer::ParseRichText(const std::string &te
                                                            const float base_color[4])
 {
   std::vector<KX_UIRichSegment> segments;
-  const auto push = [&segments](const std::string &run, const float color[4]) {
+  const auto push = [&segments](const std::string &run, const float color[4], float size) {
     if (run.empty()) {
       return;
     }
@@ -423,10 +439,15 @@ std::vector<KX_UIRichSegment> KX_UIRenderer::ParseRichText(const std::string &te
     for (int channel = 0; channel < 4; ++channel) {
       segment.color[channel] = color[channel];
     }
+    segment.size = size;
     segments.push_back(std::move(segment));
   };
 
   float current[4] = {base_color[0], base_color[1], base_color[2], base_color[3]};
+  /* G.3: `{size:N}` runs stack, so `{/size}` restores the enclosing size.
+   * Zero is "inherit the element font size". */
+  float current_size = 0.0f;
+  std::vector<float> size_stack;
   bool colored = false;
   std::string buffer;
   size_t cursor = 0;
@@ -457,7 +478,7 @@ std::vector<KX_UIRichSegment> KX_UIRenderer::ParseRichText(const std::string &te
                          "the innermost color wins\n");
             g_richtext_nested_warnings = 1;
           }
-          push(buffer, current);
+          push(buffer, current, current_size);
           buffer.clear();
           for (int channel = 0; channel < 4; ++channel) {
             current[channel] = parsed[channel];
@@ -469,7 +490,7 @@ std::vector<KX_UIRichSegment> KX_UIRenderer::ParseRichText(const std::string &te
       }
     }
     else if (text.compare(cursor, 8, "{/color}") == 0) {
-      push(buffer, current);
+      push(buffer, current, current_size);
       buffer.clear();
       for (int channel = 0; channel < 4; ++channel) {
         current[channel] = base_color[channel];
@@ -478,10 +499,36 @@ std::vector<KX_UIRichSegment> KX_UIRenderer::ParseRichText(const std::string &te
       cursor += 8;
       continue;
     }
+    else if (text.compare(cursor, 6, "{size:") == 0) {
+      const size_t close = text.find('}', cursor + 6);
+      if (close != std::string::npos) {
+        const std::string value = text.substr(cursor + 6, close - cursor - 6);
+        char *end = nullptr;
+        const float parsed = std::strtof(value.c_str(), &end);
+        if (end != nullptr && *end == '\0' && parsed >= 1.0f && parsed <= 512.0f) {
+          push(buffer, current, current_size);
+          buffer.clear();
+          size_stack.push_back(current_size);
+          current_size = parsed;
+          cursor = close + 1;
+          continue;
+        }
+      }
+    }
+    else if (text.compare(cursor, 7, "{/size}") == 0) {
+      push(buffer, current, current_size);
+      buffer.clear();
+      current_size = size_stack.empty() ? 0.0f : size_stack.back();
+      if (!size_stack.empty()) {
+        size_stack.pop_back();
+      }
+      cursor += 7;
+      continue;
+    }
     buffer.push_back(text[cursor]);
     ++cursor;
   }
-  push(buffer, current);
+  push(buffer, current, current_size);
   return segments;
 }
 
@@ -994,6 +1041,15 @@ void KX_UIRenderer::Draw(const std::vector<KX_UIElement> &elements,
             KX_UIRenderer::ParseRichText(line, element.text_color);
         float line_w = 0.0f;
         for (const KX_UIRichSegment &segment : segments) {
+          /* G.3: `{size:N}` changes the run's font size; zero inherits the
+           * element size. Widths are measured at the same size that draws,
+           * otherwise right/centre alignment drifts. */
+          if (segment.size > 0.0f) {
+            BLF_size(font, segment.size);
+          }
+          else {
+            BLF_size(font, font_size);
+          }
           line_w += BLF_width(font, segment.text.c_str(), segment.text.size());
         }
         float line_x = x;
@@ -1006,6 +1062,12 @@ void KX_UIRenderer::Draw(const std::vector<KX_UIElement> &elements,
         const float baseline = screen_h - (cursor_y + heights[line_index] * 0.8f);
         float cursor_x = line_x;
         for (const KX_UIRichSegment &segment : segments) {
+          if (segment.size > 0.0f) {
+            BLF_size(font, segment.size);
+          }
+          else {
+            BLF_size(font, font_size);
+          }
           BLF_color4fv(font, segment.color);
           BLF_position(font, cursor_x, baseline, 0.0f);
           BLF_draw(font, segment.text.c_str(), segment.text.size());
@@ -1013,6 +1075,9 @@ void KX_UIRenderer::Draw(const std::vector<KX_UIElement> &elements,
         }
         cursor_y += heights[line_index];
       }
+      /* Restore the element size for the next line and for the next element
+       * that shares this BLF font id. */
+      BLF_size(font, font_size);
       BLF_disable(font, BLF_CLIPPING);
     };
 

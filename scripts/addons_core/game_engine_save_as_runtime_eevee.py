@@ -81,7 +81,7 @@ def WriteAppleRuntime(player_path, output_path, copy_python, overwrite_lib):
     # Python doesn't need to be copied for OS X since it's already inside blenderplayer.app
 
 
-def WriteRuntime(player_path, output_path, new_icon_path, copy_python, overwrite_lib, copy_dlls, copy_libs, copy_scripts, copy_datafiles, copy_modules, copy_logic_nodes, report=print):
+def WriteRuntime(player_path, output_path, new_icon_path, copy_python, overwrite_lib, copy_dlls, copy_libs, copy_scripts, copy_datafiles, copy_modules, copy_game_nodes, report=print):
     import struct
 
     # Check the paths
@@ -211,7 +211,7 @@ def WriteRuntime(player_path, output_path, new_icon_path, copy_python, overwrite
         print("done")
 
     # Copy Scripts folder (also copy this folder when logic nodes option is selected)
-    if copy_scripts or copy_logic_nodes:
+    if copy_scripts or copy_game_nodes:
         print("Copying scripts and modules...", end=" ")
         scripts_folder = os.path.join(version_string, "scripts")
         src = os.path.join(blender_dir, scripts_folder)
@@ -229,7 +229,7 @@ def WriteRuntime(player_path, output_path, new_icon_path, copy_python, overwrite
         print("done")
 
     # Copy logic nodes game folder
-    if copy_logic_nodes:
+    if copy_game_nodes:
         print("Copying logic nodes game folder...", end=" ")
         blend_directory = os.path.dirname(bpy.data.filepath)
         src = os.path.join(blend_directory, "bgelogic")
@@ -260,7 +260,7 @@ def WriteRuntime(player_path, output_path, new_icon_path, copy_python, overwrite
         print("done")
 
     # Copy modules folder (to have bpy working)
-    if copy_modules and not (copy_scripts or copy_logic_nodes):
+    if copy_modules and not (copy_scripts or copy_game_nodes):
         print("Copying modules...", end=" ")
         modules_folder = os.path.join(version_string, "scripts", "modules")
         src = os.path.join(blender_dir, modules_folder)
@@ -336,9 +336,9 @@ class SaveAsRuntime(bpy.types.Operator):
             description="Copy bundle modules folder with the runtime",
             default=True,
             )
-    copy_logic_nodes: BoolProperty(
-            name="Copy Logic Nodes game folder",
-            description="Copy Logic Nodes game with the runtime",
+    copy_game_nodes: BoolProperty(
+            name="Copy Game Nodes game folder",
+            description="Copy Game Nodes game with the runtime",
             default=True,
             )
 
@@ -383,7 +383,7 @@ class SaveAsRuntime(bpy.types.Operator):
                      self.copy_scripts,
                      self.copy_datafiles,
                      self.copy_modules,
-                     self.copy_logic_nodes,
+                     self.copy_game_nodes,
                      self.report,
                      )
         print("Finished in %.4fs" % (time.time() - start_time))
