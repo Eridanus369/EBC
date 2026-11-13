@@ -2919,7 +2919,7 @@ typedef struct EEVEE_SpectralCausticsSettings {
   char dispersion_enabled = 0;
   char _pad0[2] = {};
 
-  int photon_count = 2000000;
+  int photon_count = 300;
   int max_bounces = 4;
   int caustic_resolution = 512;
 

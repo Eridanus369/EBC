@@ -50,10 +50,9 @@ class RENDER_PT_context(Panel):
 
 class RENDER_PT_game_resolution(RenderButtonsPanel, Panel):
     bl_label = "Game Resolution"
-    COMPAT_ENGINES = {
-        'BLENDER_RENDER',
-        'BLENDER_EEVEE',
-        'BLENDER_WORKBENCH'}
+    bl_parent_id = "RENDER_PT_eevee_sampling"
+    bl_options = {'DEFAULT_CLOSED'}
+    COMPAT_ENGINES = {'BLENDER_EEVEE'}
 
     def draw(self, context):
         import sys
@@ -63,7 +62,7 @@ class RENDER_PT_game_resolution(RenderButtonsPanel, Panel):
         view_render = context.scene.render
 
         row = layout.row()
-        row.operator("view3d.game_start", text="Embedded Start")
+        row.operator("view3d.game_start", text="内置启动")
         row = layout.row(align=True)
         row.prop(view_render, "resolution_x", slider=False, text="X:")
         row.prop(view_render, "resolution_y", slider=False, text="Y:")
@@ -71,7 +70,7 @@ class RENDER_PT_game_resolution(RenderButtonsPanel, Panel):
         gs = context.scene.game_settings
 
         row = layout.row()
-        row.operator("wm.blenderplayer_start", text="Standalone Start")
+        row.operator("wm.blenderplayer_start", text="独立启动")
         row = layout.row(align=True)
         row.prop(gs, "resolution_x", slider=False, text="X:")
         row.prop(gs, "resolution_y", slider=False, text="Y:")
@@ -1461,13 +1460,13 @@ class RENDER_PT_hydra_debug(RenderButtonsPanel, Panel):
 
 classes = (
     RENDER_PT_context,
-    RENDER_PT_game_resolution, # UPBGE
     RENDER_PT_game_debug, # UPBGE
     RENDER_PT_eevee_sampling,
     RENDER_PT_eevee_sampling_viewport,
     RENDER_PT_eevee_sampling_render,
     RENDER_PT_eevee_sampling_shadows,
     RENDER_PT_eevee_sampling_advanced,
+    RENDER_PT_game_resolution, # UPBGE
     RENDER_PT_eevee_light_paths,
     RENDER_PT_eevee_clamping,
     RENDER_PT_eevee_clamping_surface,

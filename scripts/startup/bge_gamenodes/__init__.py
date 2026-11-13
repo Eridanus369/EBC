@@ -434,8 +434,19 @@ def register():
     bpy.app.handlers.load_post.append(_update_properties)
 
     bpy.app.handlers.depsgraph_update_post.append(_on_deps_update)
+    # [Fix] 强制先注册有子面板依赖的父类，防止子面板先加载报错
     for cls in _registered_classes:
-        bpy.utils.register_class(cls)
+        if hasattr(cls, 'bl_parent_id') and cls.bl_parent_id:
+            parent = next((c for c in _registered_classes if c.__name__ == cls.bl_parent_id), None)
+            if parent and not hasattr(bpy.types, parent.__name__):
+                try:
+                    bpy.utils.register_class(parent)
+                except Exception:
+                    pass
+        try:
+            bpy.utils.register_class(cls)
+        except Exception as e:
+            print(f"UI Registration Error for {cls.__name__}: {e}")
 
     bpy.utils.register_class(GameNodeTree)
     bpy.utils.register_class(GameNodeTreeReference)

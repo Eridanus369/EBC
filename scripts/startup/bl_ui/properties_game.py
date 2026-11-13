@@ -17,7 +17,7 @@
 # ##### END GPL LICENSE BLOCK #####
 
 # <pep8 compliant>
-from bpy.types import Panel, Menu
+from bpy.types import Panel, Menu, Operator
 
 import re
 
@@ -73,8 +73,8 @@ class GAME_PT_game_object(GameButtonsPanel, Panel):
                     col = row.column()
                     col.prop(prop, "value", text="")
         else:
-            row.operator("logic.custom_object_register", icon="PLUS", text="Select")
-            row.operator("logic.custom_object_create", icon="PLUS", text="Create")
+            row.operator("logic.custom_object_register", icon="PLUS", text="选择")
+            row.operator("logic.custom_object_create", icon="PLUS", text="创建")
 
 
 class GAME_PT_game_components(GameButtonsPanel, Panel):
@@ -93,8 +93,8 @@ class GAME_PT_game_components(GameButtonsPanel, Panel):
 
         row = layout.row()
 
-        row.operator("logic.python_component_register", icon="PLUS", text="Add")
-        row.operator("logic.python_component_create", icon="PLUS", text="Create")
+        row.operator("logic.python_component_register", icon="PLUS", text="添加")
+        row.operator("logic.python_component_create", icon="PLUS", text="创建")
 
         for i, c in enumerate(game.components):
             box = layout.box()
@@ -159,7 +159,7 @@ class GAME_PT_game_properties(GameButtonsPanel, Panel):
         if is_font:
             prop_index = game.properties.find("Text")
             if prop_index != -1:
-                layout.operator("object.game_property_remove", text="Remove Text Game Property",
+                layout.operator("object.game_property_remove", text="移除文本游戏属性",
                                 icon='X').index = prop_index
                 row = layout.row()
                 sub = row.row()
@@ -172,11 +172,11 @@ class GAME_PT_game_properties(GameButtonsPanel, Panel):
                 # ~ row.prop(ob.data, "body", text="")
                 row.label(text="See Text Object")
             else:
-                props = layout.operator("object.game_property_new", text="Add Text Game Property", icon='PLUS')
+                props = layout.operator("object.game_property_new", text="添加文本游戏属性", icon='PLUS')
                 props.name = "Text"
                 props.type = 'STRING'
 
-        props = layout.operator("object.game_property_new", text="Add Game Property", icon='PLUS')
+        props = layout.operator("object.game_property_new", text="添加游戏属性", icon='PLUS')
         props.name = ""
 
         for i, prop in enumerate(game.properties):
@@ -207,7 +207,38 @@ class PhysicsButtonsPanel:
     bl_order = 1000
 
 
+class OBJECT_OT_toggle_game_physics(Operator):
+    """切换游戏物理的激活状态"""
+    bl_idname = "object.toggle_game_physics"
+    bl_label = "Toggle Game Physics"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        ob = context.active_object
+        if ob and ob.game:
+            if ob.game.physics_type == 'NO_COLLISION':
+                ob.game.physics_type = 'STATIC'
+            else:
+                ob.game.physics_type = 'NO_COLLISION'
+        return {'FINISHED'}
+
+
+class PHYSICS_PT_game_main(PhysicsButtonsPanel, Panel):
+    bl_label = "游戏"
+    bl_options = {'DEFAULT_CLOSED'}
+
+    @classmethod
+    def poll(cls, context):
+        ob = context.active_object
+        return ob and ob.game and ob.game.physics_type != 'NO_COLLISION'
+
+    def draw(self, context):
+        pass
+
+
 class PHYSICS_PT_game_physics(PhysicsButtonsPanel, Panel):
+    bl_parent_id = "PHYSICS_PT_game_main"
+    bl_options = {'DEFAULT_CLOSED'}
     bl_label = "Game Physics"
     COMPAT_ENGINES = {
         'BLENDER_RENDER',
@@ -455,7 +486,38 @@ class PHYSICS_PT_game_physics(PhysicsButtonsPanel, Panel):
             row.prop(game, "use_fh_normal")
 
 
+
+
+class PHYSICS_PT_game_sound_occluder(PhysicsButtonsPanel, Panel):
+    bl_label = "Sound Occluder"
+    bl_parent_id = "PHYSICS_PT_game_physics"
+    bl_options = {'DEFAULT_CLOSED'}
+    COMPAT_ENGINES = {
+        'BLENDER_RENDER',
+        'BLENDER_EEVEE',
+        'BLENDER_WORKBENCH'}
+
+    def draw(self, context):
+        layout = self.layout
+        ob = context.active_object
+
+        if ob and ob.data:
+            main_col = layout.column()
+            parts = main_col.split()
+            col1 = parts.column()
+            col2 = parts.column()
+
+            row = col1.row()
+            row.prop(ob, 'sound_occluder', text='Sound Occluder')
+
+            block = col2.row()
+            block.prop(ob, 'sound_blocking', text='Factor', slider=True)
+            block.enabled = ob.sound_occluder
+
+
 class PHYSICS_PT_game_collision_bounds(PhysicsButtonsPanel, Panel):
+    bl_parent_id = "PHYSICS_PT_game_main"
+    bl_options = {'DEFAULT_CLOSED'}
     bl_label = "Collision Bounds"
     COMPAT_ENGINES = {
         'BLENDER_RENDER',
@@ -499,6 +561,8 @@ class PHYSICS_PT_game_collision_bounds(PhysicsButtonsPanel, Panel):
 
 
 class PHYSICS_PT_game_obstacles(PhysicsButtonsPanel, Panel):
+    bl_parent_id = "PHYSICS_PT_game_physics"
+    bl_options = {'DEFAULT_CLOSED'}
     bl_label = "Create Obstacle"
     COMPAT_ENGINES = {
         'BLENDER_RENDER',
@@ -543,74 +607,6 @@ class SceneButtonsPanel:
     bl_region_type = 'WINDOW'
     bl_context = "scene"
 
-
-class SCENE_PT_game_physics(SceneButtonsPanel, Panel):
-    bl_label = "Game Physics"
-    COMPAT_ENGINES = {
-        'BLENDER_RENDER',
-        'BLENDER_EEVEE',
-        'BLENDER_WORKBENCH'}
-
-    @classmethod
-    def poll(cls, context):
-        scene = context.scene
-        return (scene.render.engine in cls.COMPAT_ENGINES)
-
-    def draw(self, context):
-        layout = self.layout
-
-        gs = context.scene.game_settings
-
-        layout.prop(gs, "physics_engine", text="Engine")
-        if gs.physics_engine != 'NONE':
-            layout.prop(gs, "physics_solver")
-            layout.prop(gs, "physics_gravity", text="Gravity")
-
-            split = layout.split()
-
-            col = split.column()
-            col.label(text="Physics Steps:")
-            sub = col.column(align=True)
-            sub.prop(gs, "physics_step_max", text="Max")
-            sub.prop(gs, "physics_step_sub", text="Substeps")
-
-            col = split.column()
-            col.label(text="Logic Steps:")
-            col.prop(gs, "logic_step_max", text="Max")
-
-            row = layout.row()
-            row.prop(gs, "fps", text="FPS")
-            row.prop(gs, "time_scale")
-
-            col = layout.column()
-            col.label(text="Physics Deactivation:")
-            sub = col.row(align=True)
-            sub.prop(gs, "deactivation_linear_threshold", text="Linear Threshold")
-            sub.prop(gs, "deactivation_angular_threshold", text="Angular Threshold")
-            sub = col.row()
-            sub.prop(gs, "deactivation_time", text="Time")
-
-            col = layout.column()
-            col.label(text="Physics Joint Error Reduction:")
-            sub = col.column(align=True)
-            sub.prop(gs, "erp_parameter", text="ERP for Non Contact Constraints")
-            sub.prop(gs, "erp2_parameter", text="ERP for Contact Constraints")
-            sub.prop(gs, "cfm_parameter", text="CFM for Soft Constraints")
-
-            row = layout.row()
-            row.label(text="Object Activity:")
-            row.prop(gs, "use_activity_culling")
-
-        else:
-            split = layout.split()
-
-            col = split.column()
-            col.label(text="Physics Steps:")
-            col.prop(gs, "fps", text="FPS")
-
-            col = split.column()
-            col.label(text="Logic Steps:")
-            col.prop(gs, "logic_step_max", text="Max")
 
 class SCENE_PT_game_blender_physics(SceneButtonsPanel, Panel):
     bl_label = "Game Blender Physics"
@@ -722,68 +718,11 @@ class SCENE_PT_game_navmesh(SceneButtonsPanel, Panel):
         row.prop(rd, "sample_max_error")
 
 
-class SCENE_PT_game_hysteresis(SceneButtonsPanel, Panel):
-    bl_label = "Level of Detail"
-    COMPAT_ENGINES = {
-        'BLENDER_RENDER',
-        'BLENDER_EEVEE',
-        'BLENDER_WORKBENCH'}
-
-    @classmethod
-    def poll(cls, context):
-        scene = context.scene
-        return (scene and scene.render.engine in cls.COMPAT_ENGINES)
-
-    def draw(self, context):
-        layout = self.layout
-        gs = context.scene.game_settings
-
-        row = layout.row()
-        row.prop(gs, "use_scene_hysteresis", text="Hysteresis")
-        row = layout.row()
-        row.active = gs.use_scene_hysteresis
-        row.prop(gs, "scene_hysteresis_percentage", text="")
-
-class SCENE_PT_game_console(SceneButtonsPanel, Panel):
-    bl_label = "Game Python Console"
-    bl_options = {'DEFAULT_CLOSED'}
-    COMPAT_ENGINES = {
-        'BLENDER_RENDER',
-        'BLENDER_EEVEE',
-        'BLENDER_WORKBENCH'}
-
-    @classmethod
-    def poll(cls, context):
-        scene = context.scene
-        return (scene and scene.render.engine in cls.COMPAT_ENGINES)
-
-    def draw_header(self, context):
-        gs = context.scene.game_settings
-
-        self.layout.prop(gs, "use_python_console", text="")
-
-    def draw(self, context):
-        layout = self.layout
-
-        gs = context.scene.game_settings
-        row = layout.row(align=True)
-        row.active = gs.use_python_console
-        row.label(text="Keys:")
-        row.prop(gs, "python_console_key1", text="", event=True)
-        row.prop(gs, "python_console_key2", text="", event=True)
-        row.prop(gs, "python_console_key3", text="", event=True)
-        row.prop(gs, "python_console_key4", text="", event=True)
-
-class DataButtonsPanel:
-    bl_space_type = 'PROPERTIES'
-    bl_region_type = 'WINDOW'
-    bl_context = "data"
-
-
 class ObjectButtonsPanel:
     bl_space_type = 'PROPERTIES'
     bl_region_type = 'WINDOW'
     bl_context = "object"
+
 
 class OBJECT_PT_activity_culling(ObjectButtonsPanel, Panel):
     bl_label = "Activity Culling"
@@ -896,18 +835,15 @@ classes = (
     GAME_PT_game_components,
     GAME_PT_game_properties,
     GAME_MT_component_context_menu,
+    OBJECT_OT_toggle_game_physics,
+    PHYSICS_PT_game_main,
     PHYSICS_PT_game_physics,
+    PHYSICS_PT_game_sound_occluder,
     PHYSICS_PT_game_collision_bounds,
     PHYSICS_PT_game_obstacles,
-    SCENE_PT_game_physics,
-    SCENE_PT_game_blender_physics,
-    SCENE_PT_game_physics_obstacles,
-    SCENE_PT_game_navmesh,
-    SCENE_PT_game_hysteresis,
-    SCENE_PT_game_console,
     OBJECT_MT_lod_tools,
-    OBJECT_PT_upbge_dupli_base,
-    OBJECT_PT_activity_culling,
+    # OBJECT_PT_upbge_dupli_base,
+    # OBJECT_PT_activity_culling,
     OBJECT_PT_levels_of_detail,
 )
 

@@ -70,6 +70,12 @@ class PHYSICS_PT_add(PhysicButtonsPanel, Panel):
 
         col = flow.column()
 
+        # 游戏物理切换按钮
+        if obj.game.physics_type == 'NO_COLLISION':
+            col.operator("object.toggle_game_physics", text="游戏", icon='PHYSICS')
+        else:
+            col.operator("object.toggle_game_physics", text="游戏", icon='X')
+
         if not obj.field or obj.field.type == 'NONE':
             col.operator("object.forcefield_toggle", text="Force Field", icon='FORCE_FORCE')
         else:

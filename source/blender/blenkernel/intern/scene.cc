@@ -182,7 +182,8 @@ static void scene_init_data(ID *id)
   INIT_DEFAULT_STRUCT_AFTER(scene, id);
 
   /* Initialize spectral caustics defaults. */
-  scene->eevee.caustics.photon_count = 100000;
+  scene->eevee.caustics.photon_count = 300;
+  scene->eevee.caustics.max_bounces = 5;
   scene->eevee.caustics.max_bounces = 4;
   /* 1024 keeps the caustic texel footprint small enough that the bilinear upscale to the render
    * resolution does not smear the pattern into a soft blob. */

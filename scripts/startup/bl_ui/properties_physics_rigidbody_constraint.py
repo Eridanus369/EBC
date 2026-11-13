@@ -14,6 +14,7 @@ class PHYSICS_PT_rigidbody_constraint_panel:
 
 
 class PHYSICS_PT_rigid_body_constraint(PHYSICS_PT_rigidbody_constraint_panel, Panel):
+    bl_parent_id = "PHYSICS_PT_game_main"
     bl_label = "Rigid Body Constraint"
     COMPAT_ENGINES = {
         'BLENDER_RENDER',

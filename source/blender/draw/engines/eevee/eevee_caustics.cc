@@ -373,9 +373,9 @@ void CausticModule::sync()
 
   /* Startup files authored before the caustic settings existed load with these fields zeroed, so
    * fall back to the intended defaults instead of silently rendering nothing. */
-  photon_count_ = settings.photon_count;
+  photon_count_ = settings.photon_count * 10000; /* UI输入值乘1万得到实际光子数 */
   if (photon_count_ <= 0) {
-    photon_count_ = 2000000; /* 默认 200 万光子 */
+    photon_count_ = 3000000; /* 默认 300 万光子 */
   }
   photon_count_ = clamp_i(photon_count_, 1000, CAUSTIC_PHOTON_MAX);
 

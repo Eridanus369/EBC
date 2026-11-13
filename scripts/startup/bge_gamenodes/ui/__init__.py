@@ -2,8 +2,9 @@ from .globalcategorylist import LOGIC_NODES_UL_global_category
 from .globalvaluelist import LOGIC_NODES_UL_global_value
 from .gamepropertypanel import LOGIC_NODES_PT_game_property_panel_3d
 from .globalvaluespanel import LOGIC_NODES_PT_global_values
-from .objectsettingspanel import LOGIC_NODES_PT_object_settings
 from .scenesettingspanel import LOGIC_NODES_PT_scene_settings
+from .scenesettingspanel import SCENE_PT_game_hysteresis
+from .scenesettingspanel import SCENE_PT_game_console
 from .templatepanel import LOGIC_NODES_PT_templates
 from .logictreeinfopanel import LOGIC_NODES_PT_logic_tree_state
 from .objectinfopanel import LOGIC_NODES_PT_object_info_panel

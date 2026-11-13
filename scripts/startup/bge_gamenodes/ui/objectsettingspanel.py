@@ -2,9 +2,9 @@ import bpy
 from .interface import ui_panel
 
 
-@ui_panel
-class LOGIC_NODES_PT_object_settings(bpy.types.Panel):
-    bl_label = "Uplogic Settings"
+# [DISABLED] @ui_panel
+# [DISABLED] class LOGIC_NODES_PT_object_settings(bpy.types.Panel):
+#     bl_label = "Uplogic Settings"
     bl_space_type = "PROPERTIES"
     bl_region_type = "WINDOW"
     bl_context = "physics"
@@ -21,15 +21,8 @@ class LOGIC_NODES_PT_object_settings(bpy.types.Panel):
         parts = main_col.split()
         col1 = parts.column()
         col2 = parts.column()
-        row = col1.row()
-        if context.active_object.data:
-            row.prop(context.active_object, 'sound_occluder', text='Sound Occluder')
-            block = col2.row()
-            block.prop(context.active_object, 'sound_blocking', text='Factor', slider=True)
-            col1.separator()
-            col2.separator()
-            block.enabled = context.active_object.sound_occluder
-        else:
+        
+        if not context.active_object.data:
             row = col1.row()
             row.prop(context.active_object, 'reverb_volume', text='Reverb Volume')
             reverb_settings = col2.column(align=True)

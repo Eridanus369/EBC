@@ -7048,8 +7048,8 @@ static void rna_def_scene_game_data(BlenderRNA *brna)
 
   static const EnumPropertyItem obstacle_simulation_items[] = {
       {OBSTSIMULATION_NONE, "NONE", 0, "None", ""},
-      {OBSTSIMULATION_TOI_rays, "RVO_RAYS", 0, "RVO (rays)", ""},
-      {OBSTSIMULATION_TOI_cells, "RVO_CELLS", 0, "RVO (cells)", ""},
+      {OBSTSIMULATION_TOI_rays, "RVO_RAYS", 0, "ROV射线避障", ""},
+      {OBSTSIMULATION_TOI_cells, "RVO_CELLS", 0, "ROV网格避障", ""},
       {0, NULL, 0, NULL, NULL}};
 
   static const EnumPropertyItem vsync_items[] = {
@@ -9661,12 +9661,14 @@ static void rna_def_scene_eevee_spectral_caustics(BlenderRNA *brna)
 
   prop = RNA_def_property(srna, "photon_count", PROP_INT, PROP_NONE);
   RNA_def_property_int_sdna(prop, nullptr, "photon_count");
-  RNA_def_property_range(prop, 1000, 4000000);
+  RNA_def_property_range(prop, 1, 400); /* UI限制为1-400，底层乘10000 */
+  RNA_def_property_int_default(prop, 300);
   RNA_def_property_ui_text(prop, "Photon Count", "Number of photons emitted per frame");
 
   prop = RNA_def_property(srna, "max_bounces", PROP_INT, PROP_NONE);
   RNA_def_property_int_sdna(prop, nullptr, "max_bounces");
   RNA_def_property_range(prop, 1, 16);
+  RNA_def_property_int_default(prop, 5);
   RNA_def_property_ui_text(prop, "Max Bounces", "Maximum number of photon bounces");
 
   prop = RNA_def_property(srna, "caustic_resolution", PROP_INT, PROP_NONE);

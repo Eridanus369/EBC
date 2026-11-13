@@ -16,9 +16,9 @@ class LOGIC_NODES_PT_component_helper(bpy.types.Panel):
 
     def draw(self, context):
         layout = self.layout
-        layout.operator('game_nodes.reload_components', text='Reload Components', icon='RECOVER_LAST')
+        layout.operator('game_nodes.reload_components', text='重新加载组件', icon='RECOVER_LAST')
         row = layout.row()
-        row.label(text=f'Add Component To {context.active_object.name}:')
+        row.label(text=f'为 {context.active_object.name} 添加组件:')
         row = layout.row(align=True)
         row.prop(bpy.context.scene, 'componenthelper', text='')
-        row.operator("game_nodes.add_component", text='Select Component', icon="PLUS")
+        row.operator("game_nodes.add_component", text='选择组件', icon="PLUS")

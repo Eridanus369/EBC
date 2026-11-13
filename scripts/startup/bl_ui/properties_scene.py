@@ -348,8 +348,205 @@ class SCENE_PT_audio(SceneButtonsPanel, Panel):
         layout.operator("sound.bake_animation")
 
 
+
+class SCENE_PT_physics_main(SceneButtonsPanel, Panel):
+    bl_label = "Physics"
+    bl_options = {'DEFAULT_CLOSED'}
+
+    def draw(self, context):
+        pass
+
+
+class SCENE_PT_game_physics(SceneButtonsPanel, Panel):
+    bl_label = "Game Physics"
+    bl_parent_id = "SCENE_PT_physics_main"
+    bl_options = {'DEFAULT_CLOSED'}
+    COMPAT_ENGINES = {
+        'BLENDER_RENDER',
+        'BLENDER_EEVEE',
+        'BLENDER_WORKBENCH'}
+
+    @classmethod
+    def poll(cls, context):
+        scene = context.scene
+        return (scene.render.engine in cls.COMPAT_ENGINES)
+
+    def draw(self, context):
+        layout = self.layout
+
+        gs = context.scene.game_settings
+
+        layout.prop(gs, "physics_engine", text="Engine")
+        if gs.physics_engine != 'NONE':
+            layout.prop(gs, "physics_solver")
+            layout.prop(gs, "physics_gravity", text="Gravity")
+
+            split = layout.split()
+
+            col = split.column()
+            col.label(text="Physics Steps:")
+            sub = col.column(align=True)
+            sub.prop(gs, "physics_step_max", text="Max")
+            sub.prop(gs, "physics_step_sub", text="Substeps")
+
+            col = split.column()
+            col.label(text="Logic Steps:")
+            col.prop(gs, "logic_step_max", text="Max")
+
+            row = layout.row()
+            row.prop(gs, "fps", text="FPS")
+            row.prop(gs, "time_scale")
+
+            col = layout.column()
+            col.label(text="Physics Deactivation:")
+            sub = col.row(align=True)
+            sub.prop(gs, "deactivation_linear_threshold", text="Linear Threshold")
+            sub.prop(gs, "deactivation_angular_threshold", text="Angular Threshold")
+            sub = col.row()
+            sub.prop(gs, "deactivation_time", text="Time")
+
+            col = layout.column()
+            col.label(text="Physics Joint Error Reduction:")
+            sub = col.column(align=True)
+            sub.prop(gs, "erp_parameter", text="ERP for Non Contact Constraints")
+            sub.prop(gs, "erp2_parameter", text="ERP for Contact Constraints")
+            sub.prop(gs, "cfm_parameter", text="CFM for Soft Constraints")
+
+            row = layout.row()
+            row.label(text="Object Activity:")
+            row.prop(gs, "use_activity_culling")
+
+        else:
+            split = layout.split()
+
+            col = split.column()
+            col.label(text="Physics Steps:")
+            col.prop(gs, "fps", text="FPS")
+
+            col = split.column()
+            col.label(text="Logic Steps:")
+            col.prop(gs, "logic_step_max", text="Max")
+
+
+class SCENE_PT_game_blender_physics(SceneButtonsPanel, Panel):
+    bl_label = "Game Blender Physics"
+    bl_parent_id = "SCENE_PT_game_physics"
+    bl_options = {'DEFAULT_CLOSED'}
+    COMPAT_ENGINES = {
+        'BLENDER_RENDER',
+        'BLENDER_EEVEE',
+        'BLENDER_WORKBENCH'}
+
+    @classmethod
+    def poll(cls, context):
+        scene = context.scene
+        return (scene.render.engine in cls.COMPAT_ENGINES)
+
+    def draw(self, context):
+        layout = self.layout
+
+        gs = context.scene.game_settings
+
+        layout.prop(gs, "use_interactive_dynapaint")
+        row = layout.row()
+        row.prop(gs, "use_interactive_rigidbody")
+
+class SCENE_PT_game_physics_obstacles(SceneButtonsPanel, Panel):
+    bl_label = "Obstacle Simulation"
+    bl_parent_id = "SCENE_PT_game_physics"
+    bl_options = {'DEFAULT_CLOSED'}
+    bl_options = {'DEFAULT_CLOSED'}
+    COMPAT_ENGINES = {
+        'BLENDER_RENDER',
+        'BLENDER_EEVEE',
+        'BLENDER_WORKBENCH'}
+
+    @classmethod
+    def poll(cls, context):
+        scene = context.scene
+        return (scene.render.engine in cls.COMPAT_ENGINES)
+
+    def draw(self, context):
+        layout = self.layout
+
+        gs = context.scene.game_settings
+
+        layout.prop(gs, "obstacle_simulation", text="Type")
+        if gs.obstacle_simulation != 'NONE':
+            layout.prop(gs, "level_height")
+            layout.prop(gs, "show_obstacle_simulation")
+
+
+class SCENE_PT_game_navmesh(SceneButtonsPanel, Panel):
+    bl_label = "Navigation Mesh"
+    bl_parent_id = "SCENE_PT_game_physics"
+    bl_options = {'DEFAULT_CLOSED'}
+    bl_options = {'DEFAULT_CLOSED'}
+    COMPAT_ENGINES = {
+        'BLENDER_RENDER',
+        'BLENDER_EEVEE',
+        'BLENDER_WORKBENCH'}
+
+    @classmethod
+    def poll(cls, context):
+        scene = context.scene
+        return (scene and scene.render.engine in cls.COMPAT_ENGINES)
+
+    def draw(self, context):
+        layout = self.layout
+
+        rd = context.scene.game_settings.recast_data
+
+        layout.operator("mesh.navmesh_make", text="构建导航网格")
+
+        col = layout.column()
+        col.label(text="Rasterization:")
+        row = col.row()
+        row.prop(rd, "cell_size")
+        row.prop(rd, "cell_height")
+
+        col = layout.column()
+        col.label(text="Agent:")
+        split = col.split()
+
+        col = split.column()
+        col.prop(rd, "agent_height", text="Height")
+        col.prop(rd, "agent_radius", text="Radius")
+
+        col = split.column()
+        col.prop(rd, "slope_max")
+        col.prop(rd, "climb_max")
+
+        col = layout.column()
+        col.label(text="Region:")
+        row = col.row()
+        row.prop(rd, "region_min_size")
+        if rd.partitioning != 'LAYERS':
+            row.prop(rd, "region_merge_size")
+
+        col = layout.column()
+        col.prop(rd, "partitioning", text="分区算法")
+
+        col = layout.column()
+        col.label(text="Polygonization:")
+        split = col.split()
+
+        col = split.column()
+        col.prop(rd, "edge_max_len")
+        col.prop(rd, "edge_max_error")
+
+        split.prop(rd, "verts_per_poly")
+
+        col = layout.column()
+        col.label(text="Detail Mesh:")
+        row = col.row()
+        row.prop(rd, "sample_dist")
+        row.prop(rd, "sample_max_error")
+
+
 class SCENE_PT_physics(SceneButtonsPanel, Panel):
     bl_label = "Gravity"
+    bl_parent_id = "SCENE_PT_physics_main"
     bl_options = {'DEFAULT_CLOSED'}
 
     def draw_header(self, context):
@@ -368,6 +565,7 @@ class SCENE_PT_physics(SceneButtonsPanel, Panel):
 
 class SCENE_PT_simulation(SceneButtonsPanel, Panel):
     bl_label = "Simulation"
+    bl_parent_id = "SCENE_PT_physics_main"
     bl_options = {'DEFAULT_CLOSED'}
 
     def draw(self, context):
@@ -386,6 +584,7 @@ class SCENE_PT_simulation(SceneButtonsPanel, Panel):
 
 class SCENE_PT_rigid_body_world(SceneButtonsPanel, Panel):
     bl_label = "Rigid Body World"
+    bl_parent_id = "SCENE_PT_physics_main"
     bl_options = {'DEFAULT_CLOSED'}
 
     def draw_header(self, context):
@@ -525,6 +724,11 @@ classes = (
     SCENE_OT_eevee_filter_graph_new,
     SCENE_PT_eevee_filter_graph,
     SCENE_PT_unit,
+    SCENE_PT_physics_main,
+    SCENE_PT_game_physics,
+    SCENE_PT_game_blender_physics,
+    SCENE_PT_game_physics_obstacles,
+    SCENE_PT_game_navmesh,
     SCENE_PT_physics,
     SCENE_PT_simulation,
     SCENE_PT_keying_sets,
