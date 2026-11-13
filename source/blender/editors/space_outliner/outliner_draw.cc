@@ -1209,6 +1209,7 @@ static void outliner_draw_restrictbuts(ui::Block *block,
 
   struct {
     int enable;
+    int dupli_base;
     int select;
     int hide;
     int viewport;
@@ -1217,6 +1218,9 @@ static void outliner_draw_restrictbuts(ui::Block *block,
     int holdout;
   } restrict_offsets = {0};
   int restrict_column_offset = 0;
+  if (space_outliner->show_restrict_flags & (1 << 7)) {
+    restrict_offsets.dupli_base = (++restrict_column_offset) * UI_UNIT_X + V2D_SCROLL_WIDTH;
+  }
 
   /* This will determine the order of drawing from RIGHT to LEFT. */
   if (space_outliner->outlinevis == SO_VIEW_LAYER) {
@@ -1288,6 +1292,26 @@ static void outliner_draw_restrictbuts(ui::Block *block,
       else if ((tselem->type == TSE_SOME_ID) && (te.idcode == ID_OB)) {
         Object *ob = id_cast<Object *>(tselem->id);
         PointerRNA ptr = RNA_id_pointer_create(&ob->id);
+
+        if (space_outliner->show_restrict_flags & (1 << 7)) {
+          PointerRNA game_ptr = RNA_pointer_get(&ptr, "game");
+          PropertyRNA *prop = RNA_struct_type_find_property(RNA_GameObjectSettings, "use_upbge_dupli_base");
+          if (game_ptr.data != nullptr && prop != nullptr) {
+            int icon = (ob->gameflag & OB_DUPLI_UPBGE) ? ICON_RESTRICT_VIEW_OFF : ICON_RESTRICT_VIEW_ON;
+            bt = uiDefIconButR_prop(block,
+                                    ui::ButtonType::IconToggle,
+                                    icon,
+                                    int(region->v2d.cur.xmax - restrict_offsets.dupli_base),
+                                    te.ys,
+                                    UI_UNIT_X,
+                                    UI_UNIT_Y,
+                                    &game_ptr,
+                                    prop,
+                                    -1, 0, 0,
+                                    TIP_("EBC Dupli Base"));
+            button_flag_enable(bt, ui::BUT_DRAG_LOCK);
+          }
+        }
 
         if (space_outliner->show_restrict_flags & SO_RESTRICT_HIDE) {
           BKE_view_layer_synced_ensure(bmain, scene, view_layer);

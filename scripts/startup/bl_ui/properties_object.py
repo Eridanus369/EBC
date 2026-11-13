@@ -87,6 +87,8 @@ class OBJECT_PT_transform(ObjectButtonsPanel, Panel):
 # Game engine transition
 class OBJECT_PT_transform_game(ObjectButtonsPanel, Panel):
     bl_label = "Transform Game"
+    bl_parent_id = "OBJECT_PT_transform"
+    bl_options = {'DEFAULT_CLOSED'}
 
     def draw(self, context):
         layout = self.layout
@@ -498,6 +500,27 @@ class OBJECT_PT_visibility(ObjectButtonsPanel, Panel):
         layout.separator()
         col = layout.column(heading="Mask")
         col.prop(ob, "is_holdout")
+
+        # 移入的 Activity Culling 逻辑，限制引擎和物体类型，防止报错
+        if context.engine in {'BLENDER_EEVEE', 'BLENDER_WORKBENCH'} and ob.type != 'CAMERA':
+            layout.separator()
+            layout.label(text="Activity Culling")
+            activity = ob.game.activity_culling
+            
+            # 竖向排列
+            col_phys = layout.column()
+            col_phys.prop(activity, "use_physics", text="Physics")
+            sub = col_phys.column()
+            sub.active = activity.use_physics
+            sub.prop(activity, "physics_radius")
+            
+            layout.separator()
+            
+            col_logic = layout.column()
+            col_logic.prop(activity, "use_logic", text="Logic")
+            sub = col_logic.column()
+            sub.active = activity.use_logic
+            sub.prop(activity, "logic_radius")
 
 
 def has_geometry_visibility(ob):

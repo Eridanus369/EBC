@@ -4705,6 +4705,12 @@ static void rna_def_space_outliner(BlenderRNA *brna)
   RNA_def_property_ui_icon(prop, ICON_RESTRICT_VIEW_OFF, 0);
   RNA_def_property_update(prop, NC_SPACE | ND_SPACE_OUTLINER, nullptr);
 
+  prop = RNA_def_property(srna, "show_restrict_column_dupli_base", PROP_BOOLEAN, PROP_NONE);
+  RNA_def_property_boolean_sdna(prop, nullptr, "show_restrict_flags", (1 << 7));
+  RNA_def_property_ui_text(prop, "Dupli Base", "Show Dupli Base column");
+  RNA_def_property_ui_icon(prop, ICON_RESTRICT_VIEW_ON, 0);
+  RNA_def_property_update(prop, NC_SPACE | ND_SPACE_OUTLINER, nullptr);
+
   prop = RNA_def_property(srna, "show_restrict_column_render", PROP_BOOLEAN, PROP_NONE);
   RNA_def_property_boolean_sdna(prop, nullptr, "show_restrict_flags", SO_RESTRICT_RENDER);
   RNA_def_property_ui_text(prop, "Disable in Renders", "Globally disable in renders");

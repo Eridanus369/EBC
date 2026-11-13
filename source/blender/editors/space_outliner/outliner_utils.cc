@@ -353,6 +353,7 @@ float outliner_right_columns_width(const SpaceOutliner *space_outliner)
       num_columns = 3;
       break;
     case SO_VIEW_LAYER:
+      if (space_outliner->show_restrict_flags & (1 << 7)) { num_columns++; }
       if (space_outliner->show_restrict_flags & SO_RESTRICT_ENABLE) {
         num_columns++;
       }
@@ -364,6 +365,7 @@ float outliner_right_columns_width(const SpaceOutliner *space_outliner)
       }
       ATTR_FALLTHROUGH;
     case SO_SCENES:
+      if (space_outliner->show_restrict_flags & (1 << 7)) { num_columns++; }
       if (space_outliner->show_restrict_flags & SO_RESTRICT_SELECT) {
         num_columns++;
       }

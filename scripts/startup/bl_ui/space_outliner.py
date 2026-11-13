@@ -430,6 +430,7 @@ class OUTLINER_PT_filter(Panel):
             row.prop(space, "show_restrict_column_render", text="")
             row.prop(space, "show_restrict_column_holdout", text="")
             row.prop(space, "show_restrict_column_indirect_only", text="")
+            row.prop(space, "show_restrict_column_dupli_base", text="", toggle=True, icon='RESTRICT_VIEW_ON')
             layout.separator()
         elif display_mode == 'SCENES':
             layout.label(text="Restriction Toggles")
